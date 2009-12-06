@@ -168,11 +168,11 @@ public class CassandraServer implements Cassandra.Iface
     private Map<String, List<ColumnOrSuperColumn>> getSlice(List<ReadCommand> commands, int consistency_level)
     throws InvalidRequestException, UnavailableException, TimedOutException
     {
-        Map<String, ColumnFamily> cfamilies = readColumnFamily(commands, consistency_level);
+        Map<String, AColumnFamily> cfamilies = readColumnFamily(commands, consistency_level);
         Map<String, List<ColumnOrSuperColumn>> columnFamiliesMap = new HashMap<String, List<ColumnOrSuperColumn>>();
         for (ReadCommand command: commands)
         {
-            ColumnFamily cfamily = cfamilies.get(command.key);
+            AColumnFamily cfamily = cfamilies.get(command.key);
             boolean reverseOrder = command instanceof SliceFromReadCommand && ((SliceFromReadCommand)command).reversed;
 
             if (cfamily == null || cfamily.getColumns().isEmpty())
@@ -263,12 +263,12 @@ public class CassandraServer implements Cassandra.Iface
     private Map<String, Collection<IColumn>> multigetColumns(List<ReadCommand> commands, int consistency_level)
     throws InvalidRequestException, UnavailableException, TimedOutException
     {
-        Map<String, ColumnFamily> cfamilies = readColumnFamily(commands, consistency_level);
+        Map<String, AColumnFamily> cfamilies = readColumnFamily(commands, consistency_level);
         Map<String, Collection<IColumn>> columnFamiliesMap = new HashMap<String, Collection<IColumn>>();
 
         for (ReadCommand command: commands)
         {
-            ColumnFamily cfamily = cfamilies.get(command.key);
+            AColumnFamily cfamily = cfamilies.get(command.key);
             if (cfamily == null)
                 continue;
 

@@ -24,6 +24,7 @@ package org.apache.cassandra.db.filter;
 import java.io.IOException;
 import java.util.*;
 
+import org.apache.cassandra.db.AColumnFamily;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.IColumn;
@@ -74,7 +75,7 @@ public class SSTableNamesIterator extends SimpleAbstractColumnIterator
 
             List<IndexHelper.IndexInfo> indexList = IndexHelper.deserializeIndex(file);
 
-            cf = ColumnFamily.serializer().deserializeFromSSTableNoColumns(ssTable.makeColumnFamily(), file);
+            cf = ColumnFamily.serializer().deserializeFromSSTableNoColumns(ssTable.makeColumnFamily(), file).asMutable();
             file.readInt(); // column count
 
             /* get the various column ranges we have to read */
@@ -117,7 +118,7 @@ public class SSTableNamesIterator extends SimpleAbstractColumnIterator
         iter = cf.getColumns().values().iterator();
     }
 
-    public ColumnFamily getColumnFamily()
+    public AColumnFamily getColumnFamily()
     {
         return cf;
     }

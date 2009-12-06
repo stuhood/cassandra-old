@@ -26,6 +26,7 @@ import java.io.IOException;
 
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.IColumn;
+import org.apache.cassandra.db.AColumnFamily;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.io.*;
@@ -76,7 +77,7 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
             return comparator.compare(column.name(), startColumn) <= 0 && comparator.compare(column.name(), finishColumn) >= 0;
     }
 
-    public ColumnFamily getColumnFamily()
+    public AColumnFamily getColumnFamily()
     {
         return reader.getEmptyColumnFamily();
     }
@@ -109,7 +110,7 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
      */
     class ColumnGroupReader
     {
-        private final ColumnFamily emptyColumnFamily;
+        private final AColumnFamily emptyColumnFamily;
 
         private final List<IndexHelper.IndexInfo> indexes;
         private final long columnStartPosition;
@@ -139,7 +140,7 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
                 curRangeIndex--;
         }
 
-        public ColumnFamily getEmptyColumnFamily()
+        public AColumnFamily getEmptyColumnFamily()
         {
             return emptyColumnFamily;
         }

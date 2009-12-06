@@ -1193,7 +1193,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             try
             {
                 iter = filter.getMemColumnIterator(memtable_, getComparator());
-                returnCF = iter.getColumnFamily();
+                returnCF = iter.getColumnFamily().asMutable();
             }
             finally
             {
