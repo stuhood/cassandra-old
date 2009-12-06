@@ -127,7 +127,7 @@ public class ReadResponseResolver implements IResponseResolver<Row>
     {
         for (int i = 0; i < versions.size(); i++)
         {
-            ColumnFamily diffCf = ColumnFamily.diff(versions.get(i), resolved);
+            AColumnFamily diffCf = ColumnFamily.diff(versions.get(i), resolved);
             if (diffCf == null) // no repair needs to happen
                 continue;
 

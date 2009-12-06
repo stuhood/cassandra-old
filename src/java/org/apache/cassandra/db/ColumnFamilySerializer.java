@@ -61,8 +61,8 @@ public class ColumnFamilySerializer implements ICompactSerializer2<ColumnFamily>
                 return;
             }
 
-            dos.writeUTF(columnFamily.name());
-            dos.writeUTF(columnFamily.type_);
+            dos.writeUTF(columnFamily.name);
+            dos.writeUTF(columnFamily.type);
             dos.writeUTF(columnFamily.getComparatorName());
             dos.writeUTF(columnFamily.getSubComparatorName());
         }
@@ -80,7 +80,7 @@ public class ColumnFamilySerializer implements ICompactSerializer2<ColumnFamily>
             dos.writeInt(columnFamily.localDeletionTime);
             dos.writeLong(columnFamily.markedForDeleteAt);
 
-            Collection<IColumn> columns = columnFamily.getSortedColumns();
+            Collection<IColumn> columns = columnFamily.getColumns().values();
             dos.writeInt(columns.size());
             for (IColumn column : columns)
             {

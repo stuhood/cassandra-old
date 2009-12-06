@@ -175,14 +175,14 @@ public class CassandraServer implements Cassandra.Iface
             ColumnFamily cfamily = cfamilies.get(command.key);
             boolean reverseOrder = command instanceof SliceFromReadCommand && ((SliceFromReadCommand)command).reversed;
 
-            if (cfamily == null || cfamily.getColumnsMap().size() == 0)
+            if (cfamily == null || cfamily.getColumns().isEmpty())
             {
                 columnFamiliesMap.put(command.key, EMPTY_COLUMNS);
                 continue;
             }
             if (command.queryPath.superColumnName != null)
             {
-                IColumn column = cfamily.getColumnsMap().values().iterator().next();
+                IColumn column = cfamily.getColumns().values().iterator().next();
                 Collection<IColumn> subcolumns = column.getSubColumns();
                 if (subcolumns == null || subcolumns.isEmpty())
                 {
@@ -193,9 +193,9 @@ public class CassandraServer implements Cassandra.Iface
                 continue;
             }
             if (cfamily.isSuper())
-                columnFamiliesMap.put(command.key, thriftifySuperColumns(cfamily.getSortedColumns(), reverseOrder));
+                columnFamiliesMap.put(command.key, thriftifySuperColumns(cfamily.getColumns().values(), reverseOrder));
             else
-                columnFamiliesMap.put(command.key, thriftifyColumns(cfamily.getSortedColumns(), reverseOrder));
+                columnFamiliesMap.put(command.key, thriftifyColumns(cfamily.getColumns().values(), reverseOrder));
         }
 
         return columnFamiliesMap;
@@ -283,7 +283,7 @@ public class CassandraServer implements Cassandra.Iface
             }
             else
             {
-                columns = cfamily.getSortedColumns();
+                columns = cfamily.getColumns().values();
             }
 
             if (columns != null && columns.size() != 0)

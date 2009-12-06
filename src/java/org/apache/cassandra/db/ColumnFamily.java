@@ -18,54 +18,19 @@
 
 package org.apache.cassandra.db;
 
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.SortedSet;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 import org.apache.log4j.Logger;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.io.ICompactSerializer2;
 import org.apache.cassandra.db.filter.QueryPath;
 import org.apache.cassandra.db.marshal.AbstractType;
 
 
-public final class ColumnFamily implements IColumnContainer
+public final class ColumnFamily extends AColumnFamily implements IColumnContainer
 {
-    /* The column serializer for this Column Family. Create based on config. */
-    private static ColumnFamilySerializer serializer_ = new ColumnFamilySerializer();
-    public static final short utfPrefix_ = 2;   
-
     private static Logger logger_ = Logger.getLogger( ColumnFamily.class );
-    private static Map<String, String> columnTypes_ = new HashMap<String, String>();
-    String type_;
-    private String table_;
-
-    static
-    {
-        /* TODO: These are the various column types. Hard coded for now. */
-        columnTypes_.put("Standard", "Standard");
-        columnTypes_.put("Super", "Super");
-    }
-
-    public static ColumnFamilySerializer serializer()
-    {
-        return serializer_;
-    }
-
-    public static String getColumnType(String key)
-    {
-    	if ( key == null )
-    		return columnTypes_.get("Standard");
-    	return columnTypes_.get(key);
-    }
 
     public static ColumnFamily create(String tableName, String cfName)
     {
@@ -75,9 +40,6 @@ public final class ColumnFamily implements IColumnContainer
         return new ColumnFamily(cfName, columnType, comparator, subcolumnComparator);
     }
 
-    private final String name_;
-
-    private final transient ICompactSerializer2<IColumn> columnSerializer_;
     long markedForDeleteAt = Long.MIN_VALUE;
     int localDeletionTime = Integer.MIN_VALUE;
     private final AtomicInteger size_ = new AtomicInteger(0);
@@ -85,75 +47,21 @@ public final class ColumnFamily implements IColumnContainer
 
     public ColumnFamily(String cfName, String columnType, AbstractType comparator, AbstractType subcolumnComparator)
     {
-        name_ = cfName;
-        type_ = columnType;
-        columnSerializer_ = columnType.equals("Standard") ? Column.serializer() : SuperColumn.serializer(subcolumnComparator);
+        super(cfName, columnType, subcolumnComparator);
         columns_ = new ConcurrentSkipListMap<byte[], IColumn>(comparator);
-    }
-
-    public ColumnFamily cloneMeShallow()
-    {
-        ColumnFamily cf = new ColumnFamily(name_, type_, getComparator(), getSubComparator());
-        cf.markedForDeleteAt = markedForDeleteAt;
-        cf.localDeletionTime = localDeletionTime;
-        return cf;
-    }
-
-    private AbstractType getSubComparator()
-    {
-        return (columnSerializer_ instanceof SuperColumnSerializer) ? ((SuperColumnSerializer)columnSerializer_).getComparator() : null;
-    }
-
-    public ColumnFamily cloneMe()
-    {
-        ColumnFamily cf = cloneMeShallow();
-        cf.columns_ = columns_.clone();
-    	return cf;
-    }
-
-    public String name()
-    {
-        return name_;
     }
 
     /*
      *  We need to go through each column
      *  in the column family and resolve it before adding
     */
-    public void addAll(ColumnFamily cf)
+    public void addAll(AColumnFamily cf)
     {
-        for (IColumn column : cf.getSortedColumns())
+        for (IColumn column : cf.getColumns().values())
         {
             addColumn(column);
         }
         delete(cf);
-    }
-
-    public ICompactSerializer2<IColumn> getColumnSerializer()
-    {
-    	return columnSerializer_;
-    }
-
-    int getColumnCount()
-    {
-    	int count = 0;
-        if(!isSuper())
-        {
-            count = columns_.size();
-        }
-        else
-        {
-            for(IColumn column: columns_.values())
-            {
-                count += column.getObjectCount();
-            }
-        }
-    	return count;
-    }
-
-    public boolean isSuper()
-    {
-        return type_.equals("Super");
     }
 
     public void addColumn(QueryPath path, byte[] value, long timestamp)
@@ -217,26 +125,6 @@ public final class ColumnFamily implements IColumnContainer
         }
     }
 
-    public IColumn getColumn(byte[] name)
-    {
-        return columns_.get(name);
-    }
-
-    public SortedSet<byte[]> getColumnNames()
-    {
-        return columns_.keySet();
-    }
-
-    public Collection<IColumn> getSortedColumns()
-    {
-        return columns_.values();
-    }
-
-    public Map<byte[], IColumn> getColumnsMap()
-    {
-        return columns_;
-    }
-
     public void remove(byte[] columnName)
     {
     	columns_.remove(columnName);
@@ -248,56 +136,10 @@ public final class ColumnFamily implements IColumnContainer
         markedForDeleteAt = timestamp;
     }
 
-    public void delete(ColumnFamily cf2)
+    public void delete(AColumnFamily cf2)
     {
         delete(Math.max(getLocalDeletionTime(), cf2.getLocalDeletionTime()),
                Math.max(getMarkedForDeleteAt(), cf2.getMarkedForDeleteAt()));
-    }
-
-    public boolean isMarkedForDelete()
-    {
-        return markedForDeleteAt > Long.MIN_VALUE;
-    }
-
-    /*
-     * This function will calculate the difference between 2 column families.
-     * The external input is assumed to be a superset of internal.
-     */
-    public ColumnFamily diff(ColumnFamily cfComposite)
-    {
-    	ColumnFamily cfDiff = new ColumnFamily(cfComposite.name(), cfComposite.type_, getComparator(), getSubComparator());
-        if (cfComposite.getMarkedForDeleteAt() > getMarkedForDeleteAt())
-        {
-            cfDiff.delete(cfComposite.getLocalDeletionTime(), cfComposite.getMarkedForDeleteAt());
-        }
-
-        // (don't need to worry about cfNew containing IColumns that are shadowed by
-        // the delete tombstone, since cfNew was generated by CF.resolve, which
-        // takes care of those for us.)
-        Map<byte[], IColumn> columns = cfComposite.getColumnsMap();
-        Set<byte[]> cNames = columns.keySet();
-        for (byte[] cName : cNames)
-        {
-            IColumn columnInternal = columns_.get(cName);
-            IColumn columnExternal = columns.get(cName);
-            if (columnInternal == null)
-            {
-                cfDiff.addColumn(columnExternal);
-            }
-            else
-            {
-                IColumn columnDiff = columnInternal.diff(columnExternal);
-                if (columnDiff != null)
-                {
-                    cfDiff.addColumn(columnDiff);
-                }
-            }
-        }
-
-        if (!cfDiff.getColumnsMap().isEmpty() || cfDiff.isMarkedForDelete())
-        	return cfDiff;
-        else
-        	return null;
     }
 
     public AbstractType getComparator()
@@ -317,59 +159,9 @@ public final class ColumnFamily implements IColumnContainer
         return size_.get();
     }
 
-    public int hashCode()
+    public boolean isMarkedForDelete()
     {
-        return name().hashCode();
-    }
-
-    public boolean equals(Object o)
-    {
-        if ( !(o instanceof ColumnFamily) )
-            return false;
-        ColumnFamily cf = (ColumnFamily)o;
-        return name().equals(cf.name());
-    }
-
-    public String toString()
-    {
-    	StringBuilder sb = new StringBuilder();
-        sb.append("ColumnFamily(");
-    	sb.append(name_);
-
-        if (isMarkedForDelete()) {
-            sb.append(" -delete at " + getMarkedForDeleteAt() + "-");
-        }
-
-    	sb.append(" [");
-        sb.append(getComparator().getColumnsString(getSortedColumns()));
-        sb.append("])");
-
-    	return sb.toString();
-    }
-
-    public static byte[] digest(ColumnFamily cf)
-    {
-        MessageDigest digest;
-        try
-        {
-            digest = MessageDigest.getInstance("MD5");
-        }
-        catch (NoSuchAlgorithmException e)
-        {
-            throw new AssertionError(e);
-        }
-        if (cf != null)
-            cf.updateDigest(digest);
-
-        return digest.digest();
-    }
-
-    public void updateDigest(MessageDigest digest)
-    {
-        for (IColumn column : columns_.values())
-        {
-            column.updateDigest(digest);
-        }
+        return markedForDeleteAt > Long.MIN_VALUE;
     }
 
     public long getMarkedForDeleteAt()
@@ -377,60 +169,22 @@ public final class ColumnFamily implements IColumnContainer
         return markedForDeleteAt;
     }
 
+    public void setMarkedForDeleteAt(long markedForDeleteAt)
+    {
+        this.markedForDeleteAt = markedForDeleteAt;
+    }
+
     public int getLocalDeletionTime()
     {
         return localDeletionTime;
     }
 
-    public String type()
+    public void setLocalDeletionTime(int localDeletionTime)
     {
-        return type_;
+        this.localDeletionTime = localDeletionTime;
     }
 
-    String getComparatorName()
-    {
-        return getComparator().getClass().getCanonicalName();
-    }
-
-    String getSubComparatorName()
-    {
-        AbstractType subcolumnComparator = getSubComparator();
-        return subcolumnComparator == null ? "" : subcolumnComparator.getClass().getCanonicalName();
-    }
-
-    public int serializedSize()
-    {
-        int subtotal = 4 * IColumn.UtfPrefix_ + name_.length() + type_.length() +  getComparatorName().length() + getSubComparatorName().length() + 4 + 8 + 4;
-        for (IColumn column : columns_.values())
-        {
-            subtotal += column.serializedSize();
-        }
-        return subtotal;
-    }
-
-    public static AbstractType getComparatorFor(String table, String columnFamilyName, byte[] superColumnName)
-    {
-        return superColumnName == null
-               ? DatabaseDescriptor.getComparator(table, columnFamilyName)
-               : DatabaseDescriptor.getSubComparator(table, columnFamilyName);
-    }
-
-    public static ColumnFamily diff(ColumnFamily cf1, ColumnFamily cf2)
-    {
-        if (cf1 == null)
-            return cf2;
-        return cf1.diff(cf2);
-    }
-
-    public static ColumnFamily resolve(ColumnFamily cf1, ColumnFamily cf2)
-    {
-        if (cf1 == null)
-            return cf2;
-        cf1.resolve(cf2);
-        return cf1;
-    }
-
-    public void resolve(ColumnFamily cf)
+    public void resolve(AColumnFamily cf)
     {
         // Row _does_ allow null CF objects :(  seems a necessary evil for efficiency
         if (cf == null)

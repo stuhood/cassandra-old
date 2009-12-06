@@ -525,9 +525,9 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     private static void removeDeletedStandard(ColumnFamily cf, int gcBefore)
     {
-        for (byte[] cname : cf.getColumnNames())
+        for (byte[] cname : cf.getColumns().keySet())
         {
-            IColumn c = cf.getColumnsMap().get(cname);
+            IColumn c = cf.getColumn(cname);
             if ((c.isMarkedForDelete() && c.getLocalDeletionTime() <= gcBefore)
                 || c.timestamp() <= cf.getMarkedForDeleteAt())
             {
@@ -541,9 +541,9 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // TODO assume deletion means "most are deleted?" and add to clone, instead of remove from original?
         // this could be improved by having compaction, or possibly even removeDeleted, r/m the tombstone
         // once gcBefore has passed, so if new stuff is added in it doesn't used the wrong algorithm forever
-        for (byte[] cname : cf.getColumnNames())
+        for (byte[] cname : cf.getColumns().keySet())
         {
-            IColumn c = cf.getColumnsMap().get(cname);
+            IColumn c = cf.getColumn(cname);
             long minTimestamp = Math.max(c.getMarkedForDeleteAt(), cf.getMarkedForDeleteAt());
             for (IColumn subColumn : c.getSubColumns())
             {
@@ -1163,10 +1163,10 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 if (cf == null || cf.getColumnCount() == 0)
                     return cf;
 
-                assert cf.getSortedColumns().size() == 1;
-                SuperColumn sc = (SuperColumn)cf.getSortedColumns().iterator().next();
+                assert cf.getColumns().size() == 1;
+                SuperColumn sc = (SuperColumn)cf.getColumns().values().iterator().next();
                 SuperColumn scFiltered = filter.filterSuperColumn(sc, gcBefore);
-                ColumnFamily cfFiltered = cf.cloneMeShallow();
+                ColumnFamily cfFiltered = cf.cloneShallow();
                 cfFiltered.addColumn(scFiltered);
                 return removeDeleted(cfFiltered, gcBefore);
             }

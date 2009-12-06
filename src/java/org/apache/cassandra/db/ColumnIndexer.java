@@ -48,7 +48,7 @@ public class ColumnIndexer
 	 */
     public static void serialize(ColumnFamily columnFamily, DataOutput dos)
 	{
-        Collection<IColumn> columns = columnFamily.getSortedColumns();
+        Collection<IColumn> columns = columnFamily.getColumns().values();
         BloomFilter bf = createColumnBloomFilter(columns);                    
         /* Write out the bloom filter. */
         DataOutputBuffer bufOut = new DataOutputBuffer();

@@ -440,7 +440,7 @@ public class Table
             for (ColumnFamily columnFamily : mutation.getColumnFamilies())
             {
                 Memtable memtableToFlush;
-                ColumnFamilyStore cfStore = columnFamilyStores_.get(columnFamily.name());
+                ColumnFamilyStore cfStore = columnFamilyStores_.get(columnFamily.name);
                 if ((memtableToFlush=cfStore.apply(mutation.key(), columnFamily)) != null)
                     memtablesToFlush.put(cfStore, memtableToFlush);
             }
@@ -460,7 +460,7 @@ public class Table
         String key = row.key();
         for (ColumnFamily columnFamily : row.getColumnFamilies())
         {
-            ColumnFamilyStore cfStore = columnFamilyStores_.get(columnFamily.name());
+            ColumnFamilyStore cfStore = columnFamilyStores_.get(columnFamily.name);
             cfStore.applyNow( key, columnFamily );
         }
     }
@@ -484,7 +484,7 @@ public class Table
                 
         for (ColumnFamily columnFamily : rowMutation.getColumnFamilies())
         {
-            Collection<IColumn> columns = columnFamily.getSortedColumns();
+            Collection<IColumn> columns = columnFamily.getColumns().values();
             for (IColumn column : columns)
             {
                 ColumnFamilyStore cfStore = columnFamilyStores_.get(new String(column.name(), "UTF-8"));

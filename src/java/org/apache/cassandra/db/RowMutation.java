@@ -60,7 +60,7 @@ public class RowMutation implements Serializable
 
     private String table_;
     private String key_;
-    protected Map<String, ColumnFamily> modifications_ = new HashMap<String, ColumnFamily>();
+    protected Map<String, AColumnFamily> modifications_ = new HashMap<String, AColumnFamily>();
 
     public RowMutation(String table, String key)
     {
@@ -75,7 +75,7 @@ public class RowMutation implements Serializable
         add(row.cf);
     }
 
-    protected RowMutation(String table, String key, Map<String, ColumnFamily> modifications)
+    protected RowMutation(String table, String key, Map<String, AColumnFamily> modifications)
     {
         table_ = table;
         key_ = key;
@@ -97,7 +97,7 @@ public class RowMutation implements Serializable
         return modifications_.keySet();
     }
     
-    public Collection<ColumnFamily> getColumnFamilies()
+    public Collection<AColumnFamily> getColumnFamilies()
     {
         return modifications_.values();
     }
@@ -114,20 +114,20 @@ public class RowMutation implements Serializable
      * param @ cf - column family name
      * param @ columnFamily - the column family.
     */
-    public void add(ColumnFamily columnFamily)
+    public void add(AColumnFamily columnFamily)
     {
         assert columnFamily != null;
-        if (modifications_.containsKey(columnFamily.name()))
+        if (modifications_.containsKey(columnFamily.name))
         {
-            throw new IllegalArgumentException("ColumnFamily " + columnFamily.name() + " is already being modified");
+            throw new IllegalArgumentException("ColumnFamily " + columnFamily.name + " is already being modified");
         }
-        modifications_.put(columnFamily.name(), columnFamily);
+        modifications_.put(columnFamily.name, columnFamily);
     }
 
     /** should only be called by commitlog replay code */
-    public void removeColumnFamily(ColumnFamily columnFamily)
+    public void removeColumnFamily(AColumnFamily columnFamily)
     {
-        modifications_.remove(columnFamily.name());
+        modifications_.remove(columnFamily.name);
     }
     
     public boolean isEmpty()
@@ -149,13 +149,14 @@ public class RowMutation implements Serializable
     */
     public void add(QueryPath path, byte[] value, long timestamp)
     {
-        ColumnFamily columnFamily = modifications_.get(path.columnFamilyName);
+        AColumnFamily columnFamily = modifications_.get(path.columnFamilyName);
+        ColumnFamily cf;
         if (columnFamily == null)
-        {
-            columnFamily = ColumnFamily.create(table_, path.columnFamilyName);
-        }
-        columnFamily.addColumn(path, value, timestamp);
-        modifications_.put(path.columnFamilyName, columnFamily);
+            cf = ColumnFamily.create(table_, path.columnFamilyName);
+        else
+            cf = columnFamily.asMutable();
+        cf.addColumn(path, value, timestamp);
+        modifications_.put(path.columnFamilyName, cf);
     }
 
     public void delete(QueryPath path, long timestamp)
@@ -170,7 +171,7 @@ public class RowMutation implements Serializable
 
         int localDeleteTime = (int) (System.currentTimeMillis() / 1000);
 
-        ColumnFamily columnFamily = modifications_.get(cfName);
+        AColumnFamily columnFamily = modifications_.get(cfName);
         if (columnFamily == null)
             columnFamily = ColumnFamily.create(table_, cfName);
 
@@ -270,7 +271,7 @@ public class RowMutation implements Serializable
 
 class RowMutationSerializer implements ICompactSerializer<RowMutation>
 {
-    private void freezeTheMaps(Map<String, ColumnFamily> map, DataOutputStream dos) throws IOException
+    private void freezeTheMaps(Map<String, AColumnFamily> map, DataOutputStream dos) throws IOException
     {
         int size = map.size();
         dos.writeInt(size);
@@ -280,10 +281,10 @@ class RowMutationSerializer implements ICompactSerializer<RowMutation>
             for (String key : keys)
             {
                 dos.writeUTF(key);
-                ColumnFamily cf = map.get(key);
+                AColumnFamily cf = map.get(key);
                 if (cf != null)
                 {
-                    ColumnFamily.serializer().serialize(cf, dos);
+                    AColumnFamily.serializer().serialize(cf, dos);
                 }
             }
         }
@@ -298,14 +299,14 @@ class RowMutationSerializer implements ICompactSerializer<RowMutation>
         freezeTheMaps(rm.modifications_, dos);
     }
 
-    private Map<String, ColumnFamily> defreezeTheMaps(DataInputStream dis) throws IOException
+    private Map<String, AColumnFamily> defreezeTheMaps(DataInputStream dis) throws IOException
     {
-        Map<String, ColumnFamily> map = new HashMap<String, ColumnFamily>();
+        Map<String, AColumnFamily> map = new HashMap<String, AColumnFamily>();
         int size = dis.readInt();
         for (int i = 0; i < size; ++i)
         {
             String key = dis.readUTF();
-            ColumnFamily cf = ColumnFamily.serializer().deserialize(dis);
+            AColumnFamily cf = AColumnFamily.serializer().deserialize(dis);
             map.put(key, cf);
         }
         return map;
@@ -315,7 +316,7 @@ class RowMutationSerializer implements ICompactSerializer<RowMutation>
     {
         String table = dis.readUTF();
         String key = dis.readUTF();
-        Map<String, ColumnFamily> modifications = defreezeTheMaps(dis);
+        Map<String, AColumnFamily> modifications = defreezeTheMaps(dis);
         return new RowMutation(table, key, modifications);
     }
 }

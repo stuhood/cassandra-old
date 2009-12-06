@@ -84,7 +84,7 @@ public abstract class QueryFilter
         // greatly simplifies computing liveColumns in the presence of tombstones.
         ReducingIterator<IColumn, IColumn> reduced = new ReducingIterator<IColumn, IColumn>(collatedColumns)
         {
-            ColumnFamily curCF = returnCF.cloneMeShallow();
+            ColumnFamily curCF = returnCF.cloneShallow();
 
             protected boolean isEqual(IColumn o1, IColumn o2)
             {
@@ -98,7 +98,7 @@ public abstract class QueryFilter
 
             protected IColumn getReduced()
             {
-                IColumn c = curCF.getSortedColumns().iterator().next();
+                IColumn c = curCF.getColumns().values().iterator().next();
                 curCF.clear();
                 return c;
             }

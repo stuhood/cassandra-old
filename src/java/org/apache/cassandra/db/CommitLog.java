@@ -333,16 +333,16 @@ public class CommitLog
                                                 "{" + StringUtils.join(rm.getColumnFamilies(), ", ") + "}"));
                 final Table table = Table.open(rm.getTable());
                 tablesRecovered.add(table);
-                final Collection<ColumnFamily> columnFamilies = new ArrayList<ColumnFamily>(rm.getColumnFamilies());
+                final Collection<AColumnFamily> columnFamilies = new ArrayList<AColumnFamily>(rm.getColumnFamilies());
                 final long entryLocation = reader.getFilePointer();
                 Runnable runnable = new Runnable()
                 {
                     public void run()
                     {
                         /* remove column families that have already been flushed before applying the rest */
-                        for (ColumnFamily columnFamily : columnFamilies)
+                        for (AColumnFamily columnFamily : columnFamilies)
                         {
-                            int id = table.getColumnFamilyId(columnFamily.name());
+                            int id = table.getColumnFamilyId(columnFamily.name);
                             if (!clHeader.isDirty(id) || entryLocation < clHeader.getPosition(id))
                             {
                                 rm.removeColumnFamily(columnFamily);
@@ -409,7 +409,7 @@ public class CommitLog
         Table table = Table.open(rm.getTable());
         for (ColumnFamily columnFamily : rm.getColumnFamilies())
         {
-            int id = table.getColumnFamilyId(columnFamily.name());
+            int id = table.getColumnFamilyId(columnFamily.name);
             if (!clHeader_.isDirty(id))
             {
                 clHeader_.turnOn(id, logWriter_.getFilePointer());

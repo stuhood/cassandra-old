@@ -165,7 +165,7 @@ public class HintedHandOffManager
             {
                 continue;
             }
-            Collection<IColumn> keys = hintColumnFamily.getSortedColumns();
+            Collection<IColumn> keys = hintColumnFamily.getColumns().values();
 
             for (IColumn keyColumn : keys)
             {
@@ -210,7 +210,7 @@ public class HintedHandOffManager
             {
                 continue;
             }
-            Collection<IColumn> keys = hintedColumnFamily.getSortedColumns();
+            Collection<IColumn> keys = hintedColumnFamily.getColumns().values();
 
             for (IColumn keyColumn : keys)
             {
