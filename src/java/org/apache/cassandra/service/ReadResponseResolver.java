@@ -125,7 +125,7 @@ public class ReadResponseResolver implements IResponseResolver<Row>
      * For each row version, compare with resolved (the superset of all row versions);
      * if it is missing anything, send a mutation to the endpoint it come from.
      */
-    public static void maybeScheduleRepairs(ColumnFamily resolved, String table, String key, List<ColumnFamily> versions, List<InetAddress> endPoints)
+    public static void maybeScheduleRepairs(ColumnFamily resolved, String table, String key, List<AColumnFamily> versions, List<InetAddress> endPoints)
     {
         for (int i = 0; i < versions.size(); i++)
         {
@@ -141,11 +141,12 @@ public class ReadResponseResolver implements IResponseResolver<Row>
         }
     }
 
-    static ColumnFamily resolveSuperset(List<ColumnFamily> versions)
+    static ColumnFamily resolveSuperset(List<AColumnFamily> versions)
     {
         assert versions.size() > 0;
+        // create a mutable copy of one CF, to merge the others into
         ColumnFamily resolved = null;
-        for (ColumnFamily cf : versions)
+        for (AColumnFamily cf : versions)
         {
             if (cf != null)
             {
@@ -155,8 +156,9 @@ public class ReadResponseResolver implements IResponseResolver<Row>
         }
         if (resolved == null)
             return null;
-        for (ColumnFamily cf : versions)
+        for (AColumnFamily cf : versions)
         {
+            // TODO: this will resolve the CF we chose above against itself
             resolved.resolve(cf);
         }
         return resolved;

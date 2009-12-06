@@ -24,6 +24,7 @@ import java.util.*;
 
 import org.apache.log4j.Logger;
 
+import org.apache.cassandra.db.AColumnFamily;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.RangeSliceReply;
 import org.apache.cassandra.db.Row;
@@ -52,13 +53,13 @@ public class RangeSliceResponseResolver implements IResponseResolver<Map<String,
 
     public Map<String, ColumnFamily> resolve(List<Message> responses) throws DigestMismatchException, IOException
     {
-        Map<InetAddress, Map<String, ColumnFamily>> replies = new HashMap<InetAddress, Map<String, ColumnFamily>>(responses.size());
+        Map<InetAddress, Map<String, AColumnFamily>> replies = new HashMap<InetAddress, Map<String, AColumnFamily>>(responses.size());
         Set<String> allKeys = new HashSet<String>();
         for (Message response : responses)
         {
             RangeSliceReply reply = RangeSliceReply.read(response.getMessageBody());
             isCompleted &= reply.rangeCompletedLocally;
-            Map<String, ColumnFamily> rows = new HashMap<String, ColumnFamily>(reply.rows.size());
+            Map<String, AColumnFamily> rows = new HashMap<String, AColumnFamily>(reply.rows.size());
             for (Row row : reply.rows)
             {
                 rows.put(row.key, row.cf);
@@ -72,7 +73,7 @@ public class RangeSliceResponseResolver implements IResponseResolver<Map<String,
         Map<String, ColumnFamily> resolvedRows = new HashMap<String, ColumnFamily>(allKeys.size());
         for (String key : allKeys)
         {
-            List<ColumnFamily> versions = new ArrayList<ColumnFamily>(sources.size());
+            List<AColumnFamily> versions = new ArrayList<AColumnFamily>(sources.size());
             for (InetAddress endpoint : sources)
             {
                 versions.add(replies.get(endpoint).get(key));
