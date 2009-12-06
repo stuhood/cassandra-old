@@ -75,13 +75,13 @@ public final class ColumnFamily implements IColumnContainer
         return new ColumnFamily(cfName, columnType, comparator, subcolumnComparator);
     }
 
-    private String name_;
+    private final String name_;
 
-    private transient ICompactSerializer2<IColumn> columnSerializer_;
+    private final transient ICompactSerializer2<IColumn> columnSerializer_;
     long markedForDeleteAt = Long.MIN_VALUE;
     int localDeletionTime = Integer.MIN_VALUE;
-    private AtomicInteger size_ = new AtomicInteger(0);
-    private ConcurrentSkipListMap<byte[], IColumn> columns_;
+    private final AtomicInteger size_ = new AtomicInteger(0);
+    protected ConcurrentSkipListMap<byte[], IColumn> columns_;
 
     public ColumnFamily(String cfName, String columnType, AbstractType comparator, AbstractType subcolumnComparator)
     {
