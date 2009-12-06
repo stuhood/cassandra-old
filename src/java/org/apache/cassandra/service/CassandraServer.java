@@ -70,13 +70,13 @@ public class CassandraServer implements Cassandra.Iface
 		storageService.initServer();
 	}
 
-    protected Map<String, ColumnFamily> readColumnFamily(List<ReadCommand> commands, int consistency_level)
+    protected Map<String,AColumnFamily> readColumnFamily(List<ReadCommand> commands, int consistency_level)
     throws InvalidRequestException, UnavailableException, TimedOutException
     {
         // TODO - Support multiple column families per row, right now row only contains 1 column family
         String cfName = commands.get(0).getColumnFamilyName();
 
-        Map<String, ColumnFamily> columnFamilyKeyMap = new HashMap<String,ColumnFamily>();
+        Map<String,AColumnFamily> columnFamilyKeyMap = new HashMap<String,AColumnFamily>();
 
         if (consistency_level == ConsistencyLevel.ZERO)
         {

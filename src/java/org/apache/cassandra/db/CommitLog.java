@@ -407,7 +407,7 @@ public class CommitLog
     private void maybeUpdateHeader(RowMutation rm) throws IOException
     {
         Table table = Table.open(rm.getTable());
-        for (ColumnFamily columnFamily : rm.getColumnFamilies())
+        for (AColumnFamily columnFamily : rm.getColumnFamilies())
         {
             int id = table.getColumnFamilyId(columnFamily.name);
             if (!clHeader_.isDirty(id))

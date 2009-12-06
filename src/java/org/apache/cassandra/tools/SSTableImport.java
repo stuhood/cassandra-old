@@ -86,7 +86,7 @@ public class SSTableImport
         for (Object c : row)
         {
             JsonColumn col = new JsonColumn(c);  
-            QueryPath path = new QueryPath(cfamily.name(), null, col.name.getBytes());
+            QueryPath path = new QueryPath(cfamily.name, null, col.name.getBytes());
             cfamily.addColumn(path, FBUtilities.hexToBytes(col.value), col.timestamp, col.isDeleted);
         }
     }
@@ -110,7 +110,7 @@ public class SSTableImport
             for (Object c : subColumns)
             {
                 JsonColumn col = new JsonColumn(c);
-                QueryPath path = new QueryPath(cfamily.name(), superName, col.name.getBytes());
+                QueryPath path = new QueryPath(cfamily.name, superName, col.name.getBytes());
                 cfamily.addColumn(path, FBUtilities.hexToBytes(col.value), col.timestamp, col.isDeleted);
             }
             
@@ -133,7 +133,7 @@ public class SSTableImport
     throws IOException, ParseException
     {
         ColumnFamily cfamily = ColumnFamily.create(keyspace, cf);
-        String cfType = cfamily.type();    // Super or Standard
+        String cfType = cfamily.type;    // Super or Standard
         IPartitioner<?> partitioner = DatabaseDescriptor.getPartitioner();
         DataOutputBuffer dob = new DataOutputBuffer();
         

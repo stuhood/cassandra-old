@@ -600,7 +600,7 @@ public class StorageProxy implements StorageProxyMBean
         for (Map.Entry<String, ColumnFamily> entry : rows.entrySet())
         {
             ColumnFamily cf = entry.getValue();
-            Collection<IColumn> columns = (cf == null) ? Collections.<IColumn>emptyList() : cf.getSortedColumns();
+            Collection<IColumn> columns = (cf == null) ? Collections.<IColumn>emptyList() : cf.getColumns().values();
             results.add(new Pair<String, Collection<IColumn>>(entry.getKey(), columns));
         }
         Collections.sort(results, new Comparator<Pair<String, Collection<IColumn>>>()

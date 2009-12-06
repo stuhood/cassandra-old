@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import org.apache.cassandra.db.AColumnFamily;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.ReadResponse;
 import org.apache.cassandra.db.Row;
@@ -66,7 +67,7 @@ public class ReadResponseResolver implements IResponseResolver<Row>
 	public Row resolve(List<Message> responses) throws DigestMismatchException, IOException
     {
         long startTime = System.currentTimeMillis();
-		List<ColumnFamily> versions = new ArrayList<ColumnFamily>();
+		List<AColumnFamily> versions = new ArrayList<AColumnFamily>();
 		List<InetAddress> endPoints = new ArrayList<InetAddress>();
 		String key = null;
 		byte[] digest = new byte[0];
@@ -100,12 +101,13 @@ public class ReadResponseResolver implements IResponseResolver<Row>
 		// If there is a mismatch then throw an exception so that read repair can happen.
         if (isDigestQuery)
         {
-            for (ColumnFamily cf : versions)
+            for (AColumnFamily cf : versions)
             {
-                if (!Arrays.equals(ColumnFamily.digest(cf), digest))
+                byte[] cfdigest = AColumnFamily.digest(cf);
+                if (!Arrays.equals(cfdigest, digest))
                 {
                     /* Wrap the key as the context in this exception */
-                    String s = String.format("Mismatch for key %s (%s vs %s)", key, FBUtilities.bytesToHex(ColumnFamily.digest(cf)), FBUtilities.bytesToHex(digest));
+                    String s = String.format("Mismatch for key %s (%s vs %s)", key, FBUtilities.bytesToHex(cfdigest), FBUtilities.bytesToHex(digest));
                     throw new DigestMismatchException(s);
                 }
             }

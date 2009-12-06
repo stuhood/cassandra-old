@@ -40,9 +40,9 @@ public class Row
     }
 
     public final String key;
-    public final ColumnFamily cf;
+    public final AColumnFamily cf;
 
-    public Row(String key, ColumnFamily cf)
+    public Row(String key, AColumnFamily cf)
     {
         assert key != null;
         // cf may be null, indicating no data
@@ -65,11 +65,11 @@ class RowSerializer implements ICompactSerializer<Row>
     public void serialize(Row row, DataOutputStream dos) throws IOException
     {
         dos.writeUTF(row.key);
-        ColumnFamily.serializer().serialize(row.cf, dos);
+        AColumnFamily.serializer().serialize(row.cf, dos);
     }
 
     public Row deserialize(DataInputStream dis) throws IOException
     {
-        return new Row(dis.readUTF(), ColumnFamily.serializer().deserialize(dis));
+        return new Row(dis.readUTF(), AColumnFamily.serializer().deserialize(dis));
     }
 }

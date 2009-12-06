@@ -172,27 +172,30 @@ public class RowMutation implements Serializable
         int localDeleteTime = (int) (System.currentTimeMillis() / 1000);
 
         AColumnFamily columnFamily = modifications_.get(cfName);
+        ColumnFamily cf = null;
         if (columnFamily == null)
-            columnFamily = ColumnFamily.create(table_, cfName);
+            cf = ColumnFamily.create(table_, cfName);
+        else
+            cf = columnFamily.asMutable();
 
         if (path.superColumnName == null && path.columnName == null)
         {
-            columnFamily.delete(localDeleteTime, timestamp);
+            cf.delete(localDeleteTime, timestamp);
         }
         else if (path.columnName == null)
         {
             SuperColumn sc = new SuperColumn(path.superColumnName, DatabaseDescriptor.getSubComparator(table_, cfName));
             sc.markForDeleteAt(localDeleteTime, timestamp);
-            columnFamily.addColumn(sc);
+            cf.addColumn(sc);
         }
         else
         {
             ByteBuffer bytes = ByteBuffer.allocate(4);
             bytes.putInt(localDeleteTime);
-            columnFamily.addColumn(path, bytes.array(), timestamp, true);
+            cf.addColumn(path, bytes.array(), timestamp, true);
         }
 
-        modifications_.put(cfName, columnFamily);
+        modifications_.put(cfName, cf);
     }
 
     /*

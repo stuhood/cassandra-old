@@ -104,7 +104,7 @@ public class SSTableExport
         {
             json.append("{ ");
 
-            Iterator<IColumn> iter = cf.getSortedColumns().iterator();
+            Iterator<IColumn> iter = cf.getColumns().values().iterator();
             while (iter.hasNext())
             {
                 IColumn column = iter.next();
@@ -124,7 +124,7 @@ public class SSTableExport
         }
         else
         {
-            json.append(serializeColumns(cf.getSortedColumns(), comparator));
+            json.append(serializeColumns(cf.getColumns().values(), comparator));
         }
      
         return json.toString();

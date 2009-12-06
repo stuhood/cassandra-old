@@ -437,7 +437,7 @@ public class Table
         {
             CommitLog.open().add(mutation, serializedMutation);
         
-            for (ColumnFamily columnFamily : mutation.getColumnFamilies())
+            for (AColumnFamily columnFamily : mutation.getColumnFamilies())
             {
                 Memtable memtableToFlush;
                 ColumnFamilyStore cfStore = columnFamilyStores_.get(columnFamily.name);
@@ -458,10 +458,10 @@ public class Table
     void applyNow(RowMutation row) throws IOException
     {
         String key = row.key();
-        for (ColumnFamily columnFamily : row.getColumnFamilies())
+        for (AColumnFamily columnFamily : row.getColumnFamilies())
         {
             ColumnFamilyStore cfStore = columnFamilyStores_.get(columnFamily.name);
-            cfStore.applyNow( key, columnFamily );
+            cfStore.applyNow(key, columnFamily);
         }
     }
 
@@ -482,7 +482,7 @@ public class Table
     {
         String key = rowMutation.key();
                 
-        for (ColumnFamily columnFamily : rowMutation.getColumnFamilies())
+        for (AColumnFamily columnFamily : rowMutation.getColumnFamilies())
         {
             Collection<IColumn> columns = columnFamily.getColumns().values();
             for (IColumn column : columns)
