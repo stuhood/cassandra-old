@@ -23,7 +23,7 @@ import java.io.PrintStream;
 import java.util.Collection;
 import java.util.Iterator;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.ColumnFamily;
+import org.apache.cassandra.db.AColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.IColumn;
 import org.apache.cassandra.db.marshal.AbstractType;
@@ -96,7 +96,7 @@ public class SSTableExport
     
     private static String serializeRow(IteratingRow row) throws IOException
     {
-        ColumnFamily cf = row.getColumnFamily();
+        AColumnFamily cf = row.getColumnFamily();
         AbstractType comparator = cf.getComparator();
         StringBuilder json = new StringBuilder(asKey(row.getKey().key));
         

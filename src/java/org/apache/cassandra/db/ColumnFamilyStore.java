@@ -463,12 +463,12 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * param @ key - key for update/insert
      * param @ columnFamily - columnFamily changes
      */
-    Memtable apply(String key, ColumnFamily columnFamily) throws IOException
+    Memtable apply(String key, AColumnFamily columnFamily) throws IOException
     {
         long start = System.currentTimeMillis();
 
         boolean flushRequested = memtable_.isThresholdViolated();
-        memtable_.put(key, columnFamily);
+        memtable_.put(key, columnFamily.asMutable());
         writeStats_.add(System.currentTimeMillis() - start);
         
         return flushRequested ? memtable_ : null;
@@ -566,9 +566,9 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * the future we may want to parellelize the log processing for a table by
      * having a thread per log file present for recovery. Re-visit at that time.
      */
-    void applyNow(String key, ColumnFamily columnFamily) throws IOException
+    void applyNow(String key, AColumnFamily columnFamily) throws IOException
     {
-        getMemtableThreadSafe().put(key, columnFamily);
+        getMemtableThreadSafe().put(key, columnFamily.asMutable());
     }
 
     /*

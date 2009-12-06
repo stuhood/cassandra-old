@@ -23,7 +23,7 @@ package org.apache.cassandra.io;
 
 import java.io.*;
 
-import org.apache.cassandra.db.ColumnFamily;
+import org.apache.cassandra.db.AColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.IColumn;
 import org.apache.cassandra.dht.IPartitioner;
@@ -71,12 +71,12 @@ public class IteratingRow extends AbstractIterator<IColumn> implements Comparabl
     }
 
     // TODO r/m this and make compaction merge columns iteratively for CASSSANDRA-16
-    public ColumnFamily getColumnFamily() throws IOException
+    public AColumnFamily getColumnFamily() throws IOException
     {
         file.seek(dataStart);
         IndexHelper.skipBloomFilter(file);
         IndexHelper.skipIndex(file);
-        return ColumnFamily.serializer().deserializeFromSSTable(sstable, file);
+        return AColumnFamily.serializer().deserializeFromSSTable(sstable, file);
     }
 
     public void skipRemaining() throws IOException
