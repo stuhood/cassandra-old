@@ -484,8 +484,7 @@ public class Table
                 
         for (AColumnFamily columnFamily : rowMutation.getColumnFamilies())
         {
-            Collection<IColumn> columns = columnFamily.getColumns().values();
-            for (IColumn column : columns)
+            for (IColumn column : columnFamily.getColumns())
             {
                 ColumnFamilyStore cfStore = columnFamilyStores_.get(new String(column.name(), "UTF-8"));
                 cfStore.applyBinary(key, column.value());

@@ -115,7 +115,7 @@ public class SSTableNamesIterator extends SimpleAbstractColumnIterator
             file.close();
         }
 
-        iter = cf.getColumns().values().iterator();
+        iter = cf.getColumns().iterator();
     }
 
     public AColumnFamily getColumnFamily()

@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.db;
 
+import java.util.Collection;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -51,13 +52,28 @@ public final class ColumnFamily extends AColumnFamily implements IColumnContaine
         columns_ = new ConcurrentSkipListMap<byte[], IColumn>(comparator);
     }
 
+    public ColumnFamily asMutable()
+    {
+        return this;
+    }
+
+    public Collection<IColumn> getColumns()
+    {
+        return columns_.values();
+    }
+
+    public IColumn getColumn(byte[] name)
+    {
+        return columns_.get(name);
+    }
+
     /*
      *  We need to go through each column
      *  in the column family and resolve it before adding
     */
     public void addAll(AColumnFamily cf)
     {
-        for (IColumn column : cf.getColumns().values())
+        for (IColumn column : cf.getColumns())
         {
             addColumn(column);
         }
@@ -140,6 +156,11 @@ public final class ColumnFamily extends AColumnFamily implements IColumnContaine
     {
         delete(Math.max(getLocalDeletionTime(), cf2.getLocalDeletionTime()),
                Math.max(getMarkedForDeleteAt(), cf2.getMarkedForDeleteAt()));
+    }
+
+    protected ConcurrentSkipListMap<byte[],IColumn> cloneColumns()
+    {
+        return columns_.clone();
     }
 
     public AbstractType getComparator()

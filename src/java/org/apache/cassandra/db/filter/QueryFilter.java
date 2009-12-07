@@ -98,7 +98,7 @@ public abstract class QueryFilter
 
             protected IColumn getReduced()
             {
-                IColumn c = curCF.getColumns().values().iterator().next();
+                IColumn c = curCF.getColumns().iterator().next();
                 curCF.clear();
                 return c;
             }

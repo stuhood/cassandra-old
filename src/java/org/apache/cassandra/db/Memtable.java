@@ -243,7 +243,7 @@ public class Memtable implements Comparable<Memtable>, IFlushable<DecoratedKey>
         ColumnFamily cf = columnFamilies_.get(partitioner_.decorateKey(filter.key));
         final ColumnFamily columnFamily = cf == null ? ColumnFamily.create(table_, filter.getColumnFamilyName()) : cf.cloneShallow();
 
-        final IColumn columns[] = (cf == null ? columnFamily : cf).getColumns().values().toArray(new IColumn[columnFamily.getColumns().size()]);
+        final IColumn columns[] = (cf == null ? columnFamily : cf).getColumns().toArray(new IColumn[columnFamily.getColumns().size()]);
         // TODO if we are dealing with supercolumns, we need to clone them while we have the read lock since they can be modified later
         if (filter.reversed)
             ArrayUtils.reverse(columns);

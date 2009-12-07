@@ -80,7 +80,7 @@ public class ColumnFamilySerializer implements ICompactSerializer2<AColumnFamily
             dos.writeInt(columnFamily.getLocalDeletionTime());
             dos.writeLong(columnFamily.getMarkedForDeleteAt());
 
-            Collection<IColumn> columns = columnFamily.getColumns().values();
+            Collection<IColumn> columns = columnFamily.getColumns();
             dos.writeInt(columns.size());
             for (IColumn column : columns)
             {
@@ -104,7 +104,9 @@ public class ColumnFamilySerializer implements ICompactSerializer2<AColumnFamily
         String cfName = dis.readUTF();
         if (cfName.isEmpty())
             return null;
-        AColumnFamily cf = deserializeFromSSTableNoColumns(cfName, dis.readUTF(), readComparator(dis), readComparator(dis), dis);
+        // FIXME: need a builder class for immutable CFs, so that we won't have
+        // to fall back to mutability here.
+        ColumnFamily cf = deserializeFromSSTableNoColumns(cfName, dis.readUTF(), readComparator(dis), readComparator(dis), dis);
         deserializeColumns(dis, cf);
         return cf;
     }
@@ -141,13 +143,13 @@ public class ColumnFamilySerializer implements ICompactSerializer2<AColumnFamily
         }
     }
 
-    public AColumnFamily deserializeFromSSTableNoColumns(String name, String type, AbstractType comparator, AbstractType subComparator, DataInput input) throws IOException
+    public ColumnFamily deserializeFromSSTableNoColumns(String name, String type, AbstractType comparator, AbstractType subComparator, DataInput input) throws IOException
     {
         ColumnFamily cf = new ColumnFamily(name, type, comparator, subComparator);
         return deserializeFromSSTableNoColumns(cf, input);
     }
 
-    public AColumnFamily deserializeFromSSTableNoColumns(ColumnFamily cf, DataInput input) throws IOException
+    public ColumnFamily deserializeFromSSTableNoColumns(ColumnFamily cf, DataInput input) throws IOException
     {
         cf.delete(input.readInt(), input.readLong());
         return cf;

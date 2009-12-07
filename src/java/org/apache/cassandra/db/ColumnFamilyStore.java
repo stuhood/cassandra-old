@@ -525,13 +525,15 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     private static void removeDeletedStandard(ColumnFamily cf, int gcBefore)
     {
-        for (byte[] cname : cf.getColumns().keySet())
+        Iterator<IColumn> iter = cf.getColumns().iterator();
+        while (iter.hasNext())
         {
-            IColumn c = cf.getColumn(cname);
+            IColumn c = iter.next();
             if ((c.isMarkedForDelete() && c.getLocalDeletionTime() <= gcBefore)
                 || c.timestamp() <= cf.getMarkedForDeleteAt())
             {
-                cf.remove(cname);
+                // garbage collect the cf
+                iter.remove();
             }
         }
     }
@@ -541,9 +543,10 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // TODO assume deletion means "most are deleted?" and add to clone, instead of remove from original?
         // this could be improved by having compaction, or possibly even removeDeleted, r/m the tombstone
         // once gcBefore has passed, so if new stuff is added in it doesn't used the wrong algorithm forever
-        for (byte[] cname : cf.getColumns().keySet())
+        Iterator<IColumn> iter = cf.getColumns().iterator();
+        while (iter.hasNext())
         {
-            IColumn c = cf.getColumn(cname);
+            IColumn c = iter.next();
             long minTimestamp = Math.max(c.getMarkedForDeleteAt(), cf.getMarkedForDeleteAt());
             for (IColumn subColumn : c.getSubColumns())
             {
@@ -555,7 +558,8 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             }
             if (c.getSubColumns().isEmpty() && c.getLocalDeletionTime() <= gcBefore)
             {
-                cf.remove(c.name());
+                // garbage collect the cf
+                iter.remove();
             }
         }
     }
@@ -1164,7 +1168,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
                     return cf;
 
                 assert cf.getColumns().size() == 1;
-                SuperColumn sc = (SuperColumn)cf.getColumns().values().iterator().next();
+                SuperColumn sc = (SuperColumn)cf.getColumns().iterator().next();
                 SuperColumn scFiltered = filter.filterSuperColumn(sc, gcBefore);
                 ColumnFamily cfFiltered = cf.cloneShallow();
                 cfFiltered.addColumn(scFiltered);

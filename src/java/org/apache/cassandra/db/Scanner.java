@@ -63,8 +63,7 @@ public class Scanner implements IScanner<IColumn>
             ColumnFamily columnFamily = table.get(key, cf);
             if ( columnFamily != null )
             {
-                Collection<IColumn> columns = columnFamily.getColumns().values();
-                columnIt_ = columns.iterator();
+                columnIt_ = columnFamily.getColumns().iterator();
             }
         }
     }        

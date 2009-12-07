@@ -31,6 +31,7 @@ import org.apache.log4j.Logger;
 import org.apache.commons.collections.iterators.CollatingIterator;
 
 import org.apache.cassandra.utils.ReducingIterator;
+import org.apache.cassandra.db.AColumnFamily;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -87,7 +88,7 @@ public class CompactionIterator extends ReducingIterator<IteratingRow, Compactio
         ColumnFamily cf = null;
         for (IteratingRow row : rows)
         {
-            ColumnFamily thisCF;
+            AColumnFamily thisCF;
             try
             {
                 thisCF = row.getColumnFamily();
@@ -98,13 +99,9 @@ public class CompactionIterator extends ReducingIterator<IteratingRow, Compactio
                 continue;
             }
             if (cf == null)
-            {
-                cf = thisCF;
-            }
+                cf = thisCF.asMutable();
             else
-            {
                 cf.addAll(thisCF);
-            }
         }
         rows.clear();
 
