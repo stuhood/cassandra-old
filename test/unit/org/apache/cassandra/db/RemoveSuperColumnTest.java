@@ -100,8 +100,8 @@ public class RemoveSuperColumnTest
     {
         ColumnFamilyStore store = Table.open("Keyspace1").getColumnFamilyStore("Super1");
         ColumnFamily resolved = store.getColumnFamily(new NamesQueryFilter("key1", new QueryPath("Super1"), "SC1".getBytes()));
-        assert resolved.getSortedColumns().iterator().next().getMarkedForDeleteAt() == 1 : resolved;
-        assert resolved.getSortedColumns().iterator().next().getSubColumns().size() == 0 : resolved;
+        assert resolved.getColumns().iterator().next().getMarkedForDeleteAt() == 1 : resolved;
+        assert resolved.getColumns().iterator().next().getSubColumns().size() == 0 : resolved;
         assertNull(ColumnFamilyStore.removeDeleted(resolved, Integer.MAX_VALUE));
         assertNull(store.getColumnFamily(new NamesQueryFilter("key1", new QueryPath("Super1"), "SC1".getBytes()), Integer.MAX_VALUE));
         assertNull(store.getColumnFamily(new IdentityQueryFilter("key1", new QueryPath("Super1")), Integer.MAX_VALUE));
@@ -112,8 +112,8 @@ public class RemoveSuperColumnTest
     {
         ColumnFamilyStore store = Table.open("Keyspace1").getColumnFamilyStore("Super1");
         ColumnFamily resolved = store.getColumnFamily(new NamesQueryFilter("key1", new QueryPath("Super1"), "SC1".getBytes()));
-        assert resolved.getSortedColumns().iterator().next().getMarkedForDeleteAt() == 1;
-        Collection<IColumn> subColumns = resolved.getSortedColumns().iterator().next().getSubColumns();
+        assert resolved.getColumns().iterator().next().getMarkedForDeleteAt() == 1;
+        Collection<IColumn> subColumns = resolved.getColumns().iterator().next().getSubColumns();
         assert subColumns.size() == 0;
     }
 
@@ -154,7 +154,7 @@ public class RemoveSuperColumnTest
     {
         ColumnFamilyStore store = Table.open("Keyspace1").getColumnFamilyStore("Super2");
         ColumnFamily resolved = store.getColumnFamily(new NamesQueryFilter("key1", new QueryPath("Super2", "SC1".getBytes()), getBytes(2)), Integer.MAX_VALUE);
-        Collection<IColumn> subColumns = resolved.getSortedColumns().iterator().next().getSubColumns();
+        Collection<IColumn> subColumns = resolved.getColumns().iterator().next().getSubColumns();
         assert subColumns.size() == 1;
         assert subColumns.iterator().next().timestamp() == 2;
     }

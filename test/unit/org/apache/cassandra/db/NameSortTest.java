@@ -102,7 +102,7 @@ public class NameSortTest extends CleanupHelper
             ColumnFamily cf;
 
             cf = table.get(key, "Standard1");
-            Collection<IColumn> columns = cf.getSortedColumns();
+            Collection<IColumn> columns = cf.getColumns();
             for (IColumn column : columns)
             {
                 int j = Integer.valueOf(new String(column.name()).split("-")[1]);
@@ -112,7 +112,7 @@ public class NameSortTest extends CleanupHelper
 
             cf = table.get(key, "Super1");
             assert cf != null : "key " + key + " is missing!";
-            Collection<IColumn> superColumns = cf.getSortedColumns();
+            Collection<IColumn> superColumns = cf.getColumns();
             assert superColumns.size() == 8 : cf;
             for (IColumn superColumn : superColumns)
             {

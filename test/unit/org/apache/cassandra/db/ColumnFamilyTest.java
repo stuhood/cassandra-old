@@ -45,10 +45,10 @@ public class ColumnFamilyTest
 
         DataInputBuffer bufIn = new DataInputBuffer();
         bufIn.reset(bufOut.getData(), bufOut.getLength());
-        cf = ColumnFamily.serializer().deserialize(bufIn);
-        assert cf != null;
-        assert cf.name().equals("Standard1");
-        assert cf.getSortedColumns().size() == 1;
+        AColumnFamily desercf = ColumnFamily.serializer().deserialize(bufIn);
+        assert desercf != null;
+        assert desercf.name.equals(cf.name);
+        assert desercf.getColumns().size() == cf.getColumns().size();
     }
 
     @Test
@@ -74,12 +74,12 @@ public class ColumnFamilyTest
         // verify
         DataInputBuffer bufIn = new DataInputBuffer();
         bufIn.reset(bufOut.getData(), bufOut.getLength());
-        cf = ColumnFamily.serializer().deserialize(bufIn);
+        AColumnFamily desercf = ColumnFamily.serializer().deserialize(bufIn);
         for (String cName : map.navigableKeySet())
         {
-            assert new String(cf.getColumn(cName.getBytes()).value()).equals(map.get(cName));
+            assert new String(desercf.getColumn(cName.getBytes()).value()).equals(map.get(cName));
         }
-        assert cf.getColumnNames().size() == map.size();
+        assert desercf.getColumns().size() == map.size();
     }
 
     @Test
@@ -92,7 +92,7 @@ public class ColumnFamilyTest
         cf.addColumn(column("col1", "", 3));
 
         assert 2 == cf.getColumnCount();
-        assert 2 == cf.getSortedColumns().size();
+        assert 2 == cf.getColumns().size();
     }
 
     @Test

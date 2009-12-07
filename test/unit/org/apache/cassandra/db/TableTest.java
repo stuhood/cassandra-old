@@ -391,7 +391,7 @@ public class TableTest extends CleanupHelper
         assertEquals(new String(cf.getColumn("col1197".getBytes()).value()), "v1197");
 
         cf = cfStore.getColumnFamily(key, new QueryPath("Standard1"), "col1996".getBytes(), ArrayUtils.EMPTY_BYTE_ARRAY, true, 1000);
-        IColumn[] columns = cf.getSortedColumns().toArray(new IColumn[0]);
+        IColumn[] columns = cf.getColumns().toArray(new IColumn[0]);
         for (int i = 1000; i < 1996; i++)
         {
             String expectedName = "col" + i;
@@ -448,9 +448,9 @@ public class TableTest extends CleanupHelper
         reTest(table.getColumnFamilyStore("Standard1"), verify);
     }
 
-    public static void assertColumns(ColumnFamily cf, String... columnNames)
+    public static void assertColumns(AColumnFamily cf, String... columnNames)
     {
-        Collection<IColumn> columns = cf == null ? new TreeSet<IColumn>() : cf.getSortedColumns();
+        Collection<IColumn> columns = cf == null ? new TreeSet<IColumn>() : cf.getColumns();
         List<String> L = new ArrayList<String>();
         for (IColumn column : columns)
         {

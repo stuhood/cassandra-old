@@ -38,7 +38,7 @@ public class RowTest
         cf2.delete(0, 0);
 
         ColumnFamily cfDiff = cf1.diff(cf2);
-        assertEquals(cfDiff.getColumnsMap().size(), 0);
+        assertEquals(cfDiff.getColumns().size(), 0);
         assertEquals(cfDiff.getMarkedForDeleteAt(), 0);
     }
 

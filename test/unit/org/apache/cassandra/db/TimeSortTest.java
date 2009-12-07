@@ -51,7 +51,7 @@ public class TimeSortTest extends CleanupHelper
         rm.apply();
 
         ColumnFamily cf = cfStore.getColumnFamily("key0", new QueryPath("StandardLong1"), getBytes(10), ArrayUtils.EMPTY_BYTE_ARRAY, false, 1000);
-        Collection<IColumn> columns = cf.getSortedColumns();
+        Collection<IColumn> columns = cf.getColumns();
         assert columns.size() == 1;
     }
 
@@ -92,7 +92,7 @@ public class TimeSortTest extends CleanupHelper
 
         // verify
         ColumnFamily cf = cfStore.getColumnFamily(key, new QueryPath("StandardLong1"), getBytes(0), ArrayUtils.EMPTY_BYTE_ARRAY, false, 1000);
-        Collection<IColumn> columns = cf.getSortedColumns();
+        Collection<IColumn> columns = cf.getColumns();
         assertEquals(12, columns.size());
         Iterator<IColumn> iter = columns.iterator();
         IColumn column;
@@ -117,7 +117,7 @@ public class TimeSortTest extends CleanupHelper
             for (int j = 0; j < 8; j += 3)
             {
                 ColumnFamily cf = table.getColumnFamilyStore("StandardLong1").getColumnFamily(key, new QueryPath("StandardLong1"), getBytes(j * 2), ArrayUtils.EMPTY_BYTE_ARRAY, false, 1000);
-                Collection<IColumn> columns = cf.getSortedColumns();
+                Collection<IColumn> columns = cf.getColumns();
                 assert columns.size() == 8 - j;
                 int k = j;
                 for (IColumn c : columns)
