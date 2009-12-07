@@ -235,7 +235,11 @@ public abstract class AColumnFamily
      */
     protected abstract ConcurrentSkipListMap<byte[],IColumn> cloneColumns();
 
-    public abstract boolean isMarkedForDelete();
+    public boolean isMarkedForDelete()
+    {
+        return getMarkedForDeleteAt() > Long.MIN_VALUE;
+    }
+
     public abstract long getMarkedForDeleteAt();
     public abstract int getLocalDeletionTime();
 

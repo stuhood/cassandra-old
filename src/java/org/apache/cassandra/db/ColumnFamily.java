@@ -52,6 +52,12 @@ public final class ColumnFamily extends AColumnFamily implements IColumnContaine
         columns_ = new ConcurrentSkipListMap<byte[], IColumn>(comparator);
     }
 
+    public ColumnFamily(String cfName, String columnType, ConcurrentSkipListMap<byte[], IColumn> columns, AbstractType subcolumnComparator)
+    {
+        super(cfName, columnType, subcolumnComparator);
+        columns_ = columns;
+    }
+
     public ColumnFamily asMutable()
     {
         return this;
@@ -178,11 +184,6 @@ public final class ColumnFamily extends AColumnFamily implements IColumnContaine
             }
         }
         return size_.get();
-    }
-
-    public boolean isMarkedForDelete()
-    {
-        return markedForDeleteAt > Long.MIN_VALUE;
     }
 
     public long getMarkedForDeleteAt()
