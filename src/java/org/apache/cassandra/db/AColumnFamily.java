@@ -68,13 +68,12 @@ public abstract class AColumnFamily
     }
 
     /**
-     * If this object is already mutable, returns this object: otherwise returns
-     * a mutable clone.
+     * @return 'this' object if it is already mutable: otherwise, a mutable clone.
      */
     public abstract ColumnFamily asMutable();
 
     /**
-     * Returns a mutable, deep clone of this CF.
+     * @return A mutable, deep clone of this CF.
      */
     public ColumnFamily cloneMe()
     {
@@ -84,7 +83,7 @@ public abstract class AColumnFamily
     }
 
     /**
-     * Returns a mutable, shallow (no columns) clone of this CF.
+     * @return A mutable, shallow (no columns) clone of this CF.
      */
     public ColumnFamily cloneShallow()
     {
