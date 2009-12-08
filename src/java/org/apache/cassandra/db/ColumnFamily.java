@@ -175,7 +175,7 @@ public final class ColumnFamily extends AColumnFamily implements IColumnContaine
         return (AbstractType)columns_.comparator();
     }
 
-    int size()
+    public int size()
     {
         if (size_.get() == 0)
         {

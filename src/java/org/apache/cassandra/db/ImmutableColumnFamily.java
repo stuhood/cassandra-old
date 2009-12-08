@@ -150,7 +150,7 @@ public final class ImmutableColumnFamily extends AColumnFamily
         return (AbstractType)columns.comparator();
     }
 
-    int size()
+    public int size()
     {
         return size;
     }

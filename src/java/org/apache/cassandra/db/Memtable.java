@@ -137,21 +137,24 @@ public class Memtable implements Comparable<Memtable>, IFlushable<DecoratedKey>
      * (CFS handles locking to avoid submitting an op
      *  to a flushing memtable.  Any other way is unsafe.)
     */
-    void put(String key, ColumnFamily columnFamily)
+    void put(String key, AColumnFamily columnFamily)
     {
         assert !isFrozen_; // not 100% foolproof but hell, it's an assert
         resolve(key, columnFamily);
     }
 
-    private void resolve(String key, ColumnFamily columnFamily)
+    private void resolve(String key, AColumnFamily columnFamily)
     {
         DecoratedKey decoratedKey = partitioner_.decorateKey(key);
-        ColumnFamily oldCf = columnFamilies_.putIfAbsent(decoratedKey, columnFamily);
+        ColumnFamily oldCf = columnFamilies_.get(decoratedKey);
         if (oldCf == null)
         {
-            currentSize_.addAndGet(columnFamily.size() + key.length());
-            currentObjectCount_.addAndGet(columnFamily.getColumnCount());
-            return;
+            if ((oldCf = columnFamilies_.putIfAbsent(decoratedKey, columnFamily.asMutable())) == null)
+            {
+                currentSize_.addAndGet(columnFamily.size() + key.length());
+                currentObjectCount_.addAndGet(columnFamily.getColumnCount());
+                return;
+            }
         }
         synchronized (keyLocks[Math.abs(key.hashCode() % keyLocks.length)])
         {

@@ -79,6 +79,7 @@ public class IteratingRow extends AbstractIterator<IColumn> implements Comparabl
         file.seek(dataStart);
         IndexHelper.skipBloomFilter(file);
         IndexHelper.skipIndex(file);
+        cfbuilder.clear();
         return AColumnFamily.serializer().deserializeFromSSTable(cfbuilder, sstable, file);
     }
 

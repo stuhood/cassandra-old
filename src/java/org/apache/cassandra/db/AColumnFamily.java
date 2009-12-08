@@ -103,6 +103,8 @@ public abstract class AColumnFamily
     	return columnSerializer_;
     }
 
+    public abstract int size();
+
     int getColumnCount()
     {
     	int count = 0;
