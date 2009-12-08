@@ -35,6 +35,10 @@ public final class SuperColumn implements IColumn, IColumnContainer
 {
 	private static Logger logger_ = Logger.getLogger(SuperColumn.class);
 
+    /**
+     * TODO: Cache SuperColumnSerializers so a new one isn't created for
+     * every CF.
+     */
     public static SuperColumnSerializer serializer(AbstractType comparator)
     {
         return new SuperColumnSerializer(comparator);

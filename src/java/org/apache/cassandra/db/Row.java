@@ -65,11 +65,11 @@ class RowSerializer implements ICompactSerializer<Row>
     public void serialize(Row row, DataOutputStream dos) throws IOException
     {
         dos.writeUTF(row.key);
-        AColumnFamily.serializer().serialize(row.cf, dos);
+        AColumnFamily.serializer().serializeForRPC(row.cf, dos);
     }
 
     public Row deserialize(DataInputStream dis) throws IOException
     {
-        return new Row(dis.readUTF(), AColumnFamily.serializer().deserialize(dis));
+        return new Row(dis.readUTF(), AColumnFamily.serializer().deserializeFromRPC(dis));
     }
 }

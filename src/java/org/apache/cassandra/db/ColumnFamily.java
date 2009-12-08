@@ -27,7 +27,7 @@ import org.apache.log4j.Logger;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.filter.QueryPath;
 import org.apache.cassandra.db.marshal.AbstractType;
-
+import org.apache.cassandra.io.ICompactSerializer2;
 
 public final class ColumnFamily extends AColumnFamily implements IColumnContainer
 {
@@ -48,13 +48,14 @@ public final class ColumnFamily extends AColumnFamily implements IColumnContaine
 
     public ColumnFamily(String cfName, String columnType, AbstractType comparator, AbstractType subcolumnComparator)
     {
-        super(cfName, columnType, subcolumnComparator);
+        super(cfName, columnType,
+              columnType.equals("Standard") ? Column.serializer() : SuperColumn.serializer(subcolumnComparator));
         columns_ = new ConcurrentSkipListMap<byte[], IColumn>(comparator);
     }
 
-    public ColumnFamily(String cfName, String columnType, ConcurrentSkipListMap<byte[], IColumn> columns, AbstractType subcolumnComparator)
+    public ColumnFamily(String cfName, String columnType, ICompactSerializer2<IColumn> columnSerializer, ConcurrentSkipListMap<byte[], IColumn> columns)
     {
-        super(cfName, columnType, subcolumnComparator);
+        super(cfName, columnType, columnSerializer);
         columns_ = columns;
     }
 

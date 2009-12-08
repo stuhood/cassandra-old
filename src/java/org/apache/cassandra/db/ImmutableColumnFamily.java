@@ -26,6 +26,7 @@ import org.apache.log4j.Logger;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.filter.QueryPath;
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.io.ICompactSerializer2;
 
 import com.google.common.collect.ImmutableSortedMap;
 
@@ -33,17 +34,71 @@ public final class ImmutableColumnFamily extends AColumnFamily
 {
     private static Logger logger_ = Logger.getLogger( ImmutableColumnFamily.class );
 
-    /**
-     * FIXME
-     *
-    public static ImmutableColumnFamily builder(String tableName, String cfName)
+    public static final class Builder
     {
-        String columnType = DatabaseDescriptor.getColumnFamilyType(tableName, cfName);
-        AbstractType comparator = DatabaseDescriptor.getComparator(tableName, cfName);
-        AbstractType subcolumnComparator = DatabaseDescriptor.getSubComparator(tableName, cfName);
-        return new ColumnFamily(cfName, columnType, comparator, subcolumnComparator);
+        public final String cfName;
+        public final String columnType;
+        public final AbstractType comparator;
+        public final AbstractType subcolumnComparator;
+        public final ICompactSerializer2<IColumn> columnSerializer;
+
+        private ImmutableSortedMap.Builder mapbuilder;
+        private long markedForDeleteAt;
+        private int localDeletionTime;
+
+        public Builder(String cfName, String columnType, AbstractType comparator, AbstractType subcolumnComparator)
+        {
+            this.cfName = cfName;
+            this.columnType = columnType;
+            this.comparator = comparator;
+            this.subcolumnComparator = subcolumnComparator;
+            this.columnSerializer = columnType.equals("Standard") ?
+                Column.serializer() :
+                SuperColumn.serializer(subcolumnComparator);
+            clear();
+        }
+
+        public void setMarkedForDeleteAt(long markedForDeleteAt)
+        {
+            this.markedForDeleteAt = markedForDeleteAt;
+        }
+
+        public void setLocalDeletionTime(int localDeletionTime)
+        {
+            this.localDeletionTime = localDeletionTime;
+        }
+
+        public void add(IColumn column)
+        {
+            mapbuilder.put(column.name(), column);
+        }
+
+        /**
+         * Clear this Builder for reuse: putting it back to the state it was in
+         * after construction.
+         */
+        public void clear()
+        {
+            mapbuilder = new ImmutableSortedMap.Builder(comparator);
+            markedForDeleteAt = Long.MIN_VALUE;
+            localDeletionTime = Integer.MIN_VALUE;
+        }
+
+        public ImmutableColumnFamily build()
+        {
+            return new ImmutableColumnFamily(cfName, columnType, mapbuilder.build(), markedForDeleteAt,
+                                             localDeletionTime, columnSerializer);
+        }
     }
-    */
+
+    /**
+     * Return a builder that can be (re)used to create a column family for the given
+     * table.
+     */
+    public static ImmutableColumnFamily.Builder builder(String cfName, String columnType, AbstractType comparator, AbstractType subcolumnComparator)
+    {
+        return new ImmutableColumnFamily.Builder(cfName, columnType, comparator, subcolumnComparator);
+    }
 
     private final long markedForDeleteAt;
     private final int localDeletionTime;
@@ -54,9 +109,9 @@ public final class ImmutableColumnFamily extends AColumnFamily
      * Constructs an empty column family. To build an immutable column family
      * containing columns, see ImmutableColumnFamily.builder().
      */
-    private ImmutableColumnFamily(String cfName, String columnType, ImmutableSortedMap<byte[],IColumn> columns, long markedForDeleteAt, int localDeletionTime, AbstractType subcolumnComparator)
+    private ImmutableColumnFamily(String cfName, String columnType, ImmutableSortedMap<byte[],IColumn> columns, long markedForDeleteAt, int localDeletionTime, ICompactSerializer2<IColumn> columnSerializer)
     {
-        super(cfName, columnType, subcolumnComparator);
+        super(cfName, columnType, columnSerializer);
         this.markedForDeleteAt = markedForDeleteAt;
         this.localDeletionTime = localDeletionTime;
         this.columns = columns;
@@ -69,7 +124,7 @@ public final class ImmutableColumnFamily extends AColumnFamily
 
     public ColumnFamily asMutable()
     {
-        ColumnFamily mutable = new ColumnFamily(name, type, cloneColumns(), getSubComparator());
+        ColumnFamily mutable = new ColumnFamily(name, type, getColumnSerializer(), cloneColumns());
         mutable.setMarkedForDeleteAt(markedForDeleteAt);
         mutable.setLocalDeletionTime(localDeletionTime);
         return mutable;

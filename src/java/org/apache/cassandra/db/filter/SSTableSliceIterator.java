@@ -27,7 +27,7 @@ import java.io.IOException;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.IColumn;
 import org.apache.cassandra.db.AColumnFamily;
-import org.apache.cassandra.db.ColumnFamily;
+import org.apache.cassandra.db.ImmutableColumnFamily;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.io.*;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -131,7 +131,9 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
             IndexHelper.skipBloomFilter(file);
             indexes = IndexHelper.deserializeIndex(file);
 
-            emptyColumnFamily = ColumnFamily.serializer().deserializeFromSSTableNoColumns(ssTable.makeColumnFamily(), file);
+            ImmutableColumnFamily.Builder cfbuilder = ssTable.columnFamilyBuilder();
+            AColumnFamily.serializer().deserializeWithoutColumns(cfbuilder, file);
+            emptyColumnFamily = cfbuilder.build();
             file.readInt(); // column count
 
             columnStartPosition = file.getFilePointer();

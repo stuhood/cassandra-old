@@ -287,7 +287,7 @@ class RowMutationSerializer implements ICompactSerializer<RowMutation>
                 AColumnFamily cf = map.get(key);
                 if (cf != null)
                 {
-                    AColumnFamily.serializer().serialize(cf, dos);
+                    AColumnFamily.serializer().serializeForRPC(cf, dos);
                 }
             }
         }
@@ -309,7 +309,7 @@ class RowMutationSerializer implements ICompactSerializer<RowMutation>
         for (int i = 0; i < size; ++i)
         {
             String key = dis.readUTF();
-            AColumnFamily cf = AColumnFamily.serializer().deserialize(dis);
+            AColumnFamily cf = AColumnFamily.serializer().deserializeFromRPC(dis);
             map.put(key, cf);
         }
         return map;

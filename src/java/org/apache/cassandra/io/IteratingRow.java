@@ -26,6 +26,7 @@ import java.io.*;
 import org.apache.cassandra.db.AColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.IColumn;
+import org.apache.cassandra.db.ImmutableColumnFamily;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.service.StorageService;
 import com.google.common.collect.AbstractIterator;
@@ -35,14 +36,16 @@ public class IteratingRow extends AbstractIterator<IColumn> implements Comparabl
     private final DecoratedKey key;
     private final long finishedAt;
     private final BufferedRandomAccessFile file;
-    private SSTableReader sstable;
-    private long dataStart;
+    private final SSTableReader sstable;
+    private final ImmutableColumnFamily.Builder cfbuilder;
+    private final long dataStart;
     private final IPartitioner partitioner;
 
     public IteratingRow(BufferedRandomAccessFile file, SSTableReader sstable) throws IOException
     {
         this.file = file;
         this.sstable = sstable;
+        this.cfbuilder = sstable.columnFamilyBuilder();
         this.partitioner = StorageService.getPartitioner();
 
         key = partitioner.convertFromDiskFormat(file.readUTF());
@@ -76,7 +79,7 @@ public class IteratingRow extends AbstractIterator<IColumn> implements Comparabl
         file.seek(dataStart);
         IndexHelper.skipBloomFilter(file);
         IndexHelper.skipIndex(file);
-        return AColumnFamily.serializer().deserializeFromSSTable(sstable, file);
+        return AColumnFamily.serializer().deserializeFromSSTable(cfbuilder, sstable, file);
     }
 
     public void skipRemaining() throws IOException

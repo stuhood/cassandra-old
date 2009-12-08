@@ -41,11 +41,11 @@ public class ColumnFamilyTest
         cf = ColumnFamily.create("Keyspace1", "Standard1");
         cf.addColumn(column("C", "v", 1));
         DataOutputBuffer bufOut = new DataOutputBuffer();
-        ColumnFamily.serializer().serialize(cf, bufOut);
+        ColumnFamily.serializer().serializeForRPC(cf, bufOut);
 
         DataInputBuffer bufIn = new DataInputBuffer();
         bufIn.reset(bufOut.getData(), bufOut.getLength());
-        AColumnFamily desercf = ColumnFamily.serializer().deserialize(bufIn);
+        AColumnFamily desercf = ColumnFamily.serializer().deserializeFromRPC(bufIn);
         assert desercf != null;
         assert desercf.name.equals(cf.name);
         assert desercf.getColumns().size() == cf.getColumns().size();
@@ -69,12 +69,12 @@ public class ColumnFamilyTest
         {
             cf.addColumn(column(cName, map.get(cName), 314));
         }
-        ColumnFamily.serializer().serialize(cf, bufOut);
+        ColumnFamily.serializer().serializeForRPC(cf, bufOut);
 
         // verify
         DataInputBuffer bufIn = new DataInputBuffer();
         bufIn.reset(bufOut.getData(), bufOut.getLength());
-        AColumnFamily desercf = ColumnFamily.serializer().deserialize(bufIn);
+        AColumnFamily desercf = ColumnFamily.serializer().deserializeFromRPC(bufIn);
         for (String cName : map.navigableKeySet())
         {
             assert new String(desercf.getColumn(cName.getBytes()).value()).equals(map.get(cName));

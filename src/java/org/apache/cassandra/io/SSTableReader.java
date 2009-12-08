@@ -413,9 +413,14 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         return DatabaseDescriptor.getComparator(getTableName(), getColumnFamilyName());
     }
 
-    public ColumnFamily makeColumnFamily()
+    public ImmutableColumnFamily.Builder columnFamilyBuilder()
     {
-        return ColumnFamily.create(getTableName(), getColumnFamilyName());
+        String table = getTableName();
+        String cf = getColumnFamilyName();
+        String columnType = DatabaseDescriptor.getColumnFamilyType(table, cf);
+        AbstractType comparator = DatabaseDescriptor.getComparator(table, cf);
+        AbstractType subcolumnComparator = DatabaseDescriptor.getSubComparator(table, cf);
+        return ImmutableColumnFamily.builder(cf, columnType, comparator, subcolumnComparator);
     }
 
     public ICompactSerializer2<IColumn> getColumnSerializer()

@@ -30,7 +30,7 @@ import org.apache.cassandra.io.ICompactSerializer2;
 import org.apache.cassandra.io.SSTableReader;
 import org.apache.cassandra.db.marshal.AbstractType;
 
-public class ColumnFamilySerializer implements ICompactSerializer2<AColumnFamily>
+public class ColumnFamilySerializer
 {
     /*
      * Serialized ColumnFamily format:
@@ -51,7 +51,7 @@ public class ColumnFamilySerializer implements ICompactSerializer2<AColumnFamily
      * <column count>
      * <columns, serialized individually>
     */
-    public void serialize(AColumnFamily columnFamily, DataOutput dos)
+    public void serializeForRPC(AColumnFamily columnFamily, DataOutput dos)
     {
         try
         {
@@ -70,10 +70,13 @@ public class ColumnFamilySerializer implements ICompactSerializer2<AColumnFamily
         {
             throw new RuntimeException(e);
         }
-        serializeForSSTable(columnFamily, dos);
+        serializeRequired(columnFamily, dos);
     }
 
-    public void serializeForSSTable(AColumnFamily columnFamily, DataOutput dos)
+    /**
+     * Serialize the required fields of the column family.
+     */
+    private void serializeRequired(AColumnFamily columnFamily, DataOutput dos)
     {
         try
         {
@@ -96,28 +99,27 @@ public class ColumnFamilySerializer implements ICompactSerializer2<AColumnFamily
     public void serializeWithIndexes(AColumnFamily columnFamily, DataOutput dos)
     {
         ColumnIndexer.serialize(columnFamily, dos);
-        serializeForSSTable(columnFamily, dos);
+        serializeRequired(columnFamily, dos);
     }
 
-    public AColumnFamily deserialize(DataInput dis) throws IOException
+    public AColumnFamily deserializeFromRPC(DataInput dis) throws IOException
     {
         String cfName = dis.readUTF();
         if (cfName.isEmpty())
             return null;
-        // FIXME: need a builder class for immutable CFs, so that we won't have
-        // to fall back to mutability here.
-        ColumnFamily cf = deserializeFromSSTableNoColumns(cfName, dis.readUTF(), readComparator(dis), readComparator(dis), dis);
-        deserializeColumns(dis, cf);
-        return cf;
+        ImmutableColumnFamily.Builder cfbuilder = ImmutableColumnFamily.builder(cfName, dis.readUTF(), readComparator(dis), readComparator(dis));
+        deserializeWithoutColumns(cfbuilder, dis);
+        deserializeColumns(dis, cfbuilder);
+        return cfbuilder.build();
     }
 
-    private void deserializeColumns(DataInput dis, ColumnFamily cf) throws IOException
+    private void deserializeColumns(DataInput dis, ImmutableColumnFamily.Builder cfbuilder) throws IOException
     {
         int size = dis.readInt();
         for (int i = 0; i < size; ++i)
         {
-            IColumn column = cf.getColumnSerializer().deserialize(dis);
-            cf.addColumn(column);
+            IColumn column = cfbuilder.columnSerializer.deserialize(dis);
+            cfbuilder.add(column);
         }
     }
 
@@ -143,23 +145,16 @@ public class ColumnFamilySerializer implements ICompactSerializer2<AColumnFamily
         }
     }
 
-    public ColumnFamily deserializeFromSSTableNoColumns(String name, String type, AbstractType comparator, AbstractType subComparator, DataInput input) throws IOException
+    public void deserializeWithoutColumns(ImmutableColumnFamily.Builder cfbuilder, DataInput input) throws IOException
     {
-        ColumnFamily cf = new ColumnFamily(name, type, comparator, subComparator);
-        return deserializeFromSSTableNoColumns(cf, input);
+        cfbuilder.setLocalDeletionTime(input.readInt());
+        cfbuilder.setMarkedForDeleteAt(input.readLong());
     }
 
-    public ColumnFamily deserializeFromSSTableNoColumns(ColumnFamily cf, DataInput input) throws IOException
+    public AColumnFamily deserializeFromSSTable(ImmutableColumnFamily.Builder cfbuilder, SSTableReader sstable, DataInput file) throws IOException
     {
-        cf.delete(input.readInt(), input.readLong());
-        return cf;
-    }
-
-    public AColumnFamily deserializeFromSSTable(SSTableReader sstable, DataInput file) throws IOException
-    {
-        ColumnFamily cf = sstable.makeColumnFamily();
-        deserializeFromSSTableNoColumns(cf, file);
-        deserializeColumns(file, cf);
-        return cf;
+        deserializeWithoutColumns(cfbuilder, file);
+        deserializeColumns(file, cfbuilder);
+        return cfbuilder.build();
     }
 }

@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.util.*;
 
 import org.apache.cassandra.db.AColumnFamily;
+import org.apache.cassandra.db.ImmutableColumnFamily;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.IColumn;
@@ -35,7 +36,7 @@ import org.apache.cassandra.utils.BloomFilter;
 
 public class SSTableNamesIterator extends SimpleAbstractColumnIterator
 {
-    private ColumnFamily cf;
+    private AColumnFamily cf;
     private Iterator<IColumn> iter;
     public final SortedSet<byte[]> columns;
 
@@ -44,6 +45,7 @@ public class SSTableNamesIterator extends SimpleAbstractColumnIterator
         assert columnNames != null;
         this.columns = columnNames;
 
+        ImmutableColumnFamily.Builder cfbuilder = ssTable.columnFamilyBuilder();
         DecoratedKey decoratedKey = ssTable.getPartitioner().decorateKey(key);
         long position = ssTable.getPosition(decoratedKey);
         if (position < 0)
@@ -75,7 +77,7 @@ public class SSTableNamesIterator extends SimpleAbstractColumnIterator
 
             List<IndexHelper.IndexInfo> indexList = IndexHelper.deserializeIndex(file);
 
-            cf = ColumnFamily.serializer().deserializeFromSSTableNoColumns(ssTable.makeColumnFamily(), file).asMutable();
+            ColumnFamily.serializer().deserializeWithoutColumns(cfbuilder, file);
             file.readInt(); // column count
 
             /* get the various column ranges we have to read */
@@ -101,11 +103,11 @@ public class SSTableNamesIterator extends SimpleAbstractColumnIterator
                 // TODO only completely deserialize columns we are interested in
                 while (file.getFilePointer() < columnBegin + indexInfo.offset + indexInfo.width)
                 {
-                    final IColumn column = cf.getColumnSerializer().deserialize(file);
+                    final IColumn column = cfbuilder.columnSerializer.deserialize(file);
                     // we check vs the original Set, not the filtered List, for efficiency
                     if (columnNames.contains(column.name()))
                     {
-                        cf.addColumn(column);
+                        cfbuilder.add(column);
                     }
                 }
             }
@@ -115,6 +117,7 @@ public class SSTableNamesIterator extends SimpleAbstractColumnIterator
             file.close();
         }
 
+        cf = cfbuilder.build();
         iter = cf.getColumns().iterator();
     }
 

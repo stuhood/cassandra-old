@@ -26,16 +26,16 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.io.ICompactSerializer2;
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.io.ICompactSerializer2;
 
 public abstract class AColumnFamily
 {
-    /* The column serializer for this Column Family. Create based on config. */
-    private static ColumnFamilySerializer serializer_ = new ColumnFamilySerializer();
+    /* The column serializer for all column families. Create based on config. */
+    private static final ColumnFamilySerializer serializer_ = new ColumnFamilySerializer();
     public static final short utfPrefix_ = 2;   
 
-    private static Map<String, String> columnTypes_ = new HashMap<String, String>();
+    private static final Map<String, String> columnTypes_ = new HashMap<String, String>();
     static
     {
         /* TODO: These are the various column types. Hard coded for now. */
@@ -60,11 +60,11 @@ public abstract class AColumnFamily
 
     private final transient ICompactSerializer2<IColumn> columnSerializer_;
 
-    public AColumnFamily(String cfName, String columnType, AbstractType subcolumnComparator)
+    public AColumnFamily(String cfName, String columnType, ICompactSerializer2<IColumn> columnSerializer)
     {
         name = cfName;
         type = columnType;
-        columnSerializer_ = columnType.equals("Standard") ? Column.serializer() : SuperColumn.serializer(subcolumnComparator);
+        columnSerializer_ = columnSerializer;
     }
 
     /**
