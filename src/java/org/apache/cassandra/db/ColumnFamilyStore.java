@@ -468,7 +468,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         long start = System.currentTimeMillis();
 
         boolean flushRequested = memtable_.isThresholdViolated();
-        memtable_.put(key, columnFamily.asMutable());
+        memtable_.put(key, columnFamily);
         writeStats_.add(System.currentTimeMillis() - start);
         
         return flushRequested ? memtable_ : null;
@@ -572,7 +572,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
      */
     void applyNow(String key, AColumnFamily columnFamily) throws IOException
     {
-        getMemtableThreadSafe().put(key, columnFamily.asMutable());
+        getMemtableThreadSafe().put(key, columnFamily);
     }
 
     /*

@@ -54,7 +54,7 @@ public class Memtable implements Comparable<Memtable>, IFlushable<DecoratedKey>
     private final String cfName_;
     private final long creationTime_;
     // we use NBHM with manual locking, so reads are automatically threadsafe but write merging is serialized per key
-    private final NonBlockingHashMap<DecoratedKey, ColumnFamily> columnFamilies_ = new NonBlockingHashMap<DecoratedKey, ColumnFamily>();
+    private final NonBlockingHashMap<DecoratedKey, AColumnFamily> columnFamilies_ = new NonBlockingHashMap<DecoratedKey, AColumnFamily>();
     private final Object[] keyLocks;
     private final IPartitioner partitioner_ = StorageService.getPartitioner();
 
@@ -146,23 +146,24 @@ public class Memtable implements Comparable<Memtable>, IFlushable<DecoratedKey>
     private void resolve(String key, AColumnFamily columnFamily)
     {
         DecoratedKey decoratedKey = partitioner_.decorateKey(key);
-        ColumnFamily oldCf = columnFamilies_.get(decoratedKey);
+        AColumnFamily oldCf = columnFamilies_.putIfAbsent(decoratedKey, columnFamily);
         if (oldCf == null)
         {
-            if ((oldCf = columnFamilies_.putIfAbsent(decoratedKey, columnFamily.asMutable())) == null)
-            {
-                currentSize_.addAndGet(columnFamily.size() + key.length());
-                currentObjectCount_.addAndGet(columnFamily.getColumnCount());
-                return;
-            }
+            currentSize_.addAndGet(columnFamily.size() + key.length());
+            currentObjectCount_.addAndGet(columnFamily.getColumnCount());
+            return;
         }
         synchronized (keyLocks[Math.abs(key.hashCode() % keyLocks.length)])
         {
             int oldSize = oldCf.size();
             int oldObjectCount = oldCf.getColumnCount();
-            oldCf.resolve(columnFamily);
-            int newSize = oldCf.size();
-            int newObjectCount = oldCf.getColumnCount();
+            ColumnFamily mutable = oldCf.asMutable();
+            mutable.resolve(columnFamily);
+            if (mutable != oldCf)
+                // we cloned oldCf into a mutable ColumnFamily: store the new reference
+                columnFamilies_.put(decoratedKey, mutable);
+            int newSize = mutable.size();
+            int newObjectCount = mutable.getColumnCount();
             resolveSize(oldSize, newSize);
             resolveCount(oldObjectCount, newObjectCount);
         }
@@ -173,7 +174,7 @@ public class Memtable implements Comparable<Memtable>, IFlushable<DecoratedKey>
     {
         StringBuilder builder = new StringBuilder();
         builder.append("{");
-        for (Map.Entry<DecoratedKey, ColumnFamily> entry : columnFamilies_.entrySet())
+        for (Map.Entry<DecoratedKey, AColumnFamily> entry : columnFamilies_.entrySet())
         {
             builder.append(entry.getKey()).append(": ").append(entry.getValue()).append(", ");
         }
@@ -201,9 +202,9 @@ public class Memtable implements Comparable<Memtable>, IFlushable<DecoratedKey>
         for (DecoratedKey key : sortedKeys)
         {
             buffer.reset();
-            ColumnFamily columnFamily = columnFamilies_.get(key);
+            AColumnFamily columnFamily = columnFamilies_.get(key);
             /* serialize the cf with column indexes */
-            ColumnFamily.serializer().serializeWithIndexes(columnFamily, buffer);
+            AColumnFamily.serializer().serializeWithIndexes(columnFamily, buffer);
             /* Now write the key and value to disk */
             writer.append(key, buffer);
         }
@@ -243,8 +244,8 @@ public class Memtable implements Comparable<Memtable>, IFlushable<DecoratedKey>
      */
     public ColumnIterator getSliceIterator(SliceQueryFilter filter, AbstractType typeComparator)
     {
-        ColumnFamily cf = columnFamilies_.get(partitioner_.decorateKey(filter.key));
-        final ColumnFamily columnFamily = cf == null ? ColumnFamily.create(table_, filter.getColumnFamilyName()) : cf.cloneShallow();
+        AColumnFamily cf = columnFamilies_.get(partitioner_.decorateKey(filter.key));
+        final AColumnFamily columnFamily = cf == null ? ColumnFamily.create(table_, filter.getColumnFamilyName()) : cf.cloneShallow();
 
         final IColumn columns[] = (cf == null ? columnFamily : cf).getColumns().toArray(new IColumn[columnFamily.getColumns().size()]);
         // TODO if we are dealing with supercolumns, we need to clone them while we have the read lock since they can be modified later
@@ -276,7 +277,7 @@ public class Memtable implements Comparable<Memtable>, IFlushable<DecoratedKey>
         {
             private int curIndex_ = startIndex;
 
-            public ColumnFamily getColumnFamily()
+            public AColumnFamily getColumnFamily()
             {
                 return columnFamily;
             }
@@ -296,8 +297,8 @@ public class Memtable implements Comparable<Memtable>, IFlushable<DecoratedKey>
 
     public ColumnIterator getNamesIterator(final NamesQueryFilter filter)
     {
-        final ColumnFamily cf = columnFamilies_.get(partitioner_.decorateKey(filter.key));
-        final ColumnFamily columnFamily = cf == null ? ColumnFamily.create(table_, filter.getColumnFamilyName()) : cf.cloneShallow();
+        final AColumnFamily cf = columnFamilies_.get(partitioner_.decorateKey(filter.key));
+        final AColumnFamily columnFamily = cf == null ? ColumnFamily.create(table_, filter.getColumnFamilyName()) : cf.cloneShallow();
         final boolean isStandard = DatabaseDescriptor.getColumnFamilyType(table_, filter.getColumnFamilyName()).equals("Standard");
 
         return new SimpleAbstractColumnIterator()
@@ -305,7 +306,7 @@ public class Memtable implements Comparable<Memtable>, IFlushable<DecoratedKey>
             private Iterator<byte[]> iter = filter.columns.iterator();
             private byte[] current;
 
-            public ColumnFamily getColumnFamily()
+            public AColumnFamily getColumnFamily()
             {
                 return columnFamily;
             }
