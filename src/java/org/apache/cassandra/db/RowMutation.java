@@ -109,9 +109,7 @@ public class RowMutation implements Serializable
     }
 
     /*
-     * Specify a column family name and the corresponding column
-     * family object.
-     * param @ cf - column family name
+     * Specify a column family object.
      * param @ columnFamily - the column family.
     */
     public void add(AColumnFamily columnFamily)
@@ -143,7 +141,7 @@ public class RowMutation implements Serializable
      * as name. The column can be further broken up
      * as super column name : columnname  in case of super columns
      *
-     * param @ cf - column name as <column family>:<column>
+     * param @ path - column name as <column family>:<column>
      * param @ value - value associated with the column
      * param @ timestamp - timestamp associated with this data.
     */
