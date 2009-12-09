@@ -372,7 +372,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
                              columnFamily_, SSTable.TEMPFILE_MARKER, fileIndexGenerator_.incrementAndGet());
     }
 
-    Future<?> switchMemtable(Memtable oldMemtable) throws IOException
+    Future<?> switchMemtable(Memtable oldMemtable, final boolean writeCommitLog) throws IOException
     {
         /**
          *  If we can get the writelock, that means no new updates can come in and 
@@ -382,7 +382,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         Table.flusherLock_.writeLock().lock();
         try
         {
-            final CommitLog.CommitLogContext ctx = CommitLog.open().getContext();
+            final CommitLog.CommitLogContext ctx = CommitLog.open().getContext(); // this is harmless if !writeCommitLog
 
             if (oldMemtable.isFrozen())
             {
@@ -401,7 +401,12 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
                     try
                     {
                         condition.await();
-                        onMemtableFlush(ctx);
+                        if (writeCommitLog)
+                        {
+                            // if we're not writing to the commit log, we are replaying the log, so marking
+                            // the log header with "you can discard anything written before the context" is not valid
+                            onMemtableFlush(ctx);
+                        }
                     }
                     catch (Exception e)
                     {
@@ -438,7 +443,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         if (memtable_.isClean())
             return null;
 
-        return switchMemtable(memtable_);
+        return switchMemtable(memtable_, true);
     }
 
     void forceBlockingFlush() throws IOException, ExecutionException, InterruptedException
@@ -565,17 +570,6 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
     }
 
     /*
-     * This version is used only on start up when we are recovering from logs.
-     * Hence no locking is required since we process logs on the main thread. In
-     * the future we may want to parellelize the log processing for a table by
-     * having a thread per log file present for recovery. Re-visit at that time.
-     */
-    void applyNow(String key, AColumnFamily columnFamily) throws IOException
-    {
-        getMemtableThreadSafe().put(key, columnFamily);
-    }
-
-    /*
      * This method is called when the Memtable is frozen and ready to be flushed
      * to disk. This method informs the CommitLog that a particular ColumnFamily
      * is being flushed to disk.
@@ -664,7 +658,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 // re-compacting files we just created.
                 Collections.sort(sstables);
                 boolean major = sstables.size() == ssTables_.size();
-                filesCompacted += doFileCompaction(sstables.subList(0, Math.min(sstables.size(), maxThreshold)), major);
+                filesCompacted += doFileCompaction(sstables.subList(0, Math.min(sstables.size(), maxThreshold)));
             }
             logger_.debug(filesCompacted + " files compacted");
         }
@@ -689,8 +683,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
     void doMajorCompactionInternal(long skip) throws IOException
     {
         Collection<SSTableReader> sstables;
-        boolean major = skip < 1L;
-        if (!major)
+        if (skip > 0)
         {
             sstables = new ArrayList<SSTableReader>();
             for (SSTableReader sstable : ssTables_)
@@ -706,7 +699,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             sstables = ssTables_.getSSTables();
         }
 
-        doFileCompaction(sstables, major);
+        doFileCompaction(sstables);
     }
 
     /*
@@ -820,7 +813,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
           logger_.debug("Expected bloom filter size : " + expectedBloomFilterSize);
 
         SSTableWriter writer = null;
-        CompactionIterator ci = new CompactionIterator(sstables, getDefaultGCBefore());
+        CompactionIterator ci = new CompactionIterator(sstables, getDefaultGCBefore(), sstables.size() == ssTables_.size());
         Iterator nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
 
         try
@@ -862,9 +855,9 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return results;
     }
 
-    private int doFileCompaction(Collection<SSTableReader> sstables, boolean major) throws IOException
+    private int doFileCompaction(Collection<SSTableReader> sstables) throws IOException
     {
-        return doFileCompaction(sstables, getDefaultGCBefore(), major);
+        return doFileCompaction(sstables, getDefaultGCBefore());
     }
 
     /*
@@ -880,7 +873,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
     * The collection of sstables passed may be empty (but not null); even if
     * it is not empty, it may compact down to nothing if all rows are deleted.
     */
-    int doFileCompaction(Collection<SSTableReader> sstables, int gcBefore, boolean major) throws IOException
+    int doFileCompaction(Collection<SSTableReader> sstables, int gcBefore) throws IOException
     {
         if (DatabaseDescriptor.isSnapshotBeforeCompaction())
             Table.open(table_).snapshot("compact-" + columnFamily_);
@@ -893,8 +886,13 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             SSTableReader maxFile = getMaxSizeFile(sstables);
             List<SSTableReader> smallerSSTables = new ArrayList<SSTableReader>(sstables);
             smallerSSTables.remove(maxFile);
-            return doFileCompaction(smallerSSTables, gcBefore, false);
+            return doFileCompaction(smallerSSTables, gcBefore);
         }
+
+        // new sstables from flush can be added during a compaction, but only the compaction can remove them,
+        // so in our single-threaded compaction world this is a valid way of determining if we're compacting
+        // all the sstables (that existed when we started)
+        boolean major = sstables.size() == ssTables_.size();
 
         long startTime = System.currentTimeMillis();
         long totalkeysWritten = 0;
@@ -905,7 +903,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
           logger_.debug("Expected bloom filter size : " + expectedBloomFilterSize);
 
         SSTableWriter writer;
-        CompactionIterator ci = new CompactionIterator(sstables, gcBefore); // retain a handle so we can call close()
+        CompactionIterator ci = new CompactionIterator(sstables, gcBefore, major); // retain a handle so we can call close()
         Iterator nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
 
         try
@@ -958,7 +956,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
     void doReadonlyCompaction(InetAddress initiator) throws IOException
     {
         Collection<SSTableReader> sstables = ssTables_.getSSTables();
-        CompactionIterator ci = new CompactionIterator(sstables, getDefaultGCBefore());
+        CompactionIterator ci = new CompactionIterator(sstables, getDefaultGCBefore(), true);
         try
         {
             Iterator nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
@@ -1005,6 +1003,15 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return memtables;
     }
 
+    /**
+     * submits flush sort on the flushSorter executor, which will in turn submit to flushWriter when sorted.
+     * TODO because our executors use CallerRunsPolicy, when flushSorter fills up, no writes will proceed
+     * because the next flush will start executing on the caller, mutation-stage thread that has the
+     * flush write lock held.  (writes aquire this as a read lock before proceeding.)
+     * This is good, because it backpressures flushes, but bad, because we can't write until that last
+     * flushing thread finishes sorting, which will almost always be longer than any of the flushSorter threads proper
+     * (since, by definition, it started last).
+     */
     Condition submitFlush(final IFlushable flushable)
     {
         logger_.info("Enqueuing flush of " + flushable);
