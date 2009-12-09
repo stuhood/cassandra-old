@@ -31,50 +31,15 @@ import org.apache.cassandra.service.StorageService;
 /**
  * An entry in the SSTable index file. Each entry contains the full path to a column
  * in the SSTable, and the offset of the column in the SSTable data file.
- *
- * TODO: Add a shared interface for comparison with a ColumnKey structure that
- * can be used for querying.
  */
-public class IndexEntry
+public class IndexEntry extends ColumnKey
 {
-    public final DecoratedKey key;
-    // FIXME: safer structure
-    public final byte[][] names;
     public final long offset;
 
     public IndexEntry(DecoratedKey key, byte[][] names, long offset)
     {
-        assert names.length < Byte.MAX_VALUE;
-        this.key = key;
-        this.names = names;
+        super(key, names);
         this.offset = offset;
-    }
-
-    public static Comparator<IndexEntry> getComparator(String table, String cf)
-    {
-        final Comparator<DecoratedKey> keyComparator =
-            StorageService.getPartitioner().getDecoratedKeyComparator();
-        final AbstractType[] nameComparators = new AbstractType[]{
-            DatabaseDescriptor.getComparator(table, cf),
-            DatabaseDescriptor.getSubComparator(table, cf)};
-        // TODO: add caching of comparators for CFs
-        return new Comparator<IndexEntry>()
-        {
-            public int compare(IndexEntry o1, IndexEntry o2)
-            {
-                assert o1.names.length == o2.names.length;
-                int comp = keyComparator.compare(o1.key, o2.key);
-                if (comp != 0)
-                    return comp;
-                for (int i = 0; i < nameComparators.length; i++)
-                {
-                    comp = nameComparators[i].compare(o1.names[i], o2.names[i]);
-                    if (comp != 0)
-                        return comp;
-                }
-                return 0;
-            }
-        };
     }
 
     public void serialize(DataOutput dos) throws IOException
@@ -84,7 +49,6 @@ public class IndexEntry
         dos.writeByte((byte)names.length);
         for (byte[] name : names)
             ColumnSerializer.writeName(name, dos);
-
         dos.writeLong(offset);
     }
 
@@ -97,7 +61,6 @@ public class IndexEntry
         final byte[][] names = new byte[nameCount][];
         for (int i = 0; i < nameCount; i++)
             names[i] = ColumnSerializer.readName(dis);
-
         final long offset = dis.readLong();
         return new IndexEntry(key, names, offset);
     }

@@ -37,6 +37,10 @@ import org.apache.cassandra.utils.BloomFilter;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import com.reardencommerce.kernel.collections.shared.evictable.ConcurrentLinkedHashMap;
 
+/**
+ * TODO: add a header to the index file indicating the sparsity of the keys in the
+ * index. The current implementation always stores an entry for every column.
+ */
 public class SSTableWriter extends SSTable
 {
     private static Logger logger = Logger.getLogger(SSTableWriter.class);
@@ -74,22 +78,23 @@ public class SSTableWriter extends SSTable
 
     private void afterAppend(DecoratedKey decoratedKey, long position) throws IOException
     {
+        // FIXME: bloomfilter should contain entire IndexEntry
         String diskKey = partitioner.convertToDiskFormat(decoratedKey);
         bf.add(diskKey);
         lastWrittenKey = decoratedKey;
+
         long indexPosition = indexFile.getFilePointer();
-        indexFile.writeUTF(diskKey);
-        indexFile.writeLong(position);
-        if (logger.isTraceEnabled())
-            logger.trace("wrote " + decoratedKey + " at " + position);
+        // FIXME: append should be called per column so we can collect names
+        IndexEntry entry = new IndexEntry(decoratedKey, new byte[0][], indexPosition);
+        entry.serialize(indexFile);
 
         if (keysWritten++ % INDEX_INTERVAL != 0)
             return;
-        if (indexPositions == null)
+        if (indexEntries == null)
         {
-            indexPositions = new ArrayList<KeyPosition>();
+            indexEntries = new ArrayList<IndexEntry>();
         }
-        indexPositions.add(new KeyPosition(decoratedKey, indexPosition));
+        indexEntries.add(entry);
         if (logger.isTraceEnabled())
             logger.trace("wrote index of " + decoratedKey + " at " + indexPosition);
     }
@@ -143,7 +148,7 @@ public class SSTableWriter extends SSTable
         ConcurrentLinkedHashMap<DecoratedKey, Long> keyCache = cacheFraction > 0
                                                         ? SSTableReader.createKeyCache((int) (cacheFraction * keysWritten))
                                                         : null;
-        return new SSTableReader(path, partitioner, indexPositions, bf, keyCache);
+        return new SSTableReader(path, partitioner, indexEntries, bf, keyCache);
     }
 
     static String rename(String tmpFilename)

@@ -55,7 +55,7 @@ public abstract class SSTable
     protected String path;
     protected IPartitioner partitioner;
     protected BloomFilter bf;
-    protected List<KeyPosition> indexPositions;
+    protected List<IndexEntry> indexEntries;
     protected String columnFamilyName;
 
     /* Every 128th index entry is loaded into memory so we know where to start looking for the actual key w/o seeking */

@@ -102,7 +102,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
         for (SSTableReader sstable : sstables)
         {
-            int indexKeyCount = sstable.getIndexPositions().size();
+            int indexKeyCount = sstable.getIndexEntries().size();
             count = count + (indexKeyCount + 1) * INDEX_INTERVAL;
             if (logger.isDebugEnabled())
                 logger.debug("index size for bloom filter calc for file  : " + sstable.getFilename() + "   : " + count);
@@ -124,11 +124,11 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         {
             if (!cfpred.apply(sstable))
                 continue;
-            for (KeyPosition kp : sstable.getIndexPositions())
+            for (IndexEntry ie : sstable.getIndexEntries())
             {
-                if (dkpred.apply(kp.key))
+                if (dkpred.apply(ie.key))
                 {
-                    indexedKeys.add(kp.key);
+                    indexedKeys.add(ie.key);
                 }
             }
         }
@@ -170,7 +170,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         sstable.loadBloomFilter();
         if (cacheFraction > 0)
         {
-            sstable.keyCache = createKeyCache((int)((sstable.getIndexPositions().size() + 1) * INDEX_INTERVAL * cacheFraction));
+            sstable.keyCache = createKeyCache((int)((sstable.getIndexEntries().size() + 1) * INDEX_INTERVAL * cacheFraction));
         }
         if (logger.isDebugEnabled())
             logger.debug("INDEX LOAD TIME for "  + dataFileName + ": " + (System.currentTimeMillis() - start) + " ms.");
@@ -187,10 +187,10 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
     private ConcurrentLinkedHashMap<DecoratedKey, Long> keyCache;
 
-    SSTableReader(String filename, IPartitioner partitioner, List<KeyPosition> indexPositions, BloomFilter bloomFilter, ConcurrentLinkedHashMap<DecoratedKey, Long> keyCache)
+    SSTableReader(String filename, IPartitioner partitioner, List<IndexEntry> indexEntries, BloomFilter bloomFilter, ConcurrentLinkedHashMap<DecoratedKey, Long> keyCache)
     {
         super(filename, partitioner);
-        this.indexPositions = indexPositions;
+        this.indexEntries = indexEntries;
         this.bf = bloomFilter;
         phantomReference = new FileDeletingReference(this, finalizerQueue);
         finalizers.add(phantomReference);
@@ -203,9 +203,9 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         this(filename, partitioner, null, null, null);
     }
 
-    public List<KeyPosition> getIndexPositions()
+    public List<IndexEntry> getIndexEntries()
     {
-        return indexPositions;
+        return indexEntries;
     }
 
     void loadBloomFilter() throws IOException
@@ -226,7 +226,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(), "r");
         try
         {
-            indexPositions = new ArrayList<KeyPosition>();
+            indexEntries = new ArrayList<IndexEntry>();
 
             int i = 0;
             long indexSize = input.length();
@@ -237,11 +237,12 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                 {
                     break;
                 }
-                DecoratedKey decoratedKey = partitioner.convertFromDiskFormat(input.readUTF());
-                input.readLong();
+                // FIXME: index entry contains data file position for column: previously,
+                // in memory copy pointed to index file position: 2 random reads
+                IndexEntry entry = IndexEntry.deserialize(input);
                 if (i++ % INDEX_INTERVAL == 0)
                 {
-                    indexPositions.add(new KeyPosition(decoratedKey, indexPosition));
+                    indexEntries.add(entry);
                 }
             }
         }
@@ -254,8 +255,10 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     /** get the position in the index file to start scanning to find the given key (at most indexInterval keys away) */
     private long getIndexScanPosition(DecoratedKey decoratedKey, IPartitioner partitioner)
     {
-        assert indexPositions != null && indexPositions.size() > 0;
-        int index = Collections.binarySearch(indexPositions, new KeyPosition(decoratedKey, -1));
+        assert indexEntries != null && indexEntries.size() > 0;
+        // TODO: get/use column name
+        int index = Collections.binarySearch(indexEntries, new IndexEntry(decoratedKey, new byte[0][], -1),
+                                             IndexEntry.getComparator(getTableName(), getColumnFamilyName()));
         if (index < 0)
         {
             // binary search gives us the first index _greater_ than the key searched for,
@@ -263,11 +266,11 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             int greaterThan = (index + 1) * -1;
             if (greaterThan == 0)
                 return -1;
-            return indexPositions.get(greaterThan - 1).position;
+            return indexEntries.get(greaterThan - 1).position;
         }
         else
         {
-            return indexPositions.get(index).position;
+            return indexEntries.get(index).position;
         }
     }
 
