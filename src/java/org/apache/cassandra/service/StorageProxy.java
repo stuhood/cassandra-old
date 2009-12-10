@@ -41,7 +41,6 @@ import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Range;
-import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.concurrent.StageManager;
 
@@ -80,14 +79,6 @@ public class StorageProxy implements StorageProxyMBean
         {
             IPartitioner p = StorageService.getPartitioner();
             return p.getDecoratedKeyComparator().compare(p.decorateKey(o1), p.decorateKey(o2));
-        }
-    };
-
-    private static Comparator<Row> rowComparator = new Comparator<Row>()
-    {
-        public int compare(Row r1, Row r2)
-        {
-            return keyComparator.compare(r1.key, r2.key);
         }
     };
 
@@ -295,7 +286,7 @@ public class StorageProxy implements StorageProxyMBean
     }    
 
     /**
-     * Read the data from one replica.  If there is no reply, read the data from another.  In the event we get
+     * Read the data from one replica.  When we get
      * the data we perform consistency checks and figure out if any repairs need to be done to the replicas.
      * @param commands a set of commands to perform reads
      * @return the row associated with command.key
@@ -308,7 +299,6 @@ public class StorageProxy implements StorageProxyMBean
 
         List<Row> rows = new ArrayList<Row>();
         List<IAsyncResult> iars = new ArrayList<IAsyncResult>();
-        int commandIndex = 0;
 
         for (ReadCommand command: commands)
         {
@@ -337,7 +327,6 @@ public class StorageProxy implements StorageProxyMBean
             ReadResponse response = ReadResponse.serializer().deserialize(bufIn);
             if (response.row() != null)
                 rows.add(response.row());
-            commandIndex++;
         }
         return rows;
     }
@@ -412,7 +401,6 @@ public class StorageProxy implements StorageProxyMBean
 
         for (ReadCommand command: commands)
         {
-            // TODO: throw a thrift exception if we do not have N nodes
             assert !command.isDigestQuery();
             ReadCommand readMessageDigestOnly = command.copy();
             readMessageDigestOnly.setDigestQuery(true);
@@ -496,10 +484,7 @@ public class StorageProxy implements StorageProxyMBean
     }
 
     /*
-    * This function executes the read protocol locally and should be used only if consistency is not a concern.
-    * Read the data from the local disk and return if the row is NOT NULL. If the data is NULL do the read from
-    * one of the other replicas (in the same data center if possible) till we get the data. In the event we get
-    * the data we perform consistency checks and figure out if any repairs need to be done to the replicas.
+    * This function executes the read protocol locally.  Consistency checks are performed in the background.
     */
     private static List<Row> weakReadLocal(List<ReadCommand> commands)
     {
@@ -707,7 +692,6 @@ public class StorageProxy implements StorageProxyMBean
             List<InetAddress> endpoints = StorageService.instance().getLiveNaturalEndpoints(command.key);
             /* Remove the local storage endpoint from the list. */
             endpoints.remove(FBUtilities.getLocalAddress());
-            // TODO: throw a thrift exception if we do not have N nodes
 
             if (logger.isDebugEnabled())
                 logger.debug("weakreadlocal reading " + command);
