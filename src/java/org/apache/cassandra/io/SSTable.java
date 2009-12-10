@@ -23,8 +23,9 @@ package org.apache.cassandra.io;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.List;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 import org.apache.log4j.Logger;
 import org.apache.commons.lang.StringUtils;
@@ -68,6 +69,7 @@ public abstract class SSTable
         columnFamilyName = new File(filename).getName().split("-")[0];
         this.path = filename;
         this.partitioner = partitioner;
+        this.indexEntries = new ArrayList<IndexEntry>();
     }
 
     protected static String indexFilename(String dataFile)
@@ -159,33 +161,6 @@ public abstract class SSTable
         FileUtils.deleteWithConfirm(new File(SSTable.filterFilename(path)));
         FileUtils.deleteWithConfirm(new File(SSTable.compactedFilename(path)));
         logger.info("Deleted " + path);
-    }
-
-    /**
-     * This is a simple container for the index Key and its corresponding position
-     * in the data file. Binary search is performed on a list of these objects
-     * to lookup keys within the SSTable data file.
-     */
-    class KeyPosition implements Comparable<KeyPosition>
-    {
-        public final DecoratedKey key;
-        public final long position;
-
-        public KeyPosition(DecoratedKey key, long position)
-        {
-            this.key = key;
-            this.position = position;
-        }
-
-        public int compareTo(KeyPosition kp)
-        {
-            return partitioner.getDecoratedKeyComparator().compare(key, kp.key);
-        }
-
-        public String toString()
-        {
-            return key + ":" + position;
-        }
     }
 
     public long bytesOnDisk()

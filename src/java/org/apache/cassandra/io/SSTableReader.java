@@ -112,7 +112,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     }
 
     /**
-     * Get all indexed keys defined by the two predicates.
+     * Get sampled indexed keys defined by the two predicates.
      * @param cfpred A Predicate defining matching column families.
      * @param dkpred A Predicate defining matching DecoratedKeys.
      */
@@ -138,7 +138,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     }
 
     /**
-     * Get all indexed keys in any SSTable for our primary range.
+     * Get sampled indexed keys in any SSTable for our primary range.
      */
     public static List<DecoratedKey> getIndexedDecoratedKeys()
     {
@@ -180,14 +180,14 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
     FileDeletingReference phantomReference;
 
-    public static ConcurrentLinkedHashMap<DecoratedKey, Long> createKeyCache(int size)
+    public static ConcurrentLinkedHashMap<ColumnKey, IndexEntry> createKeyCache(int size)
     {
         return ConcurrentLinkedHashMap.create(ConcurrentLinkedHashMap.EvictionPolicy.SECOND_CHANCE, size);
     }
 
-    private ConcurrentLinkedHashMap<DecoratedKey, Long> keyCache;
+    private ConcurrentLinkedHashMap<ColumnKey, IndexEntry> keyCache;
 
-    SSTableReader(String filename, IPartitioner partitioner, List<IndexEntry> indexEntries, BloomFilter bloomFilter, ConcurrentLinkedHashMap<DecoratedKey, Long> keyCache)
+    SSTableReader(String filename, IPartitioner partitioner, List<IndexEntry> indexEntries, BloomFilter bloomFilter, ConcurrentLinkedHashMap<ColumnKey, IndexEntry> keyCache)
     {
         super(filename, partitioner);
         this.indexEntries = indexEntries;
@@ -226,7 +226,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(), "r");
         try
         {
-            indexEntries = new ArrayList<IndexEntry>();
+            indexEntries.clear();
 
             int i = 0;
             long indexSize = input.length();
@@ -234,16 +234,12 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             {
                 long indexPosition = input.getFilePointer();
                 if (indexPosition == indexSize)
-                {
                     break;
-                }
-                // FIXME: index entry contains data file position for column: previously,
-                // in memory copy pointed to index file position: 2 random reads
-                IndexEntry entry = IndexEntry.deserialize(input);
+
                 if (i++ % INDEX_INTERVAL == 0)
-                {
-                    indexEntries.add(entry);
-                }
+                    indexEntries.add(IndexEntry.deserialize(input));
+                else
+                    IndexEntry.skip(input);
             }
         }
         finally
@@ -252,12 +248,14 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         }
     }
 
-    /** get the position in the index file to start scanning to find the given key (at most indexInterval keys away) */
-    private long getIndexScanPosition(DecoratedKey decoratedKey, IPartitioner partitioner)
+    /**
+     * @return The position in the index file to start scanning to find the given key (at most indexInterval keys away)
+     */
+    private long getIndexScanPosition(ColumnKey target)
     {
-        assert indexEntries != null && indexEntries.size() > 0;
+        assert !indexEntries.isEmpty();
         // TODO: get/use column name
-        int index = Collections.binarySearch(indexEntries, new IndexEntry(decoratedKey, new byte[0][], -1),
+        int index = Collections.binarySearch(indexEntries, target,
                                              IndexEntry.getComparator(getTableName(), getColumnFamilyName()));
         if (index < 0)
         {
@@ -266,11 +264,13 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             int greaterThan = (index + 1) * -1;
             if (greaterThan == 0)
                 return -1;
-            return indexEntries.get(greaterThan - 1).position;
+            return indexEntries.get(greaterThan - 1).indexOffset;
         }
         else
         {
-            return indexEntries.get(index).position;
+            // TODO: for exact matches, utilize the dataOffset to seek directly to
+            // the data file
+            return indexEntries.get(index).indexOffset;
         }
     }
 
@@ -279,22 +279,24 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
      */
     public long getPosition(DecoratedKey decoratedKey) throws IOException
     {
+        // TODO: should contain column names as well
+        ColumnKey target = new ColumnKey(decoratedKey, new byte[0][]);
+
         if (!bf.isPresent(partitioner.convertToDiskFormat(decoratedKey)))
             return -1;
         if (keyCache != null)
         {
-            Long cachedPosition = keyCache.get(decoratedKey);
-            if (cachedPosition != null)
-            {
-                return cachedPosition;
-            }
+            IndexEntry cachedEntry = keyCache.get(target);
+            if (cachedEntry != null)
+                return cachedEntry.dataOffset;
         }
-        long start = getIndexScanPosition(decoratedKey, partitioner);
+        long start = getIndexScanPosition(target);
         if (start < 0)
         {
             return -1;
         }
 
+        Comparator<ColumnKey> comparator = IndexEntry.getComparator(getTableName(), getColumnFamilyName());
         // TODO mmap the index file?
         BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(path), "r");
         input.seek(start);
@@ -303,22 +305,21 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         {
             do
             {
-                DecoratedKey indexDecoratedKey;
+                IndexEntry indexEntry;
                 try
                 {
-                    indexDecoratedKey = partitioner.convertFromDiskFormat(input.readUTF());
+                    indexEntry = IndexEntry.deserialize(input);
                 }
                 catch (EOFException e)
                 {
                     return -1;
                 }
-                long position = input.readLong();
-                int v = partitioner.getDecoratedKeyComparator().compare(indexDecoratedKey, decoratedKey);
+                int v = comparator.compare(indexEntry, target);
                 if (v == 0)
                 {
                     if (keyCache != null)
-                        keyCache.put(decoratedKey, position);
-                    return position;
+                        keyCache.put(indexEntry, indexEntry);
+                    return indexEntry.dataOffset;
                 }
                 if (v > 0)
                     return -1;
@@ -331,33 +332,37 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         return -1;
     }
 
-    /** like getPosition, but if key is not found will return the location of the first key _greater_ than the desired one, or -1 if no such key exists. */
+    /** like getPosition, but if key is not found will return the location of the first key _greater_than/equal_to_ the desired one, or -1 if no such key exists. */
     public long getNearestPosition(DecoratedKey decoratedKey) throws IOException
     {
-        long start = getIndexScanPosition(decoratedKey, partitioner);
+        // TODO: should contain column names as well
+        ColumnKey target = new ColumnKey(decoratedKey, new byte[0][]);
+
+        long start = getIndexScanPosition(target);
         if (start < 0)
         {
             return 0;
         }
+
+        Comparator<ColumnKey> comparator = IndexEntry.getComparator(getTableName(), getColumnFamilyName());
         BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(path), "r");
         input.seek(start);
         try
         {
             while (true)
             {
-                DecoratedKey indexDecoratedKey;
+                IndexEntry indexEntry;
                 try
                 {
-                    indexDecoratedKey = partitioner.convertFromDiskFormat(input.readUTF());
+                    indexEntry = IndexEntry.deserialize(input);
                 }
                 catch (EOFException e)
                 {
                     return -1;
                 }
-                long position = input.readLong();
-                int v = partitioner.getDecoratedKeyComparator().compare(indexDecoratedKey, decoratedKey);
+                int v = comparator.compare(indexEntry, target);
                 if (v >= 0)
-                    return position;
+                    return indexEntry.dataOffset;
             }
         }
         finally

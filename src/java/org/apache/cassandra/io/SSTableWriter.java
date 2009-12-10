@@ -85,18 +85,14 @@ public class SSTableWriter extends SSTable
 
         long indexPosition = indexFile.getFilePointer();
         // FIXME: append should be called per column so we can collect names
-        IndexEntry entry = new IndexEntry(decoratedKey, new byte[0][], indexPosition);
+        IndexEntry entry = new IndexEntry(decoratedKey, new byte[0][], indexPosition, position);
         entry.serialize(indexFile);
 
         if (keysWritten++ % INDEX_INTERVAL != 0)
             return;
-        if (indexEntries == null)
-        {
-            indexEntries = new ArrayList<IndexEntry>();
-        }
         indexEntries.add(entry);
         if (logger.isTraceEnabled())
-            logger.trace("wrote index of " + decoratedKey + " at " + indexPosition);
+            logger.trace("wrote index of " + decoratedKey + " at position " + indexPosition + " for data at " + position);
     }
 
     // TODO make this take a DataOutputStream and wrap the byte[] version to combine them
@@ -145,7 +141,7 @@ public class SSTableWriter extends SSTable
         rename(filterFilename());
         path = rename(path); // important to do this last since index & filter file names are derived from it
 
-        ConcurrentLinkedHashMap<DecoratedKey, Long> keyCache = cacheFraction > 0
+        ConcurrentLinkedHashMap<ColumnKey, IndexEntry> keyCache = cacheFraction > 0
                                                         ? SSTableReader.createKeyCache((int) (cacheFraction * keysWritten))
                                                         : null;
         return new SSTableReader(path, partitioner, indexEntries, bf, keyCache);
