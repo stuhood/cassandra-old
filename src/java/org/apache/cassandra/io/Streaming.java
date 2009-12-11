@@ -43,7 +43,6 @@ import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.service.StreamManager;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.LogUtil;
 
 public class Streaming
 {
@@ -124,6 +123,16 @@ public class Streaming
             }
             logger.info("Done with transfer to " + target);
         }
+    }
+
+    /**
+     * Request ranges to be transferred
+     */
+    public static void requestRanges(InetAddress source, Collection<Range> ranges)
+    {
+        StreamRequestMetadata streamRequestMetadata = new StreamRequestMetadata(FBUtilities.getLocalAddress(), ranges);
+        Message message = StreamRequestMessage.makeStreamRequestMessage(new StreamRequestMessage(streamRequestMetadata));
+        MessagingService.instance().sendOneWay(message, source);
     }
 
     public static class StreamInitiateVerbHandler implements IVerbHandler

@@ -43,7 +43,6 @@ import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.utils.Cachetable;
 import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.LogUtil;
 import org.apache.cassandra.utils.MerkleTree;
 
 import org.apache.log4j.Logger;
@@ -273,12 +272,13 @@ public class AntiEntropyService
      *
      * @param table The table name containing the column family.
      * @param cf The column family name.
-     * @param initiator Endpoint that initially triggered this validation, or null.
+     * @param initiator Endpoint that initially triggered this validation, or null if
+     * the validation will not see all of the data contained in the column family.
      * @return A Validator.
      */
     public IValidator getValidator(String table, String cf, InetAddress initiator)
     {
-        if (initiator == null)
+        if (initiator == null || table.equals(Table.SYSTEM_TABLE))
             return new NoopValidator();
         else if (StorageService.instance().getTokenMetadata().sortedTokens().size()  < 1)
             // gossiper isn't started
@@ -725,10 +725,10 @@ public class AntiEntropyService
                 Table table = Table.open(request.table);
                 CompactionManager.instance().submitReadonly(table.getColumnFamilyStore(request.cf), message.getFrom());
             }
-            catch (Exception e)
+            catch (IOException e)
             {
-                logger.warn(LogUtil.throwableToString(e));            
-            }        
+                throw new IOError(e);            
+            }
         }
     }
 
@@ -791,10 +791,10 @@ public class AntiEntropyService
                 Validator rvalidator = this.deserialize(buffer);
                 AntiEntropyService.instance().register(rvalidator.cf, message.getFrom(), rvalidator.tree);
             }
-            catch (Exception e)
+            catch (IOException e)
             {
-                logger.warn(LogUtil.throwableToString(e));            
-            }        
+                throw new IOError(e);
+            }
         }
     }
 

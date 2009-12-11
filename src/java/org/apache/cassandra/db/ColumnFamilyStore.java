@@ -757,6 +757,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         {
             doCleanup(sstable);
         }
+        gcAfterRpcTimeout();
     }
 
     /**
@@ -814,7 +815,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         SSTableWriter writer = null;
         CompactionIterator ci = new CompactionIterator(sstables, getDefaultGCBefore(), sstables.size() == ssTables_.size());
-        Iterator nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
+        Iterator<CompactionIterator.CompactedRow> nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
 
         try
         {
@@ -825,7 +826,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
             while (nni.hasNext())
             {
-                CompactionIterator.CompactedRow row = (CompactionIterator.CompactedRow) nni.next();
+                CompactionIterator.CompactedRow row = nni.next();
                 if (Range.isTokenInRanges(row.key.token, ranges))
                 {
                     if (writer == null)
@@ -904,7 +905,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         SSTableWriter writer;
         CompactionIterator ci = new CompactionIterator(sstables, gcBefore, major); // retain a handle so we can call close()
-        Iterator nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
+        Iterator<CompactionIterator.CompactedRow> nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
 
         try
         {
@@ -926,7 +927,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             validator.prepare();
             while (nni.hasNext())
             {
-                CompactionIterator.CompactedRow row = (CompactionIterator.CompactedRow) nni.next();
+                CompactionIterator.CompactedRow row = nni.next();
                 writer.append(row.key, row.buffer);
                 validator.add(row);
                 totalkeysWritten++;
@@ -941,6 +942,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         SSTableReader ssTable = writer.closeAndOpenReader(DatabaseDescriptor.getKeysCachedFraction(table_));
         ssTables_.add(ssTable);
         ssTables_.markCompacted(sstables);
+        gcAfterRpcTimeout();
         CompactionManager.instance().submit(ColumnFamilyStore.this);
 
         String format = "Compacted to %s.  %d/%d bytes for %d keys.  Time: %dms.";
@@ -950,8 +952,31 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
     }
 
     /**
-     * Performs a readonly compaction of all sstables in order to validate
-     * them on request, but without performing any writes.
+     * perform a GC to clean out obsolete sstables, sleeping rpc timeout first so that most in-progress ops can complete
+     * (thus, no longer reference the sstables in question)
+     */
+    private void gcAfterRpcTimeout()
+    {
+        new Thread(new Runnable()
+        {
+            public void run()
+            {
+                try
+                {
+                    Thread.sleep(DatabaseDescriptor.getRpcTimeout());
+                }
+                catch (InterruptedException e)
+                {
+                    throw new AssertionError(e);
+                }
+                System.gc();
+            }
+        });
+    }
+
+    /**
+     * Performs a readonly "compaction" of all sstables in order to validate complete rows,
+     * but without writing the merge result
      */
     void doReadonlyCompaction(InetAddress initiator) throws IOException
     {
@@ -959,14 +984,14 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         CompactionIterator ci = new CompactionIterator(sstables, getDefaultGCBefore(), true);
         try
         {
-            Iterator nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
+            Iterator<CompactionIterator.CompactedRow> nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
 
             // validate the CF as we iterate over it
             AntiEntropyService.IValidator validator = AntiEntropyService.instance().getValidator(table_, columnFamily_, initiator);
             validator.prepare();
             while (nni.hasNext())
             {
-                CompactionIterator.CompactedRow row = (CompactionIterator.CompactedRow) nni.next();
+                CompactionIterator.CompactedRow row = nni.next();
                 validator.add(row);
             }
             validator.complete();
@@ -1268,8 +1293,6 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
     {
         final DecoratedKey startWithDK = partitioner.decorateKey(startWith);
         final DecoratedKey stopAtDK = partitioner.decorateKey(stopAt);
-        // (OPP key decoration is a no-op so using the "decorated" comparator against raw keys is fine)
-        final Comparator<DecoratedKey> comparator = partitioner.getDecoratedKeyComparator();
 
         // create a CollatedIterator that will return unique keys from different sources
         // (current memtable, historical memtables, and SSTables) in the correct order.
@@ -1281,8 +1304,8 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         {
             public boolean apply(DecoratedKey key)
             {
-                return comparator.compare(startWithDK, key) <= 0
-                       && (stopAt.isEmpty() || comparator.compare(key, stopAtDK) <= 0);
+                return startWithDK.compareTo(key) <= 0
+                       && (stopAt.isEmpty() || key.compareTo(stopAtDK) <= 0);
             }
         };
 
@@ -1322,7 +1345,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             iterators.add(iter);
         }
 
-        Iterator<DecoratedKey> collated = IteratorUtils.collatedIterator(comparator, iterators);
+        Iterator<DecoratedKey> collated = IteratorUtils.collatedIterator(DecoratedKey.comparator, iterators);
         Iterable<DecoratedKey> reduced = new ReducingIterator<DecoratedKey, DecoratedKey>(collated) {
             DecoratedKey current;
 
@@ -1345,7 +1368,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             boolean rangeCompletedLocally = false;
             for (DecoratedKey current : reduced)
             {
-                if (!stopAt.isEmpty() && comparator.compare(stopAtDK, current) < 0)
+                if (!stopAt.isEmpty() && stopAtDK.compareTo(current) < 0)
                 {
                     rangeCompletedLocally = true;
                     break;
@@ -1390,9 +1413,6 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
     public RangeReply getKeyRangeRaw(final DecoratedKey startWith, final DecoratedKey stopAt, int maxResults)
     throws IOException, ExecutionException, InterruptedException
     {
-        // (OPP key decoration is a no-op so using the "decorated" comparator against raw keys is fine)
-        final Comparator<DecoratedKey> comparator = partitioner.getDecoratedKeyComparator();
-
         // create a CollatedIterator that will return unique keys from different sources
         // (current memtable, historical memtables, and SSTables) in the correct order.
         List<Iterator<DecoratedKey>> iterators = new ArrayList<Iterator<DecoratedKey>>();
@@ -1403,8 +1423,8 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         {
             public boolean apply(DecoratedKey key)
             {
-                return comparator.compare(startWith, key) <= 0
-                       && (stopAt.isEmpty() || comparator.compare(key,  stopAt) <= 0);
+                return startWith.compareTo(key) <= 0
+                       && (stopAt.isEmpty() || key.compareTo(stopAt) <= 0);
             }
         };
 
@@ -1444,7 +1464,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             iterators.add(iter);
         }
 
-        Iterator<DecoratedKey> collated = IteratorUtils.collatedIterator(comparator, iterators);
+        Iterator<DecoratedKey> collated = IteratorUtils.collatedIterator(DecoratedKey.comparator, iterators);
         Iterable<DecoratedKey> reduced = new ReducingIterator<DecoratedKey, DecoratedKey>(collated) {
             DecoratedKey current;
 
@@ -1466,7 +1486,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             boolean rangeCompletedLocally = false;
             for (DecoratedKey current : reduced)
             {
-                if (!stopAt.isEmpty() && comparator.compare( stopAt, current) < 0)
+                if (!stopAt.isEmpty() && stopAt.compareTo(current) < 0)
                 {
                     rangeCompletedLocally = true;
                     break;

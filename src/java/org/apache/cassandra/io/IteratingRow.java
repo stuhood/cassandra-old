@@ -113,6 +113,6 @@ public class IteratingRow extends AbstractIterator<IColumn> implements Comparabl
 
     public int compareTo(IteratingRow o)
     {
-        return partitioner.getDecoratedKeyComparator().compare(key, o.key);
+        return key.compareTo(o.key);
     }
 }
