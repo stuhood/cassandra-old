@@ -44,6 +44,15 @@ public class ColumnKey
         this.names = names;
     }
 
+    /**
+     * Returns a comparator that compares ColumnKeys by key and then names, using
+     * the appropriate comparator at each level. The ColumnKeys must contain
+     * an equal number of names: for example, a ColumnFamily containing columns
+     * of type super, should always have name.length == 2, although tailing null
+     * names can be used to match the beginning of a subrange for instance.
+     *
+     * TODO: confirm that AbstractTypes can handle null comparisons.
+     */
     public static Comparator<ColumnKey> getComparator(String table, String cf)
     {
         final Comparator<DecoratedKey> keyComparator =

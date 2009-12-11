@@ -200,7 +200,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
     private SSTableReader(String filename, IPartitioner partitioner)
     {
-        this(filename, partitioner, null, null, null);
+        this(filename, partitioner, new ArrayList<IndexEntry>(), null, null);
     }
 
     public List<IndexEntry> getIndexEntries()

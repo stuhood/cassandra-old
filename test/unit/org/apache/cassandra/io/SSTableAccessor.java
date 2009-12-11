@@ -19,6 +19,7 @@
 package org.apache.cassandra.io;
 
 import java.io.IOException;
+import java.util.ArrayList;
 
 import org.apache.cassandra.dht.IPartitioner;
 
@@ -27,7 +28,7 @@ public class SSTableAccessor
     public static SSTableReader getSSTableReader(String filename, IPartitioner<?> partitioner)
     throws IOException
     {
-        SSTableReader sstable =  new SSTableReader(filename, partitioner, null, null, null);
+        SSTableReader sstable =  new SSTableReader(filename, partitioner, new ArrayList<IndexEntry>(), null, null);
         sstable.loadBloomFilter();
         sstable.loadIndexFile();
         return sstable;
