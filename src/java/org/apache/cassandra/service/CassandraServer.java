@@ -21,9 +21,11 @@ package org.apache.cassandra.service;
 import java.io.BufferedInputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.File;
 import java.util.*;
 
 import org.apache.log4j.Logger;
+import org.apache.log4j.PropertyConfigurator;
 
 import org.apache.commons.lang.ArrayUtils;
 
@@ -33,7 +35,6 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.MarshalException;
 import org.apache.cassandra.db.filter.QueryPath;
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.utils.LogUtil;
 import org.apache.cassandra.utils.Pair;
 import org.apache.thrift.TException;
 
@@ -51,31 +52,17 @@ public class CassandraServer implements Cassandra.Iface
       * Handle to the storage service to interact with the other machines in the
       * cluster.
       */
-	protected StorageService storageService;
+	private final StorageService storageService;
 
     public CassandraServer()
 	{
 		storageService = StorageService.instance();
 	}
 
-	/*
-	 * The start function initializes the server and start's listening on the
-	 * specified port.
-	 */
-	public void start() throws IOException
-    {
-		LogUtil.init();
-		//LogUtil.setLogLevel("com.facebook", "DEBUG");
-		// Start the storage service
-		storageService.initServer();
-	}
-
     protected Map<String, ColumnFamily> readColumnFamily(List<ReadCommand> commands, int consistency_level)
     throws InvalidRequestException, UnavailableException, TimedOutException
     {
         // TODO - Support multiple column families per row, right now row only contains 1 column family
-        String cfName = commands.get(0).getColumnFamilyName();
-
         Map<String, ColumnFamily> columnFamilyKeyMap = new HashMap<String,ColumnFamily>();
 
         if (consistency_level == ConsistencyLevel.ZERO)

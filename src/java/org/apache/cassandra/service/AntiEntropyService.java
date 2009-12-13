@@ -43,7 +43,6 @@ import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.utils.Cachetable;
 import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.LogUtil;
 import org.apache.cassandra.utils.MerkleTree;
 
 import org.apache.log4j.Logger;
@@ -637,7 +636,7 @@ public class AntiEntropyService
             try
             {
                 List<Range> ranges = new ArrayList<Range>(differences);
-                List<SSTableReader> sstables = CompactionManager.instance().submitAnti(cfstore, ranges, remote).get();
+                List<SSTableReader> sstables = CompactionManager.instance.submitAnti(cfstore, ranges, remote).get();
                 Streaming.transferSSTables(remote, sstables, cf.table);
             }
             catch(Exception e)
@@ -724,12 +723,12 @@ public class AntiEntropyService
                 // trigger readonly-compaction
                 logger.debug("Queueing readonly compaction for request from " + message.getFrom() + " for " + request);
                 Table table = Table.open(request.table);
-                CompactionManager.instance().submitReadonly(table.getColumnFamilyStore(request.cf), message.getFrom());
+                CompactionManager.instance.submitReadonly(table.getColumnFamilyStore(request.cf), message.getFrom());
             }
-            catch (Exception e)
+            catch (IOException e)
             {
-                logger.warn(LogUtil.throwableToString(e));            
-            }        
+                throw new IOError(e);            
+            }
         }
     }
 
@@ -792,10 +791,10 @@ public class AntiEntropyService
                 Validator rvalidator = this.deserialize(buffer);
                 AntiEntropyService.instance().register(rvalidator.cf, message.getFrom(), rvalidator.tree);
             }
-            catch (Exception e)
+            catch (IOException e)
             {
-                logger.warn(LogUtil.throwableToString(e));            
-            }        
+                throw new IOError(e);
+            }
         }
     }
 

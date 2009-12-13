@@ -21,11 +21,7 @@ package org.apache.cassandra.io;
  */
 
 
-import java.io.File;
-import java.io.IOException;
-import java.io.FileOutputStream;
-import java.io.DataOutputStream;
-import java.util.Comparator;
+import java.io.*;
 import java.util.ArrayList;
 
 import org.apache.log4j.Logger;
@@ -34,6 +30,7 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.BloomFilter;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import com.reardencommerce.kernel.collections.shared.evictable.ConcurrentLinkedHashMap;
 
@@ -65,8 +62,7 @@ public class SSTableWriter extends SSTable
         {
             throw new IOException("Keys must not be null.");
         }
-        Comparator<DecoratedKey> c = partitioner.getDecoratedKeyComparator();
-        if (lastWrittenKey != null && c.compare(lastWrittenKey, decoratedKey) > 0)
+        if (lastWrittenKey != null && lastWrittenKey.compareTo(decoratedKey) > 0)
         {
             logger.info("Last written key : " + lastWrittenKey);
             logger.info("Current key : " + decoratedKey);
@@ -150,7 +146,14 @@ public class SSTableWriter extends SSTable
     static String rename(String tmpFilename)
     {
         String filename = tmpFilename.replace("-" + SSTable.TEMPFILE_MARKER, "");
-        new File(tmpFilename).renameTo(new File(filename));
+        try
+        {
+            FBUtilities.renameWithConfirm(tmpFilename, filename);
+        }
+        catch (IOException e)
+        {
+            throw new IOError(e);
+        }
         return filename;
     }
 

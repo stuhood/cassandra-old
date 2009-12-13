@@ -25,10 +25,7 @@ import java.util.Collection;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
-import javax.management.MBeanServer;
-import javax.management.ObjectName;
+import javax.management.*;
 
 import org.apache.log4j.Logger;
 
@@ -39,158 +36,27 @@ import java.net.InetAddress;
 
 public class CompactionManager implements CompactionManagerMBean
 {
-    public static String MBEAN_OBJECT_NAME = "org.apache.cassandra.db:type=CompactionManager";
-    private static CompactionManager instance_;
-    private static Lock lock_ = new ReentrantLock();
-    private static Logger logger_ = Logger.getLogger(CompactionManager.class);
-    private int minimumCompactionThreshold_ = 4; // compact this many sstables min at a time
+    public static final String MBEAN_OBJECT_NAME = "org.apache.cassandra.db:type=CompactionManager";
+    private static final Logger logger = Logger.getLogger(CompactionManager.class);
+    public static final CompactionManager instance;
+
+    private int minimumCompactionThreshold = 4; // compact this many sstables min at a time
     private int maximumCompactionThreshold = 32; // compact this many sstables max at a time
 
-    public static CompactionManager instance()
+    static
     {
-        if ( instance_ == null )
+        instance = new CompactionManager();
+        MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
+        try
         {
-            lock_.lock();
-            try
-            {
-                if ( instance_ == null )
-                {
-                    instance_ = new CompactionManager();
-                    MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
-                    mbs.registerMBean(instance_, new ObjectName(MBEAN_OBJECT_NAME));
-                }
-            }
-            catch (Exception e)
-            {
-                throw new RuntimeException(e);
-            }
-            finally
-            {
-                lock_.unlock();
-            }
+            mbs.registerMBean(instance, new ObjectName(MBEAN_OBJECT_NAME));
         }
-        return instance_;
-    }
-
-    static abstract class Compactor<T> implements Callable<T>
-    {
-        protected final ColumnFamilyStore cfstore;
-        public Compactor(ColumnFamilyStore columnFamilyStore)
+        catch (Exception e)
         {
-            cfstore = columnFamilyStore;
-        }
-
-        abstract T compact() throws IOException;
-        
-        public T call()
-        {
-        	T results;
-            if (logger_.isDebugEnabled())
-                logger_.debug("Starting " + this + ".");
-            try
-            {
-                results = compact();
-            }
-            catch (IOException e)
-            {
-                throw new RuntimeException(e);
-            }
-            if (logger_.isDebugEnabled())
-                logger_.debug("Finished " + this + ".");
-            return results;
-        }
-
-        @Override
-        public String toString()
-        {
-            StringBuilder buff = new StringBuilder();
-            buff.append("<").append(getClass().getSimpleName());
-            buff.append(" for ").append(cfstore).append(">");
-            return buff.toString();
+            throw new RuntimeException(e);
         }
     }
 
-    static class AntiCompactor extends Compactor<List<SSTableReader>>
-    {
-        private final Collection<Range> ranges;
-        private final InetAddress target;
-        AntiCompactor(ColumnFamilyStore cfstore, Collection<Range> ranges, InetAddress target)
-        {
-            super(cfstore);
-            this.ranges = ranges;
-            this.target = target;
-        }
-
-        public List<SSTableReader> compact() throws IOException
-        {
-            return cfstore.doAntiCompaction(ranges, target);
-        }
-    }
-
-    static class OnDemandCompactor extends Compactor<Object>
-    {
-        private final long skip;
-        OnDemandCompactor(ColumnFamilyStore cfstore, long skip)
-        {
-            super(cfstore);
-            this.skip = skip;
-        }
-
-        public Object compact() throws IOException
-        {
-            cfstore.doMajorCompaction(skip);
-            return this;
-        }
-    }
-
-    static class CleanupCompactor extends Compactor<Object>
-    {
-        CleanupCompactor(ColumnFamilyStore cfstore)
-        {
-            super(cfstore);
-        }
-
-        public Object compact() throws IOException
-        {
-            cfstore.doCleanupCompaction();
-            return this;
-        }
-    }
-    
-    static class MinorCompactor extends Compactor<Integer>
-    {
-        private final int minimum;
-        private final int maximum;
-        MinorCompactor(ColumnFamilyStore cfstore, int minimumThreshold, int maximumThreshold)
-        {
-            super(cfstore);
-            minimum = minimumThreshold;
-            maximum = maximumThreshold;
-        }
-
-        public Integer compact() throws IOException
-        {
-            return cfstore.doCompaction(minimum, maximum);
-        }
-    }
-
-    static class ReadonlyCompactor extends Compactor<Object>
-    {
-        private final InetAddress initiator;
-        ReadonlyCompactor(ColumnFamilyStore cfstore, InetAddress initiator)
-        {
-            super(cfstore);
-            this.initiator = initiator;
-        }
-
-        public Object compact() throws IOException
-        {
-            cfstore.doReadonlyCompaction(initiator);
-            return this;
-        }
-    }
-
-    
     private ExecutorService compactor_ = new DebuggableThreadPoolExecutor("COMPACTION-POOL");
 
     /**
@@ -198,34 +64,72 @@ public class CompactionManager implements CompactionManagerMBean
      * It's okay to over-call (within reason) since the compactions are single-threaded,
      * and if a call is unnecessary, it will just be no-oped in the bucketing phase.
      */
-    public Future<Integer> submit(final ColumnFamilyStore columnFamilyStore)
+    public Future<Integer> submitMinor(final ColumnFamilyStore columnFamilyStore)
     {
-        return submit(columnFamilyStore, minimumCompactionThreshold_, maximumCompactionThreshold);
+        return submitMinor(columnFamilyStore, minimumCompactionThreshold, maximumCompactionThreshold);
     }
 
-    Future<Integer> submit(final ColumnFamilyStore columnFamilyStore, final int minThreshold, final int maxThreshold)
+    Future<Integer> submitMinor(final ColumnFamilyStore cfStore, final int minThreshold, final int maxThreshold)
     {
-        return compactor_.submit(new MinorCompactor(columnFamilyStore, minThreshold, maxThreshold));
+        Callable<Integer> callable = new Callable<Integer>()
+        {
+            public Integer call() throws IOException
+            {
+                return cfStore.doCompaction(minThreshold, maxThreshold);
+            }
+        };
+        return compactor_.submit(callable);
     }
 
-    public Future submitCleanup(ColumnFamilyStore columnFamilyStore)
+    public Future<Object> submitCleanup(final ColumnFamilyStore cfStore)
     {
-        return compactor_.submit(new CleanupCompactor(columnFamilyStore));
+        Callable<Object> runnable = new Callable<Object>()
+        {
+            public Object call() throws IOException
+            {
+                cfStore.doCleanupCompaction();
+                return this;
+            }
+        };
+        return compactor_.submit(runnable);
     }
 
-    public Future<List<SSTableReader>> submitAnti(ColumnFamilyStore columnFamilyStore, Collection<Range> ranges, InetAddress target)
+    public Future<List<SSTableReader>> submitAnti(final ColumnFamilyStore cfStore, final Collection<Range> ranges, final InetAddress target)
     {
-        return compactor_.submit(new AntiCompactor(columnFamilyStore, ranges, target));
+        Callable<List<SSTableReader>> callable = new Callable<List<SSTableReader>>()
+        {
+            public List<SSTableReader> call() throws IOException
+            {
+                return cfStore.doAntiCompaction(ranges, target);
+            }
+        };
+        return compactor_.submit(callable);
     }
 
-    public Future submitMajor(ColumnFamilyStore columnFamilyStore, long skip)
+    public Future submitMajor(final ColumnFamilyStore cfStore, final long skip)
     {
-        return compactor_.submit(new OnDemandCompactor(columnFamilyStore, skip));
+        Callable<Object> callable = new Callable<Object>()
+        {
+            public Object call() throws IOException
+            {
+                cfStore.doMajorCompaction(skip);
+                return this;
+            }
+        };
+        return compactor_.submit(callable);
     }
 
-    public Future submitReadonly(ColumnFamilyStore columnFamilyStore, InetAddress initiator)
+    public Future submitReadonly(final ColumnFamilyStore cfStore, final InetAddress initiator)
     {
-        return compactor_.submit(new ReadonlyCompactor(columnFamilyStore, initiator));
+        Callable<Object> callable = new Callable<Object>()
+        {
+            public Object call() throws IOException
+            {
+                cfStore.doReadonlyCompaction(initiator);
+                return this;
+            }
+        };
+        return compactor_.submit(callable);
     }
 
     /**
@@ -233,7 +137,7 @@ public class CompactionManager implements CompactionManagerMBean
      */
     public int getMinimumCompactionThreshold()
     {
-        return minimumCompactionThreshold_;
+        return minimumCompactionThreshold;
     }
 
     /**
@@ -241,7 +145,7 @@ public class CompactionManager implements CompactionManagerMBean
      */
     public void setMinimumCompactionThreshold(int threshold)
     {
-        minimumCompactionThreshold_ = threshold;
+        minimumCompactionThreshold = threshold;
     }
 
     /**
@@ -262,7 +166,7 @@ public class CompactionManager implements CompactionManagerMBean
 
     public void disableCompactions()
     {
-        minimumCompactionThreshold_ = 0;
+        minimumCompactionThreshold = 0;
         maximumCompactionThreshold = 0;
     }
 }

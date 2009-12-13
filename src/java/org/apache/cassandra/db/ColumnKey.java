@@ -55,8 +55,6 @@ public class ColumnKey
      */
     public static Comparator<ColumnKey> getComparator(String table, String cf)
     {
-        final Comparator<DecoratedKey> keyComparator =
-            StorageService.getPartitioner().getDecoratedKeyComparator();
         final AbstractType[] nameComparators = new AbstractType[]{
             DatabaseDescriptor.getComparator(table, cf),
             DatabaseDescriptor.getSubComparator(table, cf)};
@@ -66,7 +64,7 @@ public class ColumnKey
             public int compare(ColumnKey o1, ColumnKey o2)
             {
                 assert o1.names.length == o2.names.length;
-                int comp = keyComparator.compare(o1.key, o2.key);
+                int comp = o1.key.compareTo(o2.key);
                 if (comp != 0)
                     return comp;
                 for (int i = 0; i < o1.names.length; i++)
