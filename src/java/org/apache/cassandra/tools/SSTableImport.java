@@ -135,7 +135,6 @@ public class SSTableImport
         ColumnFamily cfamily = ColumnFamily.create(keyspace, cf);
         String cfType = cfamily.type();    // Super or Standard
         IPartitioner<?> partitioner = DatabaseDescriptor.getPartitioner();
-        DataOutputBuffer dob = new DataOutputBuffer();
         
         try
         {
@@ -155,9 +154,7 @@ public class SSTableImport
                 else
                     addToStandardCF((JSONArray)json.get(rowKey.key), cfamily);
                            
-                ColumnFamily.serializer().serializeWithIndexes(cfamily, dob);
-                writer.append(rowKey, dob);
-                dob.reset();
+                writer.flatteningAppend(rowKey, cfamily);
                 cfamily.clear();
             }
             

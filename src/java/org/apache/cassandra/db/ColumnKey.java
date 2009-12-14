@@ -37,7 +37,7 @@ public class ColumnKey
     // FIXME: safer structure?
     public final byte[][] names;
 
-    public ColumnKey(DecoratedKey key, byte[][] names)
+    public ColumnKey(DecoratedKey key, byte[]... names)
     {
         assert names.length < Byte.MAX_VALUE;
         this.key = key;

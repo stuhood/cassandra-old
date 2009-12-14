@@ -147,7 +147,9 @@ public class BinaryMemtable implements IFlushable<DecoratedKey>
         {
             byte[] bytes = columnFamilies_.get(key);
             assert bytes.length > 0;
-            writer.append(key, bytes);
+
+            // FIXME: obviously temporary
+            throw new RuntimeException("Temporarily not supported!");
         }
         SSTableReader sstable = writer.closeAndOpenReader(DatabaseDescriptor.getKeysCachedFraction(table_));
         logger_.info("Completed flushing " + writer.getFilename());

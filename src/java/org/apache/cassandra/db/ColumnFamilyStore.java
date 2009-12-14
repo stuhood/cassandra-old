@@ -831,7 +831,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
                         String newFilename = new File(compactionFileLocation, getTempSSTableFileName()).getAbsolutePath();
                         writer = new SSTableWriter(newFilename, expectedBloomFilterSize, StorageService.getPartitioner());
                     }
-                    writer.append(row.key, row.buffer);
+                    writer.flatteningAppend(row.key, row.cf);
                     totalkeysWritten++;
                 }
             }
@@ -924,7 +924,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             while (nni.hasNext())
             {
                 CompactionIterator.CompactedRow row = nni.next();
-                writer.append(row.key, row.buffer);
+                writer.flatteningAppend(row.key, row.cf);
                 validator.add(row);
                 totalkeysWritten++;
             }

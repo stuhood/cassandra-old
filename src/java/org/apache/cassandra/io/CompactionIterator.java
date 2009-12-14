@@ -87,11 +87,11 @@ public class CompactionIterator extends ReducingIterator<IteratingRow, Compactio
         DataOutputBuffer buffer = new DataOutputBuffer();
         DecoratedKey key = rows.get(0).getKey();
 
+        ColumnFamily cf = null;
         try
         {
             if (rows.size() > 1 || major)
             {
-                ColumnFamily cf = null;
                 for (IteratingRow row : rows)
                 {
                     ColumnFamily thisCF;
@@ -117,6 +117,7 @@ public class CompactionIterator extends ReducingIterator<IteratingRow, Compactio
                 if (cfPurged == null)
                     return null;
                 ColumnFamily.serializer().serializeWithIndexes(cfPurged, buffer);
+                cf = cfPurged;
             }
             else
             {
@@ -124,6 +125,8 @@ public class CompactionIterator extends ReducingIterator<IteratingRow, Compactio
                 try
                 {
                     rows.get(0).echoData(buffer);
+                    // FIXME: see the explanation attached to CompactionRow
+                    cf = rows.get(0).getColumnFamily();
                 }
                 catch (IOException e)
                 {
@@ -135,7 +138,7 @@ public class CompactionIterator extends ReducingIterator<IteratingRow, Compactio
         {
             rows.clear();
         }
-        return new CompactedRow(key, buffer);
+        return new CompactedRow(key, buffer, cf);
     }
 
     public void close() throws IOException
@@ -146,15 +149,22 @@ public class CompactionIterator extends ReducingIterator<IteratingRow, Compactio
         }
     }
 
+    /**
+     * FIXME: added the ColumnFamily reference for simplicity's sake, but the
+     * real solution is major changes to CompactionIterator to make it work on
+     * a column by column basis.
+     */
     public static class CompactedRow
     {
         public final DecoratedKey key;
         public final DataOutputBuffer buffer;
+        public final ColumnFamily cf;
 
-        public CompactedRow(DecoratedKey key, DataOutputBuffer buffer)
+        public CompactedRow(DecoratedKey key, DataOutputBuffer buffer, ColumnFamily cf)
         {
             this.key = key;
             this.buffer = buffer;
+            this.cf = cf;
         }
     }
 }

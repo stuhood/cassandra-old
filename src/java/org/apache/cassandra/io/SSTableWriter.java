@@ -26,6 +26,8 @@ import java.util.*;
 
 import org.apache.log4j.Logger;
 
+import org.apache.cassandra.db.*; // FIXME: remove when we remove flatteningAppend
+
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.BloomFilter;
@@ -52,6 +54,7 @@ import com.reardencommerce.kernel.collections.shared.evictable.ConcurrentLinkedH
  * block.
  *
  * TODO: Wishlist:
+ * * Add a block header containing metadata, such as the compression type?
  * * Align more row keys with the beginnings of blocks by flushing blocks on
  *   key changes falling between MIN and MAX.
  * * ColumnKey.Comparator could encode the depth of difference in its return
@@ -134,7 +137,7 @@ public class SSTableWriter extends SSTable
      *
      * @return False if the block was empty.
      */
-    private boolean flushBlock(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey)
+    private boolean flushBlock(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey) throws IOException
     {
         if (lastWrittenKey == null && approxBlockLen == 0)
             return false;
@@ -160,7 +163,7 @@ public class SSTableWriter extends SSTable
      *
      * @return False if the slice was empty.
      */
-    private boolean flushSlice(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey)
+    private boolean flushSlice(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey) throws IOException
     {
         if (sliceContext.isEmpty())
             return false;
@@ -168,6 +171,7 @@ public class SSTableWriter extends SSTable
         // mark the beginning of the slice, and flush buffered data
         sliceContext.markAndFlush(dataFile);
         sliceContext.reset(parentMeta, columnKey);
+        return true;
     }
 
     /**
@@ -253,7 +257,7 @@ public class SSTableWriter extends SSTable
     /**
      * Appends the given column to the SSTable.
      *
-     * @param parentMeta An array of Pairs of ("markedForDeleteAt","localDeletionTime")
+     * @param parentMeta A list of Pairs of ("markedForDeleteAt","localDeletionTime")
      *     values for parents of the column. A supercf will have two Pairs, and a
      *     standard cf will have one Pair. FIXME: I don't like passing the parameters
      *     this way, but we need to store them once per Slice, and the caller
@@ -276,6 +280,48 @@ public class SSTableWriter extends SSTable
         long blockPosition = beforeAppend(parentMeta, columnKey, value.length);
         sliceContext.bufferColumn(value);
         afterAppend(columnKey, value.length, blockPosition);
+    }
+
+    /**
+     * FIXME: inefficent method for flattening a CF into a SSTableWriter: in the long
+     * term the CF structure should probably turn into pure metadata that describes
+     * a range in a Memtable or SSTable, rather than actually containing columns.
+     */
+    @Deprecated
+    public void flatteningAppend(DecoratedKey key, ColumnFamily cf) throws IOException
+    {
+        DataOutputBuffer buffer = new DataOutputBuffer();
+        // super cfs have 2 levels of nested deletion info, standard cfs have 1
+        List<Pair<Long,Integer>> parentMeta = new ArrayList<Pair<Long,Integer>>(2);
+        parentMeta.add(new Pair<Long,Integer>(cf.getMarkedForDeleteAt(),
+                                              cf.getLocalDeletionTime()));
+
+        if (!cf.isSuper())
+        {
+            for (IColumn column : cf.getSortedColumns())
+            {
+                buffer.reset();
+                Column.serializer().serialize(column, buffer);
+                append(parentMeta, new ColumnKey(key, column.name()), buffer);
+            }
+            return;
+        }
+        
+        // super columns contain an additional level of metadata
+        parentMeta.add(null); 
+        for (IColumn column : cf.getSortedColumns())
+        {
+            SuperColumn sc = (SuperColumn)column;
+            parentMeta.set(1, new Pair<Long,Integer>(sc.getMarkedForDeleteAt(),
+                                                     sc.getLocalDeletionTime()));
+            for (IColumn subc : sc.getSubColumns())
+            {
+                buffer.reset();
+                Column.serializer().serialize(subc, buffer);
+                /* Now write the key and column to disk */
+                append(parentMeta, new ColumnKey(key, sc.name(), subc.name()), buffer);
+            }
+        }
     }
 
     /**
@@ -346,7 +392,14 @@ public class SSTableWriter extends SSTable
          */
         public void bufferColumn(byte[] column)
         {
-            sliceBuffer.write(column);
+            try
+            {
+                sliceBuffer.write(column);
+            }
+            catch (IOException e)
+            {
+                throw new AssertionError(e);
+            }
         }
 
         /**
@@ -364,14 +417,12 @@ public class SSTableWriter extends SSTable
 
         /**
          * Mark the beginning of the slice with a SliceMark, and flush the buffered
-         * data. Returns the _approximate_ number of bytes written.
+         * data.
          */
-        public int markAndFlush(DataOutput dos)
+        public void markAndFlush(DataOutput dos) throws IOException
         {
-            int buffLen = sliceBuffer.getLength();
-            new SliceMark(parentMeta, headKey, buffLen).serialize(dos);
+            new SliceMark(parentMeta, headKey, sliceBuffer.getLength()).serialize(dos);
             dos.write(sliceBuffer.getData());
-            return buffLen;
         }
 
         /**

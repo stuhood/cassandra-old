@@ -18,12 +18,7 @@
 
 package org.apache.cassandra.db;
 
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.SortedSet;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.security.MessageDigest;
@@ -35,7 +30,6 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.ICompactSerializer2;
 import org.apache.cassandra.db.filter.QueryPath;
 import org.apache.cassandra.db.marshal.AbstractType;
-
 
 public final class ColumnFamily implements IColumnContainer
 {

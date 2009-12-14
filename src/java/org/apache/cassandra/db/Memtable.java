@@ -196,15 +196,11 @@ public class Memtable implements Comparable<Memtable>, IFlushable<DecoratedKey>
         ColumnFamilyStore cfStore = Table.open(table_).getColumnFamilyStore(cfName_);
         SSTableWriter writer = new SSTableWriter(cfStore.getTempSSTablePath(), columnFamilies_.size(), StorageService.getPartitioner());
 
-        DataOutputBuffer buffer = new DataOutputBuffer();
         for (DecoratedKey key : sortedKeys)
         {
-            buffer.reset();
-            ColumnFamily columnFamily = columnFamilies_.get(key);
-            /* serialize the cf with column indexes */
-            ColumnFamily.serializer().serializeWithIndexes(columnFamily, buffer);
-            /* Now write the key and value to disk */
-            writer.append(key, buffer);
+            // FIXME: flattening the CF structure: should remove it entirely
+            ColumnFamily cf = columnFamilies_.get(key);
+            writer.flatteningAppend(key, cf);
         }
 
         SSTableReader ssTable = writer.closeAndOpenReader(DatabaseDescriptor.getKeysCachedFraction(table_));

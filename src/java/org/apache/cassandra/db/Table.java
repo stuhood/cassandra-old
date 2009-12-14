@@ -479,6 +479,7 @@ public class Table
             for (IColumn column : columns)
             {
                 ColumnFamilyStore cfStore = columnFamilyStores_.get(new String(column.name(), "UTF-8"));
+                // FIXME: this seems totally broken
                 cfStore.applyBinary(key, column.value());
             }
         }
