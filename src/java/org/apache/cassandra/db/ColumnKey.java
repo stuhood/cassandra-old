@@ -50,32 +50,13 @@ public class ColumnKey
      * an equal number of names: for example, a ColumnFamily containing columns
      * of type super, should always have name.length == 2, although tailing null
      * names can be used to match the beginning of a subrange for instance.
-     *
-     * TODO: confirm that AbstractTypes can handle null comparisons.
      */
-    public static Comparator<ColumnKey> getComparator(String table, String cf)
+    public static ColumnKey.Comparator getComparator(String table, String cf)
     {
-        final AbstractType[] nameComparators = new AbstractType[]{
-            DatabaseDescriptor.getComparator(table, cf),
-            DatabaseDescriptor.getSubComparator(table, cf)};
-        // TODO: add caching of comparators for CFs
-        return new Comparator<ColumnKey>()
-        {
-            public int compare(ColumnKey o1, ColumnKey o2)
-            {
-                assert o1.names.length == o2.names.length;
-                int comp = o1.key.compareTo(o2.key);
-                if (comp != 0)
-                    return comp;
-                for (int i = 0; i < o1.names.length; i++)
-                {
-                    comp = nameComparators[i].compare(o1.names[i], o2.names[i]);
-                    if (comp != 0)
-                        return comp;
-                }
-                return 0;
-            }
-        };
+        if("Super".equals(DatabaseDescriptor.getColumnFamilyType(table, cf)))
+            return new ColumnKey.Comparator(DatabaseDescriptor.getComparator(table, cf),
+                                            DatabaseDescriptor.getSubComparator(table, cf));
+        return new ColumnKey.Comparator(DatabaseDescriptor.getComparator(table, cf));
     }
 
     @Override
@@ -102,5 +83,66 @@ public class ColumnKey
         for (byte i = 0; i < names.length; i++)
             components[i+1] = Arrays.hashCode(names[i]);
         return Arrays.hashCode(components);
+    }
+
+    public void serialize(DataOutput dos) throws IOException
+    {
+        dos.writeUTF(StorageService.getPartitioner().convertToDiskFormat(key));
+
+        dos.writeByte((byte)names.length);
+        for (byte[] name : names)
+            ColumnSerializer.writeName(name, dos);
+    }
+
+    public static ColumnKey deserialize(DataInput dis) throws IOException
+    {
+        DecoratedKey key =
+            StorageService.getPartitioner().convertFromDiskFormat(dis.readUTF());
+
+        byte nameCount = dis.readByte();
+        byte[][] names = new byte[nameCount][];
+        for (int i = 0; i < nameCount; i++)
+            names[i] = ColumnSerializer.readName(dis);
+        return new ColumnKey(key, names);
+    }
+
+    /**
+     * A Comparator that supports comparing ColumnKeys at an arbitrary depth.
+     * The implementation of java.util.Comparator.compare() uses the maximum
+     * depth.
+     */
+    public static Comparator implements java.util.Comparator<ColumnKey>
+    {
+        private final AbstractType[] nameComparators;
+        public Comparator(AbstractType... nameComparators)
+        {
+            this.nameComparators = nameComparators;
+        }
+
+        public int compare(ColumnKey o1, ColumnKey o2)
+        {
+            return compare(o1, o2, o1.names.length);
+        }
+
+        /**
+         * Compares the given column keys to the given depth. Depth 0 will compare
+         * just the key field, depth 1 will compare the key and the first name, etc.
+         * This can be used to find the boundries of slices of columns.
+         */
+        public int compare(ColumnKey o1, ColumnKey o2, int depth)
+        {
+            assert depth < Byte.MAX_VALUE;
+            assert o1.names.length == o2.names.length;
+            int comp = o1.key.compareTo(o2.key);
+            if (comp != 0)
+                return comp;
+            for (int i = 0; i < depth; i++)
+            {
+                comp = nameComparators[i].compare(o1.names[i], o2.names[i]);
+                if (comp != 0)
+                    return comp;
+            }
+            return 0;
+        }
     }
 }

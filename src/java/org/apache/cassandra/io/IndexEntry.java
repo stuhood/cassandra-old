@@ -54,13 +54,10 @@ public class IndexEntry extends ColumnKey
     /**
      * Serializes this IndexEntry into the index file.
      */
+    @Override
     public void serialize(DataOutput dos) throws IOException
     {
-        dos.writeUTF(StorageService.getPartitioner().convertToDiskFormat(key));
-
-        dos.writeByte((byte)names.length);
-        for (byte[] name : names)
-            ColumnSerializer.writeName(name, dos);
+        super.serialize(dos);
         dos.writeLong(dataOffset);
     }
 
@@ -70,15 +67,9 @@ public class IndexEntry extends ColumnKey
     public static IndexEntry deserialize(RandomAccessFile dis) throws IOException
     {
         long indexOffset = dis.getFilePointer();
-        DecoratedKey key =
-            StorageService.getPartitioner().convertFromDiskFormat(dis.readUTF());
-
-        byte nameCount = dis.readByte();
-        byte[][] names = new byte[nameCount][];
-        for (int i = 0; i < nameCount; i++)
-            names[i] = ColumnSerializer.readName(dis);
+        ColumnKey key = ColumnKey.deserialize(dis);
         long dataOffset = dis.readLong();
-        return new IndexEntry(key, names, indexOffset, dataOffset);
+        return new IndexEntry(key.key, key.names, indexOffset, dataOffset);
     }
 
     /**

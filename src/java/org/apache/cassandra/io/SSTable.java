@@ -21,8 +21,7 @@ package org.apache.cassandra.io;
  */
 
 
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -58,18 +57,28 @@ public abstract class SSTable
     protected BloomFilter bf;
     protected List<IndexEntry> indexEntries;
     protected String columnFamilyName;
+    protected final ColumnKey.Comparator comparator;
 
-    /* Every 128th index entry is loaded into memory so we know where to start looking for the actual key w/o seeking */
-    public static final int INDEX_INTERVAL = 128;/* Required extension for temporary files created during compactions. */
+    /**
+     * Every INDEX_INTERVALth index entry is loaded into memory so we know where
+     * to start looking for the IndexEntry on disk with less seeking. The index
+     * contains one IndexEntry per block.
+     *
+     * FIXME: make configurable
+     */
+    public static final int INDEX_INTERVAL = 16;
+
+    /* Required extension for temporary files created during compactions. */
     public static final String TEMPFILE_MARKER = "tmp";
 
-    public SSTable(String filename, IPartitioner partitioner)
+    public SSTable(String filename, IPartitioner partitioner, ColumnKey.Comparator comparator)
     {
         assert filename.endsWith("-Data.db");
         columnFamilyName = new File(filename).getName().split("-")[0];
         this.path = filename;
         this.partitioner = partitioner;
         this.indexEntries = new ArrayList<IndexEntry>();
+        this.comparator = comparator;
     }
 
     protected static String indexFilename(String dataFile)
@@ -179,5 +188,46 @@ public abstract class SSTable
         return getClass().getName() + "(" +
                "path='" + path + '\'' +
                ')';
+    }
+
+    /**
+     * A marker used in the SSTable data file to delineate subranges, and to mark the
+     * beginning and end of blocks.
+     */
+    static class SliceMark
+    {
+        public static final long serialVersionUID = 1L;
+
+        // this marker indicates the end of this block: the key it contains is equal
+        // to the first key of the next block
+        public static final int BLOCK_END = -1;
+
+        public final ColumnKey key;
+        // uncompressed bytes to next CFM, or a negative status value
+        public final int nextMark;
+
+        public SliceMark(ColumnKey key, int nextMark)
+        {
+            this.key = key;
+            this.nextMark = nextMark;
+        }
+
+        public void serialize(DataOutput dos) throws IOException
+        {
+            key.serialize(dos);
+            dos.writeInt(nextMark);
+        }
+
+        public static SliceMark deserialize(DataInput dis) throws IOException
+        {
+            ColumnKey key = ColumnKey.deserialize(dis);
+            int nextMark = dis.readInt();
+            return new SliceMark(key, nextMark);
+        }
+
+        public String toString()
+        {
+            return "#<SliceMark " + key + " " + nextMark + ">";
+        }
     }
 }

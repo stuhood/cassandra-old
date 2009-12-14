@@ -256,7 +256,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         assert !indexEntries.isEmpty();
         // TODO: get/use column name
         int index = Collections.binarySearch(indexEntries, target,
-                                             IndexEntry.getComparator(getTableName(), getColumnFamilyName()));
+                                             ColumnKey.getComparator(getTableName(), getColumnFamilyName()));
         if (index < 0)
         {
             // binary search gives us the first index _greater_ than the key searched for,

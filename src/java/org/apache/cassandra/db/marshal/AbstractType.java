@@ -33,6 +33,9 @@ import org.apache.cassandra.db.IColumn;
  * or "stop at the end" arguments to get_slice, so the Comparator
  * should always handle those values even if they normally do not
  * represent a valid byte[] for the type being compared.
+ *
+ * FIXME: Update the contract for compare() to handle null inputs for slicing.
+ * See db.ColumnKey.Comparator.
  */
 public abstract class AbstractType implements Comparator<byte[]>
 {

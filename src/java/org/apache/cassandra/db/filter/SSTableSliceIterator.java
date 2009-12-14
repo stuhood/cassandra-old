@@ -131,11 +131,11 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
          * range. If the range is unbounded, the first and last entries are guaranteed
          * to point to the first and last columns for the given key.
          */
-        public ColumnGroupReader(SSTableReader ssTable, DecoratedKey key, long position/* FIXME: NavigableMap<ColumnKey,IndexEntry> indexEntries */) throws IOException
+        public ColumnGroupReader(SSTableReader ssTable, DecoratedKey key, NavigableMap<ColumnKey,IndexEntry> indexEntries) throws IOException
         {
             this.file = new BufferedRandomAccessFile(ssTable.getFilename(), "r", DatabaseDescriptor.getSlicedReadBufferSizeInKB() * 1024);
 
-            file.seek(position);
+            file.seek(indexEntries.firstEntry().getValue().dataOffset);
             DecoratedKey keyInDisk = ssTable.getPartitioner().convertFromDiskFormat(file.readUTF());
             assert keyInDisk.equals(key);
 
@@ -148,19 +148,8 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
             emptyColumnFamily = ColumnFamily.serializer().deserializeFromSSTableNoColumns(ssTable.makeColumnFamily(), file);
             file.readInt(); // column count
 
-
-            /* FIXME
             indexEntries = reversed ? indexEntries.descendingMap() : indexEntries;
             blocksToScan = Iterators.peekingIterator(indexEntries.values().iterator());
-            */
-            // FIXME: one big block for the CF... barely tests the algo
-            position = file.getFilePointer();
-            IndexEntry first = new IndexEntry(key, new byte[0][], -1, position);
-            IndexEntry last = new IndexEntry(key, new byte[0][], -1, oldIndex.get(oldIndex.size()-1).offset + oldIndex.get(oldIndex.size()-1).width);
-            List<IndexEntry> indexEntries = reversed ?
-                Arrays.asList(last, first) : Arrays.asList(first, last);
-            blocksToScan = Iterators.peekingIterator(indexEntries.iterator());
-
 
             // within a block on disk, we always read columns from left to right, so
             // redefine startColumn and finishColumn in those terms
