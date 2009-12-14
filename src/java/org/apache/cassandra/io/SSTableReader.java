@@ -156,7 +156,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
     public static SSTableReader open(String dataFileName) throws IOException
     {
-        return open(dataFileName, StorageService.getPartitioner(), DatabaseDescriptor.getKeysCachedFraction(parsetTableName(dataFileName)));
+        return open(dataFileName, StorageService.getPartitioner(), DatabaseDescriptor.getKeysCachedFraction(parseTableName(dataFileName)));
     }
 
     public static SSTableReader open(String dataFileName, IPartitioner partitioner, double cacheFraction) throws IOException
