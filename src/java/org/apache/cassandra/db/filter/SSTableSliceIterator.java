@@ -24,17 +24,13 @@ package org.apache.cassandra.db.filter;
 import java.util.*;
 import java.io.IOException;
 
-import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.IColumn;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.io.*;
-import org.apache.cassandra.utils.Pair;
-
+import org.apache.cassandra.config.DatabaseDescriptor;
 import com.google.common.collect.AbstractIterator;
-import com.google.common.collect.Iterators;
-import com.google.common.collect.PeekingIterator;
 
 /**
  *  A Column Iterator over SSTable
@@ -110,51 +106,37 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
      *  This is a reader that finds the block for a starting column and returns
      *  blocks before/after it for each next call. This function assumes that
      *  the CF is sorted by name and exploits the name index.
-     *
-     *  TODO: convert into google collections AbstractIterator
      */
     class ColumnGroupReader
     {
         private final ColumnFamily emptyColumnFamily;
 
+        private final List<IndexHelper.IndexInfo> indexes;
+        private final long columnStartPosition;
         private final BufferedRandomAccessFile file;
-        // buffer of collected columns
-        private final Deque<IColumn> blockColumns = new ArrayDeque<IColumn>();
-        // an iterator over index entries for this range in the proper order
-        private final PeekingIterator<IndexEntry> blocksToScan;
 
-        private final byte[] leftColumn;
-        private final byte[] rightColumn;
+        private int curRangeIndex;
+        private Deque<IColumn> blockColumns = new ArrayDeque<IColumn>();
 
-        /**
-         * @param indexEntries A subset of the SSTable index covering the relevant
-         * range. If the range is unbounded, the first and last entries are guaranteed
-         * to point to the first and last columns for the given key.
-         */
-        public ColumnGroupReader(SSTableReader ssTable, DecoratedKey key, NavigableMap<ColumnKey,IndexEntry> indexEntries) throws IOException
+        public ColumnGroupReader(SSTableReader ssTable, DecoratedKey key, long position) throws IOException
         {
             this.file = new BufferedRandomAccessFile(ssTable.getFilename(), "r", DatabaseDescriptor.getSlicedReadBufferSizeInKB() * 1024);
 
-            file.seek(indexEntries.firstEntry().getValue().dataOffset);
+            file.seek(position);
             DecoratedKey keyInDisk = ssTable.getPartitioner().convertFromDiskFormat(file.readUTF());
             assert keyInDisk.equals(key);
 
             file.readInt(); // row size
-
-            // FIXME: remove these as soon as we stop writing them
             IndexHelper.skipBloomFilter(file);
-            List<IndexHelper.IndexInfo> oldIndex = IndexHelper.deserializeIndex(file);
+            indexes = IndexHelper.deserializeIndex(file);
 
             emptyColumnFamily = ColumnFamily.serializer().deserializeFromSSTableNoColumns(ssTable.makeColumnFamily(), file);
             file.readInt(); // column count
 
-            indexEntries = reversed ? indexEntries.descendingMap() : indexEntries;
-            blocksToScan = Iterators.peekingIterator(indexEntries.values().iterator());
-
-            // within a block on disk, we always read columns from left to right, so
-            // redefine startColumn and finishColumn in those terms
-            leftColumn = reversed ? finishColumn : startColumn;
-            rightColumn = reversed ? startColumn : finishColumn;
+            columnStartPosition = file.getFilePointer();
+            curRangeIndex = IndexHelper.indexFor(startColumn, indexes, comparator, reversed);
+            if (reversed && curRangeIndex == indexes.size())
+                curRangeIndex--;
         }
 
         public ColumnFamily getEmptyColumnFamily()
@@ -182,73 +164,52 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
 
         public boolean getNextBlock() throws IOException
         {
-            if (!blocksToScan.hasNext())
+            if (curRangeIndex < 0 || curRangeIndex >= indexes.size())
                 return false;
 
-            boolean found = false;
-            IColumn column = null;
-            Pair<IndexEntry,IndexEntry> block = nextBlock();
+            /* seek to the correct offset to the data, and calculate the data size */
+            IndexHelper.IndexInfo curColPosition = indexes.get(curRangeIndex);
 
-            // start from block.left, and read until we see the first column we want
-            file.seek(block.left.dataOffset);
-            while (blocksToScan.hasNext())
-            {
-                column = emptyColumnFamily.getColumnSerializer().deserialize(file);
-                if (leftColumn.length == 0 || comparator.compare(leftColumn, column.name()) <= 0)
-                {
-                    // this column is the first in the block to fall into the range!
-                    found = true;
-                    break;
-                }
-
-                if (file.getFilePointer() > block.right.dataOffset)
-                    // this block is exhausted. generate the next
-                    block = nextBlock();
-            }
-
-            if (!found)
-                // no more blocks intersecting the range, and no initial column
-                return false;
-            bufferColumn(column);
-
-            // read from the block until it is exhausted
-            while (file.getFilePointer() <= block.right.dataOffset)
-            {
-                column = emptyColumnFamily.getColumnSerializer().deserialize(file);
-
-                if (rightColumn.length != 0 && comparator.compare(rightColumn, column.name()) < 0)
-                    // column is outside the range
-                    break;
-
-                // found one: continue buffering until the end of the range or block
-                bufferColumn(column);
-            }
-            return true;
-        }
-
-        /**
-         * Calls blocksToScan.next() once, and then peeks at the next entry.
-         * In a reversed query for example, the iterator is reversed, so the
-         * first block returned will be the last block in the range.
-         *
-         * @return The positions of the first and last columns in the block.
-         */
-        private Pair<IndexEntry, IndexEntry> nextBlock()
-        {
-            IndexEntry first = blocksToScan.next();
-            IndexEntry second = blocksToScan.peek();
-            return reversed ? new Pair(second, first) : new Pair(first, second);
-        }
-
-        /**
-         * Buffers the given column for return by pollColumn
-         */
-        private void bufferColumn(IColumn column)
-        {
+            /* see if this read is really necessary. */
             if (reversed)
-                blockColumns.addFirst(column);
+            {
+                if ((finishColumn.length > 0 && comparator.compare(finishColumn, curColPosition.lastName) > 0) ||
+                    (startColumn.length > 0 && comparator.compare(startColumn, curColPosition.firstName) < 0))
+                    return false;
+            }
             else
-                blockColumns.addLast(column);
+            {
+                if ((startColumn.length > 0 && comparator.compare(startColumn, curColPosition.lastName) > 0) ||
+                    (finishColumn.length > 0 && comparator.compare(finishColumn, curColPosition.firstName) < 0))
+                    return false;
+            }
+
+            boolean outOfBounds = false;
+
+            file.seek(columnStartPosition + curColPosition.offset);
+            while (file.getFilePointer() < columnStartPosition + curColPosition.offset + curColPosition.width && !outOfBounds)
+            {
+                IColumn column = emptyColumnFamily.getColumnSerializer().deserialize(file);
+                if (reversed)
+                    blockColumns.addFirst(column);
+                else
+                    blockColumns.addLast(column);
+
+                /* see if we can stop seeking. */
+                if (!reversed && finishColumn.length > 0)
+                    outOfBounds = comparator.compare(column.name(), finishColumn) >= 0;
+                else if (reversed && startColumn.length > 0)
+                    outOfBounds = comparator.compare(column.name(), startColumn) >= 0;
+                    
+                if (outOfBounds)
+                    break;
+            }
+
+            if (reversed)
+                curRangeIndex--;
+            else
+                curRangeIndex++;
+            return true;
         }
 
         public void close() throws IOException
