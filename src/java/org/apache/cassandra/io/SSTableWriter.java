@@ -22,7 +22,7 @@ package org.apache.cassandra.io;
 
 
 import java.io.*;
-import java.util.ArrayList;
+import java.util.*;
 
 import org.apache.log4j.Logger;
 
@@ -30,6 +30,7 @@ import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.BloomFilter;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import com.reardencommerce.kernel.collections.shared.evictable.ConcurrentLinkedHashMap;
 
@@ -43,11 +44,11 @@ import com.reardencommerce.kernel.collections.shared.evictable.ConcurrentLinkedH
  * which are separated by SliceMark objects which can be used for skipping through the
  * block.
  *
- * SliceMark objects are written _at_least_ at the beginning and end of every
+ * SliceMark objects are written _at_least_ at the beginning of every
  * subrange: for instance, for a ColumnFamily of type super, there are SliceMarks
  * surrounding each set of subcolumns, but if the subcolumns for one column overflow
- * the end of a block (of max size MAX_BLOCK_BYTES), an additional SliceMark will mark
- * the end of the block, and indicate whether the subcolumns continue in the next
+ * the end of a block (of target size MAX_BLOCK_BYTES), an additional SliceMark will
+ * mark the end of the block, and indicate whether the subcolumns continue in the next
  * block.
  *
  * TODO: Wishlist:
@@ -86,17 +87,12 @@ public class SSTableWriter extends SSTable
      */
     private final int sliceDepth;
 
-    /**
-     * All data between individual SliceMarks will be buffered here, so that we can
-     * determine the length from the first mark to the second.
-     */
-    private final DataOutputBuffer sliceOutputBuffer;
-    // the first ColumnKey contained in the current sliceOutputBuffer
-    private ColumnKey sliceOutputKey;
+    // buffer for data contained in the current slice
+    private final SliceContext sliceContext;
 
     // the disk position of the start of the current block, and its approx length
     private long currentBlockPosition;
-    private int approxBlockLength;
+    private int approxBlockLen;
 
     private long keysWritten;
     private int blocksWritten;
@@ -115,11 +111,10 @@ public class SSTableWriter extends SSTable
 
         // slice metadata
         sliceDepth = "Super".equals(DatabaseDescriptor.getColumnFamilyType(getTableName(), getColumnFamilyName())) ? 1 : 0;
-        sliceOutputBuffer = new DataOutputBuffer();
-        sliceOutputKey = null;
+        sliceContext = new SliceContext();;
 
         // block metadata
-        approxBlockLength = 0;
+        approxBlockLen = 0;
         currentBlockPosition = 0;
 
         // etc
@@ -134,26 +129,26 @@ public class SSTableWriter extends SSTable
      * Flushes the current block if it is not empty, and begins a new one with the
      * given key. Beginning a new block automatically begins a new slice.
      *
-     * TODO: We could write a block tail containing checksum info. Perhaps a
-     * subclass of SliceMark that contains metadata?
+     * TODO: We could write a block tail containing checksum info here. Perhaps
+     * SliceMark should contain more generic metadata to fill this role?
      *
      * @return False if the block was empty.
      */
-    private boolean flushBlock(ColumnKey columnKey)
+    private boolean flushBlock(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey)
     {
-        if (lastWrittenKey == null && approxBlockLength == 0)
+        if (lastWrittenKey == null && approxBlockLen == 0)
             return false;
         
         // flush the current slice, and cap the block with a BLOCK_END mark:
         // BLOCK_END indicates the end of the block, and contains the first key from
         // the next block, so that a reader can determine if they need to continue
-        flushSlice(columnKey);
+        flushSlice(parentMeta, columnKey);
         SliceMark mark = new SliceMark(columnKey, SliceMark.BLOCK_END);
         mark.serialize(dataFile);
 
         // reset for the next block
         blocksWritten++;
-        approxBlockLength = 0;
+        approxBlockLen = 0;
         currentBlockPosition = dataFile.getFilePointer();
         return true;
     }
@@ -165,17 +160,14 @@ public class SSTableWriter extends SSTable
      *
      * @return False if the slice was empty.
      */
-    private boolean flushSlice(ColumnKey columnKey)
+    private boolean flushSlice(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey)
     {
-        if (sliceOutputKey == null && sliceOutputBuffer.getLength() == 0)
+        if (sliceContext.isEmpty())
             return false;
-        // prepend a mark containing the length of this slice
-        SliceMark mark = new SliceMark(sliceOutputKey, sliceOutputBuffer.getLength());
-        mark.serialize(dataFile);
-        dataFile.write(sliceOutputBuffer.getData());
-        
-        sliceOutputBuffer.reset();
-        sliceOutputKey = columnKey;
+
+        // mark the beginning of the slice, and flush buffered data
+        sliceContext.markAndFlush(dataFile);
+        sliceContext.reset(parentMeta, columnKey);
     }
 
     /**
@@ -183,11 +175,12 @@ public class SSTableWriter extends SSTable
      *
      * TODO: This is where we could write a block header containing compression info.
      *
+     * @param parentMeta @see append.
      * @param columnKey The key that is about to be appended,
      * @param columnLen The length in bytes of the column that will be appended.
      * @return The disk position of the block that the given key will fall into.
      */
-    private long beforeAppend(ColumnKey columnKey, int columnLen) throws IOException
+    private long beforeAppend(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey, int columnLen) throws IOException
     {
         assert columnKey != null : "Keys must not be null.";
 
@@ -198,13 +191,13 @@ public class SSTableWriter extends SSTable
         /* Determine if we need to begin a new block or slice. */
 
         // flush the block if it is within thresholds
-        int curBlockLen = approxBlockLength + sliceOutputBuffer.getLength();
+        int curBlockLen = approxBlockLen + sliceContext.getLength();
         int expectedBlockLen = columnLen + curBlockLen;
         if (MIN_BLOCK_BYTES > curBlockLen && expectedBlockLen > TARGET_MAX_BLOCK_BYTES)
         {
             // current block is at least MIN_BLOCK_BYTES long, and adding
             // this column would push it over TARGET_MAX_BLOCK_BYTES: flush.
-            flushBlock(columnKey);
+            flushBlock(parentMeta, columnKey);
             return dataFile.getFilePointer();
         }
 
@@ -215,7 +208,7 @@ public class SSTableWriter extends SSTable
         if (comparison < 0)
         {
             // flush the previous slice to the data file
-            flushSlice(columnKey);
+            flushSlice(parentMeta, columnKey);
             return dataFile.getFilePointer();
         }
 
@@ -224,8 +217,8 @@ public class SSTableWriter extends SSTable
     }
 
     /**
-     * Handles appending any metadata to the data or index file after having
-     * written the given ColumnKey.
+     * Handles appending any metadata to the index and filter files after having
+     * written the given ColumnKey to the data file.
      */
     private void afterAppend(ColumnKey columnKey, int columnLen, long blockPosition) throws IOException
     {
@@ -235,7 +228,7 @@ public class SSTableWriter extends SSTable
 
         // this block length is approximate because we don't include the
         // overhead of serialized SliceMark objects among the columns
-        approxBlockLength += columnLen;
+        approxBlockLen += columnLen;
         
         if (logger.isTraceEnabled())
             logger.trace("Wrote " + columnKey + " in block at " + blockPosition);
@@ -258,23 +251,30 @@ public class SSTableWriter extends SSTable
     }
 
     /**
-     * Takes a ColumnKey and a serialized column, and appends the column to the end of
-     * the data file, possibly marking it with a ColumnMarker.
+     * Appends the given column to the SSTable.
+     *
+     * @param parentMeta An array of Pairs of ("markedForDeleteAt","localDeletionTime")
+     *     values for parents of the column. A supercf will have two Pairs, and a
+     *     standard cf will have one Pair. FIXME: I don't like passing the parameters
+     *     this way, but we need to store them once per Slice, and the caller
+     *     shouldn't have to know anything about Slices. At the absolute minimum,
+     *     we should replace Pair with a purpose built metadata object.
+     * @param columnKey The fully qualified key for the column.
+     * @param buffer The serialized column.
      */
-    public void append(ColumnKey columnKey, DataOutputBuffer buffer) throws IOException
+    public void append(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey, DataOutputBuffer buffer) throws IOException
     {
-        append(columnKey, buffer.getData());
+        append(parentMeta, columnKey, buffer.getData());
     }
 
     /**
-     * @see append(ColumnKey, DataOutputBuffer).
+     * @see append(List<Pair<Long,Integer>>, ColumnKey, DataOutputBuffer).
      */
-    public void append(ColumnKey columnKey, byte[] value) throws IOException
+    public void append(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey, byte[] value) throws IOException
     {
         assert value.length > 0;
-        long blockPosition = beforeAppend(columnKey, value.length);
-        dataFile.writeInt(value.length);
-        dataFile.write(value);
+        long blockPosition = beforeAppend(parentMeta, columnKey, value.length);
+        sliceContext.bufferColumn(value);
         afterAppend(columnKey, value.length, blockPosition);
     }
 
@@ -328,5 +328,61 @@ public class SSTableWriter extends SSTable
         SSTableWriter.rename(filterFilename(dataFileName));
         dataFileName = SSTableWriter.rename(dataFileName);
         return SSTableReader.open(dataFileName, StorageService.getPartitioner(), DatabaseDescriptor.getKeysCachedFraction(parseTableName(dataFileName)));
+    }
+
+    /**
+     * A mutable class representing the currently buffered slice. All data between
+     * individual SliceMarks will be buffered here, so that we can determine the
+     * length from the first mark to the second.
+     */
+    static class SliceContext
+    {
+        private List<Pair<Long,Integer>> parentMeta = null;
+        private ColumnKey headKey = null;
+        private DataOutputBuffer sliceBuffer = new DataOutputBuffer();;
+
+        /**
+         * Buffers a serialized 'Column' object to be written to the current slice.
+         */
+        public void bufferColumn(byte[] column)
+        {
+            sliceBuffer.write(column);
+        }
+
+        /**
+         * Returns true if no slice has been initialized.
+         */
+        public boolean isEmpty()
+        {
+            return headKey == null || sliceBuffer.getLength() < 1;
+        }
+
+        public int getLength()
+        {
+            return sliceBuffer.getLength();
+        }
+
+        /**
+         * Mark the beginning of the slice with a SliceMark, and flush the buffered
+         * data. Returns the _approximate_ number of bytes written.
+         */
+        public int markAndFlush(DataOutput dos)
+        {
+            int buffLen = sliceBuffer.getLength();
+            new SliceMark(parentMeta, headKey, buffLen).serialize(dos);
+            dos.write(sliceBuffer.getData());
+            return buffLen;
+        }
+
+        /**
+         * Resets the class for use in creating a new slice starting with the
+         * given key and metadata.
+         */
+        public void reset(List<Pair<Long,Integer>> parentMeta, ColumnKey headKey)
+        {
+            this.parentMeta = new LinkedList<Pair<Long,Integer>>(parentMeta);
+            this.headKey = headKey;
+            sliceBuffer.reset();
+        }
     }
 }

@@ -22,9 +22,7 @@ package org.apache.cassandra.io;
 
 
 import java.io.*;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 
 import org.apache.log4j.Logger;
 import org.apache.commons.lang.StringUtils;
@@ -32,6 +30,7 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.utils.BloomFilter;
 import org.apache.cassandra.utils.FileUtils;
+import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.db.DecoratedKey;
 
 /**
@@ -191,38 +190,57 @@ public abstract class SSTable
     }
 
     /**
-     * A marker used in the SSTable data file to delineate subranges, and to mark the
-     * beginning and end of blocks.
+     * A marker used in the SSTable data file to delineate slices, store shared
+     * metadata about those slices, and mark the end of blocks.
      */
     static class SliceMark
     {
-        public static final long serialVersionUID = 1L;
-
         // this marker indicates the end of this block: the key it contains is equal
         // to the first key of the next block
         public static final int BLOCK_END = -1;
 
+
         public final ColumnKey key;
-        // uncompressed bytes to next CFM, or a negative status value
+        // uncompressed bytes to next SliceMark, or a negative status value
         public final int nextMark;
+        // ("markedForDeleteAt","localDeletionTime") for parents of the slice
+        // FIXME: @see SSTableWriter.append()
+        public final List<Pair<Long,Integer>> parentMeta;
 
         public SliceMark(ColumnKey key, int nextMark)
         {
+            this(Collections.<Pair<Long,Integer>>emptyList(), key, nextMark);
+        }
+
+        public SliceMark(List<Pair<Long,Integer>> parentMeta, ColumnKey key, int nextMark)
+        {
+            assert parentMeta.size() < Byte.MAX_VALUE;
             this.key = key;
             this.nextMark = nextMark;
+            this.parentMeta = parentMeta;
         }
 
         public void serialize(DataOutput dos) throws IOException
         {
             key.serialize(dos);
             dos.writeInt(nextMark);
+            dos.writeByte((byte)parentMeta.size());
+            for (Pair<Long,Integer> val : parentMeta)
+            {
+                dos.writeLong(val.left);
+                dos.writeInt(val.right);
+            }
         }
 
         public static SliceMark deserialize(DataInput dis) throws IOException
         {
             ColumnKey key = ColumnKey.deserialize(dis);
             int nextMark = dis.readInt();
-            return new SliceMark(key, nextMark);
+            List<Pair<Long,Integer>> parentMeta = new LinkedList<Pair<Long,Integer>>();
+            byte parentMetaLen = dis.readByte();
+            for (int i = 0; i < parentMetaLen; i++)
+                parentMeta.add(new Pair<Long,Integer>(dis.readLong(), dis.readInt()));
+            return new SliceMark(parentMeta, key, nextMark);
         }
 
         public String toString()
