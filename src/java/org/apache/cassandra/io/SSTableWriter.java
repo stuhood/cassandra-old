@@ -67,20 +67,26 @@ public class SSTableWriter extends SSTable
     /**
      * The target decompressed size of a block. An entire block might need to be
      * read from disk in order to read a single column. If a column is large
-     * enough, the block containing it may be larger than this value.
-     *
-     * FIXME: current value is mostly arbitrary
+     * enough, the block containing it might be stretched to larger than this value.
+     * TODO: tune
      */
     public static final int TARGET_MAX_BLOCK_BYTES = 1 << 18;
     /**
      * All blocks (aside from the last one) will be at least this decompressed length.
      * If a very large column is about to be appended to a block that contains less
-     * than this amount of data, the large column will be appended, violating
-     * TARGET_MAX_BLOCK_BYTES rather than creating a block smaller than this value.
-     *
-     * FIXME: current value is mostly arbitrary
+     * than this amount of data, TARGET_MAX_BLOCK_BYTES will be ignored rather than
+     * creating a block smaller than this value.
+     * TODO: tune
      */
     public static final int MIN_BLOCK_BYTES = 1 << 16;
+    /**
+     * The target maximum size of a Slice in bytes (between two SliceMarks in a block).
+     * SliceMarks allow skipping columns within a block, but this many bytes will need
+     * to be held in memory while writing the SSTable. Large columns will stretch this
+     * value, because a slice cannot be smaller than a column.
+     * TODO: tune
+     */
+    public static final int TARGET_MAX_SLICE_BYTES = 1 << 14;
 
     /**
      * The depth of the names in a ColumnKey that separate one slice from another.
@@ -94,7 +100,7 @@ public class SSTableWriter extends SSTable
     private final SliceContext sliceContext;
 
     // the disk position of the start of the current block, and its approx length
-    private long currentBlockPosition;
+    private long currentBlockPos;
     private int approxBlockLen;
 
     private long keysWritten;
@@ -118,7 +124,7 @@ public class SSTableWriter extends SSTable
 
         // block metadata
         approxBlockLen = 0;
-        currentBlockPosition = 0;
+        currentBlockPos = 0;
 
         // etc
         keysWritten = 0;
@@ -152,7 +158,7 @@ public class SSTableWriter extends SSTable
         // reset for the next block
         blocksWritten++;
         approxBlockLen = 0;
-        currentBlockPosition = dataFile.getFilePointer();
+        currentBlockPos = dataFile.getFilePointer();
         return true;
     }
 
@@ -182,15 +188,14 @@ public class SSTableWriter extends SSTable
      * @param parentMeta @see append.
      * @param columnKey The key that is about to be appended,
      * @param columnLen The length in bytes of the column that will be appended.
-     * @return The disk position of the block that the given key will fall into.
      */
-    private long beforeAppend(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey, int columnLen) throws IOException
+    private void beforeAppend(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey, int columnLen) throws IOException
     {
         assert columnKey != null : "Keys must not be null.";
 
         if (lastWrittenKey == null)
             // we're beginning the first slice
-            return 0;
+            return;
 
         /* Determine if we need to begin a new block or slice. */
 
@@ -202,29 +207,27 @@ public class SSTableWriter extends SSTable
             // current block is at least MIN_BLOCK_BYTES long, and adding
             // this column would push it over TARGET_MAX_BLOCK_BYTES: flush.
             flushBlock(parentMeta, columnKey);
-            return dataFile.getFilePointer();
+            return;
         }
 
-        // flush the slice if the new key does not fall into the last slice
+        // flush the slice if the new key does not fall into the last slice, or if
+        // adding this key would violate TARGET_MAX_SLICE_BYTES for the current slice
         int comparison = comparator.compare(lastWrittenKey, columnKey, sliceDepth);
         assert comparison <= 0 : "Keys written out of order! Last written key : " +
             lastWrittenKey + " Current key : " + columnKey + " Writing to " + path;
-        if (comparison < 0)
+        if (comparison < 0 || sliceContext.getLength() + columnLen > TARGET_MAX_SLICE_BYTES)
         {
             // flush the previous slice to the data file
             flushSlice(parentMeta, columnKey);
-            return dataFile.getFilePointer();
+            return;
         }
-
-        // we're still in the same slice
-        return dataFile.getFilePointer();
     }
 
     /**
      * Handles appending any metadata to the index and filter files after having
      * written the given ColumnKey to the data file.
      */
-    private void afterAppend(ColumnKey columnKey, int columnLen, long blockPosition) throws IOException
+    private void afterAppend(ColumnKey columnKey, int columnLen) throws IOException
     {
         bf.add(comparator.forBloom(columnKey));
         lastWrittenKey = columnKey;
@@ -235,15 +238,15 @@ public class SSTableWriter extends SSTable
         approxBlockLen += columnLen;
         
         if (logger.isTraceEnabled())
-            logger.trace("Wrote " + columnKey + " in block at " + blockPosition);
-        if (lastIndexEntry != null && lastIndexEntry.dataOffset == blockPosition)
+            logger.trace("Wrote " + columnKey + " in block at " + currentBlockPos);
+        if (lastIndexEntry != null && lastIndexEntry.dataOffset == currentBlockPos)
             // this append fell into the last block: don't need a new IndexEntry
             return;
 
         // write an IndexEntry for the new block
         long indexPosition = indexFile.getFilePointer();
         IndexEntry entry = new IndexEntry(columnKey.key, columnKey.names,
-                                          indexPosition, blockPosition);
+                                          indexPosition, currentBlockPos);
         entry.serialize(indexFile);
 
         // if we've written INDEX_INTERVAL IndexEntries, hold onto one in memory
@@ -251,7 +254,7 @@ public class SSTableWriter extends SSTable
             return;
         indexEntries.add(entry);
         if (logger.isTraceEnabled())
-            logger.trace("Wrote IndexEntry for " + columnKey + " at position " + indexPosition + " for block at " + blockPosition);
+            logger.trace("Wrote IndexEntry for " + columnKey + " at position " + indexPosition + " for block at " + currentBlockPos);
     }
 
     /**
@@ -277,9 +280,9 @@ public class SSTableWriter extends SSTable
     public void append(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey, byte[] value) throws IOException
     {
         assert value.length > 0;
-        long blockPosition = beforeAppend(parentMeta, columnKey, value.length);
+        beforeAppend(parentMeta, columnKey, value.length);
         sliceContext.bufferColumn(value);
-        afterAppend(columnKey, value.length, blockPosition);
+        afterAppend(columnKey, value.length);
     }
 
     /**
