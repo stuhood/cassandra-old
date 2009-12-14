@@ -156,16 +156,16 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
     public static SSTableReader open(String dataFileName) throws IOException
     {
-        return open(dataFileName, StorageService.getPartitioner(), DatabaseDescriptor.getKeysCachedFraction(parseTableName(dataFileName)));
+        return open(dataFileName, StorageService.getPartitioner(), DatabaseDescriptor.getKeysCachedFraction(parsetTableName(dataFileName)));
     }
 
-    public static SSTableReader open(String dataFileName, IPartitioner partitioner, ColumnKey.Comparator comparator, double cacheFraction) throws IOException
+    public static SSTableReader open(String dataFileName, IPartitioner partitioner, double cacheFraction) throws IOException
     {
         assert partitioner != null;
         assert openedFiles.get(dataFileName) == null;
 
         long start = System.currentTimeMillis();
-        SSTableReader sstable = new SSTableReader(dataFileName, partitioner, comparator);
+        SSTableReader sstable = new SSTableReader(dataFileName, partitioner);
         sstable.loadIndexFile();
         sstable.loadBloomFilter();
         if (cacheFraction > 0)
@@ -187,9 +187,9 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
     private ConcurrentLinkedHashMap<ColumnKey, IndexEntry> keyCache;
 
-    SSTableReader(String filename, IPartitioner partitioner, ColumnKey.Comparator comparator, List<IndexEntry> indexEntries, BloomFilter bloomFilter, ConcurrentLinkedHashMap<ColumnKey, IndexEntry> keyCache)
+    SSTableReader(String filename, IPartitioner partitioner, List<IndexEntry> indexEntries, BloomFilter bloomFilter, ConcurrentLinkedHashMap<ColumnKey, IndexEntry> keyCache)
     {
-        super(filename, partitioner, comparator);
+        super(filename, partitioner);
         this.indexEntries = indexEntries;
         this.bf = bloomFilter;
         phantomReference = new FileDeletingReference(this, finalizerQueue);
@@ -198,9 +198,9 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         this.keyCache = keyCache;
     }
 
-    private SSTableReader(String filename, IPartitioner partitioner, ColumnKey.Comparator comparator)
+    private SSTableReader(String filename, IPartitioner partitioner)
     {
-        this(filename, partitioner, comparator, new ArrayList<IndexEntry>(), null, null);
+        this(filename, partitioner, new ArrayList<IndexEntry>(), null, null);
     }
 
     public List<IndexEntry> getIndexEntries()

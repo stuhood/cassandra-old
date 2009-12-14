@@ -34,7 +34,7 @@ import org.apache.cassandra.service.StorageService;
 public class ColumnKey
 {
     public final DecoratedKey key;
-    // FIXME: safer structure
+    // FIXME: safer structure?
     public final byte[][] names;
 
     public ColumnKey(DecoratedKey key, byte[][] names)
@@ -113,7 +113,7 @@ public class ColumnKey
      */
     public static class Comparator implements java.util.Comparator<ColumnKey>
     {
-        private final AbstractType[] nameComparators;
+        final AbstractType[] nameComparators;
         public Comparator(AbstractType... nameComparators)
         {
             this.nameComparators = nameComparators;
@@ -143,6 +143,18 @@ public class ColumnKey
                     return comp;
             }
             return 0;
+        }
+
+        /**
+         * FIXME: We can definitely find a better way to store the CK in a bloom filter, and we should before release.
+         */
+        public String forBloom(ColumnKey key)
+        {
+            StringBuilder buff = new StringBuilder();
+            buff.append(StorageService.getPartitioner().convertToDiskFormat(key.key));
+            for (int i = 0; i < key.names.length; i++)
+                buff.append("\u0000").append(nameComparators[i].getString(key.names[i]));
+            return buff.toString();
         }
     }
 }

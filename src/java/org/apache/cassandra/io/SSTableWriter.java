@@ -49,6 +49,12 @@ import com.reardencommerce.kernel.collections.shared.evictable.ConcurrentLinkedH
  * the end of a block (of max size MAX_BLOCK_BYTES), an additional SliceMark will mark
  * the end of the block, and indicate whether the subcolumns continue in the next
  * block.
+ *
+ * TODO: Wishlist:
+ * * Align more row keys with the beginnings of blocks by flushing blocks on
+ *   key changes falling between MIN and MAX.
+ * * ColumnKey.Comparator could encode the depth of difference in its return
+ *   value so we can accomplish the previous bullet without an extra compare.
  */
 public class SSTableWriter extends SSTable
 {
@@ -101,9 +107,9 @@ public class SSTableWriter extends SSTable
     private ColumnKey lastWrittenKey;
     private IndexEntry lastIndexEntry;
 
-    public SSTableWriter(String filename, long keyCount, IPartitioner partitioner, ColumnKey.Comparator comparator) throws IOException
+    public SSTableWriter(String filename, long keyCount, IPartitioner partitioner) throws IOException
     {
-        super(filename, partitioner, comparator);
+        super(filename, partitioner);
         dataFile = new BufferedRandomAccessFile(path, "rw", (int)(DatabaseDescriptor.getFlushDataBufferSizeInMB() * 1024 * 1024));
         indexFile = new BufferedRandomAccessFile(indexFilename(), "rw", (int)(DatabaseDescriptor.getFlushIndexBufferSizeInMB() * 1024 * 1024));
 
@@ -139,9 +145,9 @@ public class SSTableWriter extends SSTable
             return false;
         
         // flush the current slice, and cap the block with a BLOCK_END mark:
-        // BLOCK_END indicates the end of the block, but contains a key that a
-        // reader can use to determine if they should continue reading the next block
-        flushSlice();
+        // BLOCK_END indicates the end of the block, and contains the first key from
+        // the next block, so that a reader can determine if they need to continue
+        flushSlice(columnKey);
         SliceMark mark = new SliceMark(columnKey, SliceMark.BLOCK_END);
         mark.serialize(dataFile);
 
@@ -168,7 +174,7 @@ public class SSTableWriter extends SSTable
         mark.serialize(dataFile);
         dataFile.write(sliceOutputBuffer.getData());
         
-        sliceOutputBuffer.clear();
+        sliceOutputBuffer.reset();
         sliceOutputKey = columnKey;
     }
 
@@ -193,7 +199,7 @@ public class SSTableWriter extends SSTable
 
         // flush the block if it is within thresholds
         int curBlockLen = approxBlockLength + sliceOutputBuffer.getLength();
-        int expectedBlockLen = columnLen + bufferedBlockLen;
+        int expectedBlockLen = columnLen + curBlockLen;
         if (MIN_BLOCK_BYTES > curBlockLen && expectedBlockLen > TARGET_MAX_BLOCK_BYTES)
         {
             // current block is at least MIN_BLOCK_BYTES long, and adding
@@ -223,8 +229,7 @@ public class SSTableWriter extends SSTable
      */
     private void afterAppend(ColumnKey columnKey, int columnLen, long blockPosition) throws IOException
     {
-        // FIXME: bloomfilter should contain entire ColumnKey
-        bf.add(columnKey);
+        bf.add(comparator.forBloom(columnKey));
         lastWrittenKey = columnKey;
         keysWritten++;
 
@@ -267,10 +272,10 @@ public class SSTableWriter extends SSTable
     public void append(ColumnKey columnKey, byte[] value) throws IOException
     {
         assert value.length > 0;
-        beforeAppend(columnKey, value.length);
+        long blockPosition = beforeAppend(columnKey, value.length);
         dataFile.writeInt(value.length);
         dataFile.write(value);
-        afterAppend(columnKey, value.length);
+        afterAppend(columnKey, value.length, blockPosition);
     }
 
     /**

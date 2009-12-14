@@ -53,10 +53,10 @@ public abstract class SSTable
     public static final int FILES_ON_DISK = 3; // data, index, and bloom filter
 
     protected String path;
-    protected IPartitioner partitioner;
+    protected final IPartitioner partitioner;
     protected BloomFilter bf;
     protected List<IndexEntry> indexEntries;
-    protected String columnFamilyName;
+    protected final String columnFamilyName;
     protected final ColumnKey.Comparator comparator;
 
     /**
@@ -71,14 +71,14 @@ public abstract class SSTable
     /* Required extension for temporary files created during compactions. */
     public static final String TEMPFILE_MARKER = "tmp";
 
-    public SSTable(String filename, IPartitioner partitioner, ColumnKey.Comparator comparator)
+    public SSTable(String filename, IPartitioner partitioner)
     {
         assert filename.endsWith("-Data.db");
         columnFamilyName = new File(filename).getName().split("-")[0];
         this.path = filename;
         this.partitioner = partitioner;
         this.indexEntries = new ArrayList<IndexEntry>();
-        this.comparator = comparator;
+        this.comparator = ColumnKey.getComparator(getTableName(), getColumnFamilyName());;
     }
 
     protected static String indexFilename(String dataFile)
