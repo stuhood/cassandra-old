@@ -136,10 +136,12 @@ public class SSTableWriter extends SSTable
 
     /**
      * Flushes the current block if it is not empty, and begins a new one with the
-     * given key. Beginning a new block automatically begins a new slice.
+     * given key. Beginning a new block automatically begins a new slice. Passing
+     * a null columnKey indicates the end of the file, and will write a SliceMark
+     * with a null 'nextKey' value.
      *
      * TODO: We could write a block tail containing checksum info here. Perhaps
-     * SliceMark should contain more generic metadata to fill this role?
+     * SliceMark should contain more generic metadata to fill this role.
      *
      * @return False if the block was empty.
      */
@@ -152,7 +154,7 @@ public class SSTableWriter extends SSTable
         // BLOCK_END indicates the end of the block, and contains the first key from
         // the next block, so that a reader can determine if they need to continue
         flushSlice(parentMeta, columnKey);
-        SliceMark mark = new SliceMark(columnKey, SliceMark.BLOCK_END);
+        SliceMark mark = new SliceMark(lastWrittenKey, columnKey, SliceMark.BLOCK_END);
         mark.serialize(dataFile);
 
         // reset for the next block
@@ -175,7 +177,7 @@ public class SSTableWriter extends SSTable
             return false;
 
         // mark the beginning of the slice, and flush buffered data
-        sliceContext.markAndFlush(dataFile);
+        sliceContext.markAndFlush(dataFile, columnKey);
         sliceContext.reset(parentMeta, columnKey);
         return true;
     }
@@ -332,6 +334,9 @@ public class SSTableWriter extends SSTable
      */
     public SSTableReader closeAndOpenReader(double cacheFraction) throws IOException
     {
+        // flush the block we were writing
+        flushBlock(null, null);
+
         // bloom filter
         FileOutputStream fos = new FileOutputStream(filterFilename());
         DataOutputStream stream = new DataOutputStream(fos);
@@ -422,9 +427,9 @@ public class SSTableWriter extends SSTable
          * Mark the beginning of the slice with a SliceMark, and flush the buffered
          * data.
          */
-        public void markAndFlush(DataOutput dos) throws IOException
+        public void markAndFlush(DataOutput dos, ColumnKey nextKey) throws IOException
         {
-            new SliceMark(parentMeta, headKey, sliceBuffer.getLength()).serialize(dos);
+            new SliceMark(parentMeta, headKey, nextKey, sliceBuffer.getLength()).serialize(dos);
             dos.write(sliceBuffer.getData());
         }
 
@@ -434,7 +439,8 @@ public class SSTableWriter extends SSTable
          */
         public void reset(List<Pair<Long,Integer>> parentMeta, ColumnKey headKey)
         {
-            this.parentMeta = new LinkedList<Pair<Long,Integer>>(parentMeta);
+            this.parentMeta = parentMeta != null ?
+                new LinkedList<Pair<Long,Integer>>(parentMeta) : null;
             this.headKey = headKey;
             sliceBuffer.reset();
         }

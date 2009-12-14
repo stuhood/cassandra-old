@@ -195,34 +195,43 @@ public abstract class SSTable
      */
     static class SliceMark
     {
-        // this marker indicates the end of this block: the key it contains is equal
-        // to the first key of the next block
+        // a mark with this status indicates the end of a block: the mark should
+        // contain the last key in the current block, and the first key of the next
+        // block. if this was the last block in the file, then nextKey will be null
         public static final int BLOCK_END = -1;
 
 
-        public final ColumnKey key;
+        public final ColumnKey currentKey;
+        public final ColumnKey nextKey;
         // uncompressed bytes to next SliceMark, or a negative status value
         public final int nextMark;
         // ("markedForDeleteAt","localDeletionTime") for parents of the slice
         // FIXME: @see SSTableWriter.append()
         public final List<Pair<Long,Integer>> parentMeta;
 
-        public SliceMark(ColumnKey key, int nextMark)
+        public SliceMark(ColumnKey currentKey, ColumnKey nextKey, int nextMark)
         {
-            this(Collections.<Pair<Long,Integer>>emptyList(), key, nextMark);
+            this(Collections.<Pair<Long,Integer>>emptyList(), currentKey, nextKey, nextMark);
         }
 
-        public SliceMark(List<Pair<Long,Integer>> parentMeta, ColumnKey key, int nextMark)
+        public SliceMark(List<Pair<Long,Integer>> parentMeta, ColumnKey currentKey, ColumnKey nextKey, int nextMark)
         {
             assert parentMeta.size() < Byte.MAX_VALUE;
-            this.key = key;
+            assert currentKey != null;
+            this.currentKey = currentKey;
+            this.nextKey = nextKey;
             this.nextMark = nextMark;
             this.parentMeta = parentMeta;
         }
 
         public void serialize(DataOutput dos) throws IOException
         {
-            key.serialize(dos);
+            currentKey.serialize(dos);
+            // nextKey is nullable, indicating the end of the file
+            dos.writeBoolean(nextKey != null);
+            if (nextKey != null)
+                nextKey.serialize(dos);
+
             dos.writeInt(nextMark);
             dos.writeByte((byte)parentMeta.size());
             for (Pair<Long,Integer> val : parentMeta)
@@ -234,18 +243,19 @@ public abstract class SSTable
 
         public static SliceMark deserialize(DataInput dis) throws IOException
         {
-            ColumnKey key = ColumnKey.deserialize(dis);
+            ColumnKey currentKey = ColumnKey.deserialize(dis);
+            ColumnKey nextKey = dis.readBoolean() ? ColumnKey.deserialize(dis) : null;
             int nextMark = dis.readInt();
             List<Pair<Long,Integer>> parentMeta = new LinkedList<Pair<Long,Integer>>();
             byte parentMetaLen = dis.readByte();
             for (int i = 0; i < parentMetaLen; i++)
                 parentMeta.add(new Pair<Long,Integer>(dis.readLong(), dis.readInt()));
-            return new SliceMark(parentMeta, key, nextMark);
+            return new SliceMark(parentMeta, currentKey, nextKey, nextMark);
         }
 
         public String toString()
         {
-            return "#<SliceMark " + key + " " + nextMark + ">";
+            return "#<SliceMark " + currentKey + " " + nextKey + " " + nextMark + ">";
         }
     }
 }
