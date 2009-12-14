@@ -26,7 +26,6 @@ import java.util.ArrayList;
 
 import org.apache.log4j.Logger;
 
-import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.BloomFilter;
@@ -89,9 +88,12 @@ public class SSTableWriter extends SSTable
     // the first ColumnKey contained in the current sliceOutputBuffer
     private ColumnKey sliceOutputKey;
 
+    // the disk position of the start of the current block, and its approx length
+    private long currentBlockPosition;
+    private int approxBlockLength;
+
     private long keysWritten;
     private int blocksWritten;
-    private int approxBlockLength;
     private BufferedRandomAccessFile dataFile;
     private BufferedRandomAccessFile indexFile;
 
@@ -105,16 +107,19 @@ public class SSTableWriter extends SSTable
         dataFile = new BufferedRandomAccessFile(path, "rw", (int)(DatabaseDescriptor.getFlushDataBufferSizeInMB() * 1024 * 1024));
         indexFile = new BufferedRandomAccessFile(indexFilename(), "rw", (int)(DatabaseDescriptor.getFlushIndexBufferSizeInMB() * 1024 * 1024));
 
+        // slice metadata
         sliceDepth = "Super".equals(DatabaseDescriptor.getColumnFamilyType(getTableName(), getColumnFamilyName())) ? 1 : 0;
-
         sliceOutputBuffer = new DataOutputBuffer();
         sliceOutputKey = null;
 
+        // block metadata
+        approxBlockLength = 0;
+        currentBlockPosition = 0;
 
-        bf = new BloomFilter((int)keyCount, 15); // TODO fix long -> int cast
+        // etc
         keysWritten = 0;
         blocksWritten = 0;
-        approxBlockLength = 0;
+        bf = new BloomFilter((int)keyCount, 15); // TODO fix long -> int cast
         lastWrittenKey = null;
         lastIndexEntry = null;
     }
@@ -123,7 +128,8 @@ public class SSTableWriter extends SSTable
      * Flushes the current block if it is not empty, and begins a new one with the
      * given key. Beginning a new block automatically begins a new slice.
      *
-     * TODO: We could write a block tail containing checksum info.
+     * TODO: We could write a block tail containing checksum info. Perhaps a
+     * subclass of SliceMark that contains metadata?
      *
      * @return False if the block was empty.
      */
@@ -132,20 +138,23 @@ public class SSTableWriter extends SSTable
         if (lastWrittenKey == null && approxBlockLength == 0)
             return false;
         
-        // flush the current slice...
+        // flush the current slice, and cap the block with a BLOCK_END mark:
+        // BLOCK_END indicates the end of the block, but contains a key that a
+        // reader can use to determine if they should continue reading the next block
         flushSlice();
-        blocksWritten++;
-        approxBlockLength = 0;
-
-        // and cap it with a BLOCK_END mark
         SliceMark mark = new SliceMark(columnKey, SliceMark.BLOCK_END);
         mark.serialize(dataFile);
+
+        // reset for the next block
+        blocksWritten++;
+        approxBlockLength = 0;
+        currentBlockPosition = dataFile.getFilePointer();
         return true;
     }
 
     /**
      * Flushes the current slice if it is not empty, and begins a new one with the
-     * given key. A Slice always begins with a SliceMark indicating the length
+     * given key. A slice always begins with a SliceMark indicating the length
      * of the slice.
      *
      * @return False if the slice was empty.
@@ -166,10 +175,11 @@ public class SSTableWriter extends SSTable
     /**
      * Handles prepending metadata to the data file before writing the given ColumnKey.
      *
+     * TODO: This is where we could write a block header containing compression info.
+     *
      * @param columnKey The key that is about to be appended,
      * @param columnLen The length in bytes of the column that will be appended.
-     *
-     * TODO: This is where we could write a block header containing compression info.
+     * @return The disk position of the block that the given key will fall into.
      */
     private long beforeAppend(ColumnKey columnKey, int columnLen) throws IOException
     {
@@ -179,7 +189,7 @@ public class SSTableWriter extends SSTable
             // we're beginning the first slice
             return 0;
 
-        /* Determine if we need to begin a new slice or block. */
+        /* Determine if we need to begin a new block or slice. */
 
         // flush the block if it is within thresholds
         int curBlockLen = approxBlockLength + sliceOutputBuffer.getLength();
@@ -251,14 +261,16 @@ public class SSTableWriter extends SSTable
         append(columnKey, buffer.getData());
     }
 
+    /**
+     * @see append(ColumnKey, DataOutputBuffer).
+     */
     public void append(ColumnKey columnKey, byte[] value) throws IOException
     {
         assert value.length > 0;
-        long currentPosition = beforeAppend(columnKey, value.length);
-        dataFile.writeUTF(partitioner.convertToDiskFormat(decoratedKey));
+        beforeAppend(columnKey, value.length);
         dataFile.writeInt(value.length);
         dataFile.write(value);
-        afterAppend(decoratedKey, value.length, currentPosition);
+        afterAppend(columnKey, value.length);
     }
 
     /**

@@ -54,9 +54,9 @@ public class ColumnKey
     public static ColumnKey.Comparator getComparator(String table, String cf)
     {
         if("Super".equals(DatabaseDescriptor.getColumnFamilyType(table, cf)))
-            return new ColumnKey.Comparator(DatabaseDescriptor.getComparator(table, cf),
+            return new Comparator(DatabaseDescriptor.getComparator(table, cf),
                                             DatabaseDescriptor.getSubComparator(table, cf));
-        return new ColumnKey.Comparator(DatabaseDescriptor.getComparator(table, cf));
+        return new Comparator(DatabaseDescriptor.getComparator(table, cf));
     }
 
     @Override
@@ -111,7 +111,7 @@ public class ColumnKey
      * The implementation of java.util.Comparator.compare() uses the maximum
      * depth.
      */
-    public static Comparator implements java.util.Comparator<ColumnKey>
+    public static class Comparator implements java.util.Comparator<ColumnKey>
     {
         private final AbstractType[] nameComparators;
         public Comparator(AbstractType... nameComparators)
