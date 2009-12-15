@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.tools;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.util.Collection;
@@ -31,7 +32,7 @@ import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.io.IteratingRow;
 import org.apache.cassandra.io.SSTableReader;
 import org.apache.cassandra.io.SSTableScanner;
-import org.apache.cassandra.utils.FBUtilities;
+import static org.apache.cassandra.utils.FBUtilities.bytesToHex;
 import org.apache.commons.cli.*;
 
 /**
@@ -77,9 +78,9 @@ public class SSTableExport
         {
             json.append("[");
             IColumn column = iter.next();
-            json.append(quote(comp.getString(column.name())));
+            json.append(quote(bytesToHex(column.name())));
             json.append(", ");
-            json.append(quote(FBUtilities.bytesToHex(column.value())));
+            json.append(quote(bytesToHex(column.value())));
             json.append(", ");
             json.append(column.timestamp());
             json.append(", ");
@@ -108,7 +109,7 @@ public class SSTableExport
             while (iter.hasNext())
             {
                 IColumn column = iter.next();
-                json.append(asKey(comparator.getString(column.name())));
+                json.append(asKey(bytesToHex(column.name())));
                 json.append("{");
                 json.append(asKey("deletedAt"));
                 json.append(column.getMarkedForDeleteAt());
@@ -302,20 +303,21 @@ public class SSTableExport
         }
         
         String[] keys = cmd.getOptionValues(KEY_OPTION);
+        String ssTableFileName = new File(cmd.getArgs()[0]).getAbsolutePath();
         
         if (outFile != null)
         {
             if ((keys != null) && (keys.length > 0))
-                export(cmd.getArgs()[0], outFile, keys);
+                export(ssTableFileName, outFile, keys);
             else
-                export(cmd.getArgs()[0], outFile);
+                export(ssTableFileName, outFile);
         }
         else
         {
             if ((keys != null) && (keys.length > 0))
-                export(cmd.getArgs()[0], System.out, keys);
+                export(ssTableFileName, System.out, keys);
             else
-                export(cmd.getArgs()[0]);
+                export(ssTableFileName);
         }
         System.exit(0);
     }
