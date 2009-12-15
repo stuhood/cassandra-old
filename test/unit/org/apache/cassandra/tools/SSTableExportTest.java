@@ -120,14 +120,11 @@ public class SSTableExportTest
         File tempSS = createTemporarySSTable("Keyspace1", "Standard1");
         ColumnFamily cfamily = ColumnFamily.create("Keyspace1", "Standard1");
         IPartitioner<?> partitioner = DatabaseDescriptor.getPartitioner();
-        DataOutputBuffer dob = new DataOutputBuffer();
         SSTableWriter writer = new SSTableWriter(tempSS.getPath(), 2, partitioner);
         
         // Add rowA
         cfamily.addColumn(new QueryPath("Standard1", null, "name".getBytes()), "val".getBytes(), 1, false);
-        ColumnFamily.serializer().serializeWithIndexes(cfamily, dob);
-        writer.append(partitioner.decorateKey("rowA"), dob);
-        dob.reset();
+        writer.flatteningAppend(partitioner.decorateKey("rowA"), cfamily);
         cfamily.clear();
         
         SSTableReader reader = writer.closeAndOpenReader(0);
