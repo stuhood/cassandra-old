@@ -58,7 +58,7 @@ public class SSTableTest extends CleanupHelper
     private void verifySingle(SSTableReader sstable, byte[] bytes, String key) throws IOException
     {
     /**
-     * FIXME: disabled until we get past crashing.
+     * FIXME: needs rethinking
         BufferedRandomAccessFile file = new BufferedRandomAccessFile(sstable.path, "r");
         file.seek(sstable.getPosition(sstable.partitioner.decorateKey(key)));
         assert key.equals(file.readUTF());
@@ -95,7 +95,7 @@ public class SSTableTest extends CleanupHelper
     private void verifyMany(SSTableReader sstable, TreeMap<ColumnKey, byte[]> map) throws IOException
     {
     /**
-     * FIXME: disabled until we get past crashing.
+     * FIXME: needs rethinking
         List<String> keys = new ArrayList<String>(map.keySet());
         Collections.shuffle(keys);
         BufferedRandomAccessFile file = new BufferedRandomAccessFile(sstable.path, "r");
@@ -115,7 +115,8 @@ public class SSTableTest extends CleanupHelper
     public void testGetIndexedDecoratedKeysFor() throws IOException
     {
         final int numkeys = 1000;
-        final byte[] columnVal = "blah".getBytes();
+        final int colsPerKey = 5;
+        final byte[] columnVal = "This would normally be a serialized Column.".getBytes();
         final int columnBytes = columnVal.length;
         final String magic = "MAGIC!";
 
@@ -125,7 +126,10 @@ public class SSTableTest extends CleanupHelper
         {
             String stringKey = magic + Integer.toString(i);
             DecoratedKey decKey = StorageService.getPartitioner().decorateKey(stringKey);
-            map.put(new ColumnKey(decKey, Integer.toString(i).getBytes()), columnVal);
+            // write colsPerKey columns
+            for (int k = 0; k < colsPerKey; k++)
+                map.put(new ColumnKey(decKey, Integer.toString(k).getBytes()),
+                        columnVal);
         }
 
         // write
@@ -153,10 +157,10 @@ public class SSTableTest extends CleanupHelper
         assert 0 < actual;
 
         // the number of keys in memory should be approximately:
-        // numkeys * bytes_per_column / SSTWriter.TARGET_MAX_SLICE_BYTES / SSTable.INDEX_INTERVAL
-        int totColumnBytes = numkeys * columnBytes;
-        double numSlices = (double)totColumnBytes / SSTableWriter.TARGET_MAX_SLICE_BYTES;
-        double ceil = numSlices / SSTable.INDEX_INTERVAL;
-        assert actual <= ceil : "actual " + actual + " !<= ceil " + ceil;
+        // numkeys * bytes_per_key / SSTWriter.TARGET_MAX_BLOCK_BYTES / SSTable.INDEX_INTERVAL
+        int totColumnBytes = numkeys * (columnBytes * colsPerKey);
+        double numSlices = (double)totColumnBytes / SSTableWriter.TARGET_MAX_BLOCK_BYTES;
+        double expected = Math.ceil(numSlices / SSTable.INDEX_INTERVAL);
+        assert actual <= expected : "actual " + actual + " !<= expected " + expected;
     }
 }
