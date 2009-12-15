@@ -59,6 +59,8 @@ import com.reardencommerce.kernel.collections.shared.evictable.ConcurrentLinkedH
  *   key changes falling between MIN and MAX.
  * * ColumnKey.Comparator could encode the depth of difference in its return
  *   value so we can accomplish the previous bullet without an extra compare.
+ * * Reduce buffer copies in append() by buffering Column objects (instead of buffers),
+ *   which we can serialize directly to the block.
  */
 public class SSTableWriter extends SSTable
 {
@@ -83,7 +85,7 @@ public class SSTableWriter extends SSTable
      * The target maximum size of a Slice in bytes (between two SliceMarks in a block).
      * SliceMarks allow skipping columns within a block, but this many bytes will need
      * to be held in memory while writing the SSTable. Large columns will stretch this
-     * value, because a slice cannot be smaller than a column.
+     * value (because a slice cannot be smaller than a column).
      * TODO: tune
      */
     public static final int TARGET_MAX_SLICE_BYTES = 1 << 14;
@@ -97,7 +99,7 @@ public class SSTableWriter extends SSTable
     private final int sliceDepth;
 
     // buffer for data contained in the current slice
-    private final SliceContext sliceContext;
+    private SliceContext sliceContext;
 
     // the disk position of the start of the current block, and its approx length
     private long currentBlockPos;
@@ -120,7 +122,7 @@ public class SSTableWriter extends SSTable
 
         // slice metadata
         sliceDepth = "Super".equals(DatabaseDescriptor.getColumnFamilyType(getTableName(), getColumnFamilyName())) ? 1 : 0;
-        sliceContext = new SliceContext();;
+        sliceContext = new SliceContext();
 
         // block metadata
         approxBlockLen = 0;
@@ -176,8 +178,9 @@ public class SSTableWriter extends SSTable
         if (sliceContext.isEmpty())
             return false;
 
-        // mark the beginning of the slice, and flush buffered data
+        // flush the currently slice (after prepending a mark)
         sliceContext.markAndFlush(dataFile, columnKey);
+        // then reset for the next slice
         sliceContext.reset(parentMeta, columnKey);
         return true;
     }
@@ -196,15 +199,18 @@ public class SSTableWriter extends SSTable
         assert columnKey != null : "Keys must not be null.";
 
         if (lastWrittenKey == null)
+        {
             // we're beginning the first slice
+            sliceContext.reset(parentMeta, columnKey);
             return;
+        }
 
         /* Determine if we need to begin a new block or slice. */
 
         // flush the block if it is within thresholds
         int curBlockLen = approxBlockLen + sliceContext.getLength();
         int expectedBlockLen = columnLen + curBlockLen;
-        if (MIN_BLOCK_BYTES > curBlockLen && expectedBlockLen > TARGET_MAX_BLOCK_BYTES)
+        if (MIN_BLOCK_BYTES < curBlockLen && expectedBlockLen > TARGET_MAX_BLOCK_BYTES)
         {
             // current block is at least MIN_BLOCK_BYTES long, and adding
             // this column would push it over TARGET_MAX_BLOCK_BYTES: flush.
@@ -239,24 +245,22 @@ public class SSTableWriter extends SSTable
         // overhead of serialized SliceMark objects among the columns
         approxBlockLen += columnLen;
         
-        if (logger.isTraceEnabled())
-            logger.trace("Wrote " + columnKey + " in block at " + currentBlockPos);
         if (lastIndexEntry != null && lastIndexEntry.dataOffset == currentBlockPos)
             // this append fell into the last block: don't need a new IndexEntry
             return;
 
         // write an IndexEntry for the new block
         long indexPosition = indexFile.getFilePointer();
-        IndexEntry entry = new IndexEntry(columnKey.key, columnKey.names,
-                                          indexPosition, currentBlockPos);
-        entry.serialize(indexFile);
+        lastIndexEntry = new IndexEntry(columnKey.key, columnKey.names,
+                                        indexPosition, currentBlockPos);
+        lastIndexEntry.serialize(indexFile);
+        if (logger.isTraceEnabled())
+            logger.trace("Wrote " + lastIndexEntry);
 
-        // if we've written INDEX_INTERVAL IndexEntries, hold onto one in memory
+        // if we've written INDEX_INTERVAL blocks/IndexEntries, hold onto one in memory
         if (blocksWritten % INDEX_INTERVAL != 0)
             return;
-        indexEntries.add(entry);
-        if (logger.isTraceEnabled())
-            logger.trace("Wrote IndexEntry for " + columnKey + " at position " + indexPosition + " for block at " + currentBlockPos);
+        indexEntries.add(lastIndexEntry);
     }
 
     /**
@@ -269,22 +273,15 @@ public class SSTableWriter extends SSTable
      *     shouldn't have to know anything about Slices. At the absolute minimum,
      *     we should replace Pair with a purpose built metadata object.
      * @param columnKey The fully qualified key for the column.
-     * @param buffer The serialized column.
+     * @param buffer A buffer to copy the serialized column from.
      */
     public void append(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey, DataOutputBuffer buffer) throws IOException
     {
-        append(parentMeta, columnKey, buffer.getData());
-    }
-
-    /**
-     * @see append(List<Pair<Long,Integer>>, ColumnKey, DataOutputBuffer).
-     */
-    public void append(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey, byte[] value) throws IOException
-    {
-        assert value.length > 0;
-        beforeAppend(parentMeta, columnKey, value.length);
-        sliceContext.bufferColumn(value);
-        afterAppend(columnKey, value.length);
+        int columnLen = buffer.getLength();
+        assert columnLen > 0;
+        beforeAppend(parentMeta, columnKey, columnLen);
+        sliceContext.bufferColumn(buffer.getData(), columnLen);
+        afterAppend(columnKey, columnLen);
     }
 
     /**
@@ -393,16 +390,23 @@ public class SSTableWriter extends SSTable
     {
         private List<Pair<Long,Integer>> parentMeta = null;
         private ColumnKey headKey = null;
-        private DataOutputBuffer sliceBuffer = new DataOutputBuffer();;
+        private DataOutputBuffer sliceBuffer = new DataOutputBuffer();
+
+        public SliceContext()
+        {
+            this.parentMeta = parentMeta;
+            this.headKey = headKey;
+        }
 
         /**
-         * Buffers a serialized 'Column' object to be written to the current slice.
+         * Buffers bytes up to len as a serialized 'Column' object to be written to
+         * the current slice.
          */
-        public void bufferColumn(byte[] column)
+        public void bufferColumn(byte[] column, int len)
         {
             try
             {
-                sliceBuffer.write(column);
+                sliceBuffer.write(column, 0, len);
             }
             catch (IOException e)
             {
@@ -424,18 +428,7 @@ public class SSTableWriter extends SSTable
         }
 
         /**
-         * Mark the beginning of the slice with a SliceMark, and flush the buffered
-         * data.
-         */
-        public void markAndFlush(DataOutput dos, ColumnKey nextKey) throws IOException
-        {
-            new SliceMark(parentMeta, headKey, nextKey, sliceBuffer.getLength()).serialize(dos);
-            dos.write(sliceBuffer.getData());
-        }
-
-        /**
-         * Resets the class for use in creating a new slice starting with the
-         * given key and metadata.
+         * Begins a slice with the given shared metadata and first key.
          */
         public void reset(List<Pair<Long,Integer>> parentMeta, ColumnKey headKey)
         {
@@ -443,6 +436,17 @@ public class SSTableWriter extends SSTable
                 new LinkedList<Pair<Long,Integer>>(parentMeta) : null;
             this.headKey = headKey;
             sliceBuffer.reset();
+        }
+
+        /**
+         * Prepend a mark to our buffer to indicate the beginning of the slice, and
+         * then flush the buffered data to the given output.
+         */
+        public void markAndFlush(DataOutput dos, ColumnKey nextKey) throws IOException
+        {
+            int sliceLen = sliceBuffer.getLength();
+            new SliceMark(parentMeta, headKey, nextKey, sliceLen).serialize(dos);
+            dos.write(sliceBuffer.getData(), 0, sliceLen);
         }
     }
 }
