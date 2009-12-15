@@ -29,15 +29,15 @@ import org.apache.cassandra.service.StorageService;
 
 
 /**
- * An entry in the SSTable index file. Each entry contains the full path to a column
- * in the SSTable, and a file position. An IndexEntry in memory points to its own
- * position in the index file, but when serialized to disk, it contains the position
- * of its key in the data file.
+ * An entry in the SSTable index file which points to a block in the data file.
+ * Each entry contains the full path of the column at the beginning of the block
+ * in the SSTable, and two file positions: the offset of the serialized version
+ * of this object in the index, and the offset of the block in the data file.
  *
  * To find a key in the data file, we first look at IndexEntries in memory, and find
  * the last entry less than the key we want. We then seek to the position of that
- * entry in the index file, read forward until we find the key we want, and then
- * seek to its exact position in the data file.
+ * entry in the index file, read forward until we find the last entry less than the
+ * key, and then seek to the position of that entry's block in the data file.
  */
 public class IndexEntry extends ColumnKey
 {
@@ -58,6 +58,8 @@ public class IndexEntry extends ColumnKey
     public void serialize(DataOutput dos) throws IOException
     {
         super.serialize(dos);
+        // note: only the dataOffset is serialized to disk, because in order
+        // to deserialize this value, we will need to know indexOffset anyway
         dos.writeLong(dataOffset);
     }
 
@@ -82,5 +84,13 @@ public class IndexEntry extends ColumnKey
         while (nameCount-- > 0)
             ColumnSerializer.readName(dis);
         dis.readLong();
+    }
+
+    public String toString()
+    {
+        StringBuilder buff = new StringBuilder();
+        buff.append("#<IndexEntry ").append(super.toString()).append(" ioffset=")
+            .append(indexOffset).append(" doffset=").append(dataOffset).append(">");
+        return buff.toString();
     }
 }
