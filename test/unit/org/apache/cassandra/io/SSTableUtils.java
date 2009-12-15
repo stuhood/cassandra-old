@@ -21,17 +21,13 @@ package org.apache.cassandra.io;
 import java.io.File;
 import java.io.IOException;
 
-import java.util.Map;
-import java.util.SortedMap;
-import java.util.Set;
-import java.util.TreeMap;
+import java.util.*;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.Column;
-import org.apache.cassandra.db.ColumnFamily;
-import org.apache.cassandra.db.Table;
+import org.apache.cassandra.db.*;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.utils.Pair;
 
 /**
  * TODO: These methods imitate Memtable.writeSortedKeys to some degree, but
@@ -83,23 +79,47 @@ public class SSTableUtils
 
     public static SSTableReader writeSSTable(SortedMap<String, ColumnFamily> entries) throws IOException
     {
-        TreeMap<String, byte[]> map = new TreeMap<String, byte[]>();
+        TreeMap<ColumnKey, byte[]> map =
+            new TreeMap<ColumnKey, byte[]>(ColumnKey.getComparator(TABLENAME, CFNAME));
+        DataOutputBuffer buffer = new DataOutputBuffer();
         for (Map.Entry<String, ColumnFamily> entry : entries.entrySet())
         {
-            DataOutputBuffer buffer = new DataOutputBuffer();
-            ColumnFamily.serializer().serializeWithIndexes(entry.getValue(), buffer);
-            map.put(entry.getKey(), buffer.getData());
+            DecoratedKey key = StorageService.getPartitioner().decorateKey(entry.getKey());
+
+            // flatten the column family into columns
+            for (IColumn col : entry.getValue().getSortedColumns())
+            {
+                if (!entry.getValue().isSuper())
+                {
+                    map.put(new ColumnKey(key, col.name()), buffer.getData());
+                    continue;
+                }
+
+                SuperColumn supercol = (SuperColumn)col;
+                for (IColumn subcol : supercol.getSubColumns())
+                {
+                    Column.serializer().serialize(subcol, buffer);
+                    map.put(new ColumnKey(key, supercol.name(), subcol.name()),
+                            buffer.getData());
+                    buffer.reset();
+                }
+            }
+            buffer.reset();
         }
         return writeRawSSTable(TABLENAME, CFNAME, map);
     }
 
-    public static SSTableReader writeRawSSTable(String tablename, String cfname, SortedMap<String, byte[]> entries) throws IOException
+    /**
+     * Writes a series of columns within the same slice. All columns in the slice
+     * will have the same empty metadata.
+     */
+    public static SSTableReader writeRawSSTable(String tablename, String cfname, SortedMap<ColumnKey, byte[]> entries) throws IOException
     {
         File f = tempSSTableFile(tablename, cfname);
         SSTableWriter writer = new SSTableWriter(f.getAbsolutePath(), entries.size(), StorageService.getPartitioner());
-        for (Map.Entry<String, byte[]> entry : entries.entrySet())
-            writer.append(writer.partitioner.decorateKey(entry.getKey()),
-                          entry.getValue());
+        List<Pair<Long,Integer>> parentMeta = new LinkedList<Pair<Long,Integer>>();
+        for (Map.Entry<ColumnKey, byte[]> entry : entries.entrySet())
+            writer.append(parentMeta, entry.getKey(), entry.getValue());
         new File(writer.indexFilename()).deleteOnExit();
         new File(writer.filterFilename()).deleteOnExit();
         return writer.closeAndOpenReader(1.0);

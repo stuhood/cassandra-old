@@ -45,21 +45,16 @@ public class SSTableExportTest
         File tempSS = createTemporarySSTable("Keyspace1", "Standard1");
         ColumnFamily cfamily = ColumnFamily.create("Keyspace1", "Standard1");
         IPartitioner<?> partitioner = DatabaseDescriptor.getPartitioner();
-        DataOutputBuffer dob = new DataOutputBuffer();
         SSTableWriter writer = new SSTableWriter(tempSS.getPath(), 2, partitioner);
         
         // Add rowA
         cfamily.addColumn(new QueryPath("Standard1", null, "colA".getBytes()), "valA".getBytes(), 1, false);
-        ColumnFamily.serializer().serializeWithIndexes(cfamily, dob);
-        writer.append(partitioner.decorateKey("rowA"), dob);
-        dob.reset();
+        writer.flatteningAppend(partitioner.decorateKey("rowA"), cfamily);
         cfamily.clear();
         
         // Add rowB
         cfamily.addColumn(new QueryPath("Standard1", null, "colB".getBytes()), "valB".getBytes(), 1, false);
-        ColumnFamily.serializer().serializeWithIndexes(cfamily, dob);
-        writer.append(partitioner.decorateKey("rowB"), dob);
-        dob.reset();
+        writer.flatteningAppend(partitioner.decorateKey("rowB"), cfamily);
         cfamily.clear();
      
         SSTableReader reader = writer.closeAndOpenReader(0);
@@ -85,21 +80,16 @@ public class SSTableExportTest
         File tempSS = createTemporarySSTable("Keyspace1", "Super4");
         ColumnFamily cfamily = ColumnFamily.create("Keyspace1", "Super4");
         IPartitioner<?> partitioner = DatabaseDescriptor.getPartitioner();
-        DataOutputBuffer dob = new DataOutputBuffer();
         SSTableWriter writer = new SSTableWriter(tempSS.getPath(), 2, partitioner);
         
         // Add rowA
         cfamily.addColumn(new QueryPath("Super4", "superA".getBytes(), "colA".getBytes()), "valA".getBytes(), 1, false);
-        ColumnFamily.serializer().serializeWithIndexes(cfamily, dob);
-        writer.append(partitioner.decorateKey("rowA"), dob);
-        dob.reset();
+        writer.flatteningAppend(partitioner.decorateKey("rowA"), cfamily);
         cfamily.clear();
         
         // Add rowB
         cfamily.addColumn(new QueryPath("Super4", "superB".getBytes(), "colB".getBytes()), "valB".getBytes(), 1, false);
-        ColumnFamily.serializer().serializeWithIndexes(cfamily, dob);
-        writer.append(partitioner.decorateKey("rowB"), dob);
-        dob.reset();
+        writer.flatteningAppend(partitioner.decorateKey("rowB"), cfamily);
         cfamily.clear();
      
         SSTableReader reader = writer.closeAndOpenReader(0);

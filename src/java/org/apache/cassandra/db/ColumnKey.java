@@ -55,7 +55,7 @@ public class ColumnKey
     {
         if("Super".equals(DatabaseDescriptor.getColumnFamilyType(table, cf)))
             return new Comparator(DatabaseDescriptor.getComparator(table, cf),
-                                            DatabaseDescriptor.getSubComparator(table, cf));
+                                  DatabaseDescriptor.getSubComparator(table, cf));
         return new Comparator(DatabaseDescriptor.getComparator(table, cf));
     }
 
