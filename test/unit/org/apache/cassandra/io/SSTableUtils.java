@@ -89,9 +89,11 @@ public class SSTableUtils
             // flatten the column family into columns
             for (IColumn col : entry.getValue().getSortedColumns())
             {
+                buffer.reset();
                 if (!entry.getValue().isSuper())
                 {
-                    map.put(new ColumnKey(key, col.name()), buffer.getData());
+                    Column.serializer().serialize(col, buffer);
+                    map.put(new ColumnKey(key, col.name()), buffer.toByteArray());
                     continue;
                 }
 
@@ -100,11 +102,10 @@ public class SSTableUtils
                 {
                     Column.serializer().serialize(subcol, buffer);
                     map.put(new ColumnKey(key, supercol.name(), subcol.name()),
-                            buffer.getData());
+                            buffer.toByteArray());
                     buffer.reset();
                 }
             }
-            buffer.reset();
         }
         return writeRawSSTable(TABLENAME, CFNAME, map);
     }
@@ -117,9 +118,16 @@ public class SSTableUtils
     {
         File f = tempSSTableFile(tablename, cfname);
         SSTableWriter writer = new SSTableWriter(f.getAbsolutePath(), entries.size(), StorageService.getPartitioner());
+        // empty metadata
         List<Pair<Long,Integer>> parentMeta = new LinkedList<Pair<Long,Integer>>();
+
+        DataOutputBuffer buff = new DataOutputBuffer();
         for (Map.Entry<ColumnKey, byte[]> entry : entries.entrySet())
-            writer.append(parentMeta, entry.getKey(), entry.getValue());
+        {
+            buff.write(entry.getValue(), 0, entry.getValue().length);
+            writer.append(parentMeta, entry.getKey(), buff);
+            buff.reset();
+        }
         new File(writer.indexFilename()).deleteOnExit();
         new File(writer.filterFilename()).deleteOnExit();
         return writer.closeAndOpenReader(1.0);
