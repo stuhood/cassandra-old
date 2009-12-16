@@ -249,14 +249,14 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     }
 
     /**
-     * @return The position in the index file to start scanning to find the given key (at most indexInterval keys away)
+     * @return The last cached index entry less than or equal to the given target.
+     * The entry contains the position to begin scanning the index file or the
+     * data file.
      */
-    private long getIndexScanPosition(ColumnKey target)
+    private IndexEntry getIndexScanPosition(ColumnKey target)
     {
         assert !indexEntries.isEmpty();
-        // TODO: get/use column name
-        int index = Collections.binarySearch(indexEntries, target,
-                                             ColumnKey.getComparator(getTableName(), getColumnFamilyName()));
+        int index = Collections.binarySearch(indexEntries, target, comparator);
         if (index < 0)
         {
             // binary search gives us the first index _greater_ than the key searched for,
@@ -264,25 +264,43 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             int greaterThan = (index + 1) * -1;
             if (greaterThan == 0)
                 return -1;
-            return indexEntries.get(greaterThan - 1).indexOffset;
+            return indexEntries.get(greaterThan - 1);
         }
         else
         {
             // TODO: for exact matches, utilize the dataOffset to seek directly to
             // the data file
-            return indexEntries.get(index).indexOffset;
+            return indexEntries.get(index);
         }
     }
 
     /**
-     * returns the position in the data file to find the given key, or -1 if the key is not present
+     * Deprecated: use getPosition(ColumnKey) instead, for higher resolution.
+     * Also, this method will never match the BloomFilter, which means extra
+     * reads.
      */
+    @Deprecated
     public long getPosition(DecoratedKey decoratedKey) throws IOException
     {
         // TODO: should contain column names as well
         ColumnKey target = new ColumnKey(decoratedKey, new byte[0][]);
+        return getPosition(target);
+    }
 
-        if (!bf.isPresent(partitioner.convertToDiskFormat(decoratedKey)))
+    /**
+     * FIXME: This method needs a redesign to support block compression: we should probably
+     * return a data file scanning structure which can encapsulate reading from blocks
+     * (possibly compressed). We also need to consider the case of a reverse scan: should
+     * they need to read from the beginning of the block to each slice?, or can we abstract
+     * that into a reverse column read somehow?
+     *
+     * @return The position in the data file to find the given key, or -1 if
+     * the key is not present.
+     */
+    public long getPosition(ColumnKey target) throws IOException
+    {
+        // FIXME: the BloomFilter contains full ColumnKeys: we won't get a matc
+        if (!bf.isPresent(comparator.forBloom(target))
             return -1;
         if (keyCache != null)
         {
@@ -296,7 +314,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             return -1;
         }
 
-        Comparator<ColumnKey> comparator = IndexEntry.getComparator(getTableName(), getColumnFamilyName());
         // TODO mmap the index file?
         BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(path), "r");
         input.seek(start);
@@ -344,7 +361,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             return 0;
         }
 
-        Comparator<ColumnKey> comparator = IndexEntry.getComparator(getTableName(), getColumnFamilyName());
         BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(path), "r");
         input.seek(start);
         try
@@ -416,6 +432,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         return new SSTableScanner(this);
     }
 
+    @Deprecated
     public AbstractType getColumnComparator()
     {
         return DatabaseDescriptor.getComparator(getTableName(), getColumnFamilyName());
