@@ -106,7 +106,7 @@ public class AntiEntropyService
     public final static String TREE_RESPONSE_VERB = "TREE-RESPONSE-VERB";
 
     // millisecond lifetime to store remote trees before they become stale
-    public final static long TREE_CACHE_LIFETIME = 600000;
+    public final static long TREE_CACHE_LIFETIME = 1800000;
 
     // singleton enforcement
     private static volatile AntiEntropyService aeService;
@@ -571,12 +571,8 @@ public class AntiEntropyService
             try
             {
                 if (difference == 0.0)
-                {
                     logger.debug("Endpoints " + local + " and " + remote + " are consistent for " + cf);
-                    return;
-                }
-
-                if (difference < 0.05)
+                else if (difference < 0.05)
                     performRangeRepair();
                 else
                     performStreamingRepair();
@@ -606,8 +602,8 @@ public class AntiEntropyService
         void performRangeRepair() throws IOException
         {
             logger.info("Performing range read repair of " + differences.size() + " ranges for " + cf);
-            // FIXME
-            logger.debug("Finished range read repair for " + cf);
+            
+            logger.info("Finished range read repair for " + cf);
         }
 
         /**
@@ -628,7 +624,7 @@ public class AntiEntropyService
             {
                 throw new IOException("Streaming repair failed.", e);
             }
-            logger.debug("Finished streaming repair to " + remote + " for " + cf);
+            logger.info("Finished streaming repair to " + remote + " for " + cf);
         }
 
         public String toString()
