@@ -96,6 +96,8 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
                                                new NamedThreadFactory("FLUSH-WRITER-POOL"));
     private static ExecutorService commitLogUpdater_ = new DebuggableThreadPoolExecutor("MEMTABLE-POST-FLUSHER");
 
+    private static final int KEY_RANGE_FILE_BUFFER_SIZE = 128 * 1024;
+
     private final String table_;
     public final String columnFamily_;
     private final boolean isSuper_;
@@ -785,7 +787,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * @return
      * @throws IOException
      */
-    List<SSTableReader> doFileAntiCompaction(Collection<SSTableReader> sstables, Collection<Range> ranges, InetAddress target) throws IOException
+    List<SSTableReader> doFileAntiCompaction(Collection<SSTableReader> sstables, final Collection<Range> ranges, InetAddress target) throws IOException
     {
         logger_.info("AntiCompacting [" + StringUtils.join(sstables, ",") + "]");
         // Calculate the expected compacted filesize
@@ -809,8 +811,15 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         if (logger_.isDebugEnabled())
           logger_.debug("Expected bloom filter size : " + expectedBloomFilterSize);
 
+        Predicate<DecoratedKey> rangesPredicate = new Predicate<DecoratedKey>()
+            {
+                public boolean apply(DecoratedKey dk)
+                {
+                    return Range.isTokenInRanges(dk.token, ranges);
+                }
+            };
         SSTableWriter writer = null;
-        CompactionIterator ci = new CompactionIterator(sstables, getDefaultGCBefore(), sstables.size() == ssTables_.size());
+        CompactionIterator ci = new CompactionIterator(sstables, rangesPredicate, getDefaultGCBefore(), sstables.size() == ssTables_.size());
         Iterator<CompactionIterator.CompactedRow> nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
 
         try
@@ -823,17 +832,14 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             while (nni.hasNext())
             {
                 CompactionIterator.CompactedRow row = nni.next();
-                if (Range.isTokenInRanges(row.key.token, ranges))
+                if (writer == null)
                 {
-                    if (writer == null)
-                    {
-                        FileUtils.createDirectory(compactionFileLocation);
-                        String newFilename = new File(compactionFileLocation, getTempSSTableFileName()).getAbsolutePath();
-                        writer = new SSTableWriter(newFilename, expectedBloomFilterSize, StorageService.getPartitioner());
-                    }
-                    writer.append(row.key, row.buffer);
-                    totalkeysWritten++;
+                    FileUtils.createDirectory(compactionFileLocation);
+                    String newFilename = new File(compactionFileLocation, getTempSSTableFileName()).getAbsolutePath();
+                    writer = new SSTableWriter(newFilename, expectedBloomFilterSize, StorageService.getPartitioner());
                 }
+                writer.append(row.key, row.buffer);
+                totalkeysWritten++;
             }
         }
         finally
@@ -1316,7 +1322,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // sstables
         for (SSTableReader sstable : ssTables_)
         {
-            final SSTableScanner scanner = sstable.getScanner();
+            final SSTableScanner scanner = sstable.getScanner(KEY_RANGE_FILE_BUFFER_SIZE);
             scanner.seekTo(startWithDK);
             Iterator<DecoratedKey> iter = new CloseableIterator<DecoratedKey>()
             {
@@ -1435,7 +1441,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // sstables
         for (SSTableReader sstable : ssTables_)
         {
-            final SSTableScanner scanner = sstable.getScanner();
+            final SSTableScanner scanner = sstable.getScanner(KEY_RANGE_FILE_BUFFER_SIZE);
             scanner.seekTo(startWith);
             Iterator<DecoratedKey> iter = new CloseableIterator<DecoratedKey>()
             {

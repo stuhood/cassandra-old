@@ -36,20 +36,41 @@ import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.ColumnFamilyStore;
 
+import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
+
 public class CompactionIterator extends ReducingIterator<IteratingRow, CompactionIterator.CompactedRow> implements Closeable
 {
     private static Logger logger = Logger.getLogger(CompactionIterator.class);
 
+    private static final int FILE_BUFFER_SIZE = 512 * 1024;
+
     private final List<IteratingRow> rows = new ArrayList<IteratingRow>();
     private final int gcBefore;
     private boolean major;
+    private Predicate<DecoratedKey> shouldReduce;
 
     @SuppressWarnings("unchecked")
     public CompactionIterator(Iterable<SSTableReader> sstables, int gcBefore, boolean major) throws IOException
     {
+        this(sstables, Predicates.<DecoratedKey>alwaysTrue(), gcBefore, major);
+    }
+
+    /**
+     * @param sstables SSTables to compact.
+     * @param shouldReduce A predicate to be applied to the key of each row to
+     *        determine if the row is worth reducing. Rows that are not worth
+     *        reducing will be skipped on disk, and will return as nulls.
+     * @param gcBefore See ColumnFamilyStore.removeDeleted.
+     * @param major True if this compaction involves all SSTables for a CF.
+     */
+    @SuppressWarnings("unchecked")
+    public CompactionIterator(Iterable<SSTableReader> sstables, Predicate<DecoratedKey> shouldReduce, int gcBefore, boolean major) throws IOException
+    {
         super(getCollatingIterator(sstables));
         this.gcBefore = gcBefore;
         this.major = major;
+        this.shouldReduce = shouldReduce;
     }
 
     @SuppressWarnings("unchecked")
@@ -65,7 +86,7 @@ public class CompactionIterator extends ReducingIterator<IteratingRow, Compactio
         });
         for (SSTableReader sstable : sstables)
         {
-            iter.addIterator(sstable.getScanner());
+            iter.addIterator(sstable.getScanner(FILE_BUFFER_SIZE));
         }
         return iter;
     }
@@ -78,12 +99,16 @@ public class CompactionIterator extends ReducingIterator<IteratingRow, Compactio
 
     public void reduce(IteratingRow current)
     {
-        rows.add(current);
+        if (shouldReduce.apply(current.getKey()))
+            rows.add(current);
     }
 
     protected CompactedRow getReduced()
     {
-        assert rows.size() > 0;
+        if (rows.isEmpty())
+            // this key was skipped by our predicate
+            return null;
+
         DataOutputBuffer buffer = new DataOutputBuffer();
         DecoratedKey key = rows.get(0).getKey();
 
