@@ -372,7 +372,7 @@ public class AntiEntropyService
                         break;
                 }
             }
-            logger.debug("Prepared AEService tree of size " + tree.size() + " for " + cf);
+            logger.info("Prepared AEService tree of size " + tree.size() + " for " + cf);
             mintoken = tree.partitioner().getMinimumToken();
             ranges = tree.invalids(new Range(mintoken, mintoken));
         }
@@ -455,7 +455,7 @@ public class AntiEntropyService
                     range.addHash(minrow);
 
             StageManager.getStage(AE_SERVICE_STAGE).execute(this);
-            logger.debug("Validated " + validated + " rows into AEService tree for " + cf);
+            logger.info("Validated " + validated + " rows into AEService tree for " + cf);
         }
         
         /**
@@ -571,11 +571,14 @@ public class AntiEntropyService
             try
             {
                 if (difference == 0.0)
-                    logger.debug("Endpoints " + local + " and " + remote + " are consistent for " + cf);
-                else if (difference < 0.05)
-                    performRangeRepair();
-                else
-                    performStreamingRepair();
+                {
+                    logger.info("Endpoints " + local + " and " + remote + " are consistent for " + cf);
+                    return;
+                }
+
+                logger.info("Endpoints " + local + " and " + remote +
+                    " are ~" + (difference * (100.0)) + "% different for " + cf);
+                performStreamingRepair();
             }
             catch(IOException e)
             {
@@ -691,6 +694,7 @@ public class AntiEntropyService
                     if (local.equals(message.getFrom()))
                     {
                         // we are the requestor, and we already have a cached tree
+                        logger.debug("Using cached tree for local request for " + request + ".");
                         return;
                     }
                     // respond immediately with the recently generated tree
