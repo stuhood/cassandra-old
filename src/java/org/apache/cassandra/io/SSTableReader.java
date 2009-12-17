@@ -282,7 +282,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     @Deprecated
     public long getPosition(DecoratedKey decoratedKey) throws IOException
     {
-        // TODO: should contain column names as well
         ColumnKey target = new ColumnKey(decoratedKey, new byte[0][]);
         return getPosition(target);
     }
@@ -299,7 +298,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
      */
     public long getPosition(ColumnKey target) throws IOException
     {
-        // FIXME: the BloomFilter contains full ColumnKeys: we won't get a matc
         if (!bf.isPresent(comparator.forBloom(target))
             return -1;
         if (keyCache != null)
