@@ -205,16 +205,17 @@ public abstract class SSTable
         public final ColumnKey nextKey;
         // uncompressed bytes to next SliceMark, or a negative status value
         public final int nextMark;
-        // ("markedForDeleteAt","localDeletionTime") for parents of the slice
-        // FIXME: @see SSTableWriter.append()
-        public final List<Pair<Long,Integer>> parentMeta;
+        public final Slice.Metadata parentMeta;
 
+        /**
+         * Create a mark with empty metadata.
+         */
         public SliceMark(ColumnKey currentKey, ColumnKey nextKey, int nextMark)
         {
-            this(Collections.<Pair<Long,Integer>>emptyList(), currentKey, nextKey, nextMark);
+            this(new Slice.Metadata(), currentKey, nextKey, nextMark);
         }
 
-        public SliceMark(List<Pair<Long,Integer>> parentMeta, ColumnKey currentKey, ColumnKey nextKey, int nextMark)
+        public SliceMark(Slice.Metadata parentMeta, ColumnKey currentKey, ColumnKey nextKey, int nextMark)
         {
             assert parentMeta.size() < Byte.MAX_VALUE;
             assert currentKey != null;
@@ -233,12 +234,7 @@ public abstract class SSTable
                 nextKey.serialize(dos);
 
             dos.writeInt(nextMark);
-            dos.writeByte((byte)parentMeta.size());
-            for (Pair<Long,Integer> val : parentMeta)
-            {
-                dos.writeLong(val.left);
-                dos.writeInt(val.right);
-            }
+            parentMeta.serialize(dos);
         }
 
         public static SliceMark deserialize(DataInput dis) throws IOException
@@ -246,10 +242,7 @@ public abstract class SSTable
             ColumnKey currentKey = ColumnKey.deserialize(dis);
             ColumnKey nextKey = dis.readBoolean() ? ColumnKey.deserialize(dis) : null;
             int nextMark = dis.readInt();
-            List<Pair<Long,Integer>> parentMeta = new LinkedList<Pair<Long,Integer>>();
-            byte parentMetaLen = dis.readByte();
-            for (int i = 0; i < parentMetaLen; i++)
-                parentMeta.add(new Pair<Long,Integer>(dis.readLong(), dis.readInt()));
+            Slice.Metadata parentMeta = Slice.Metadata.deserialize(dis);
             return new SliceMark(parentMeta, currentKey, nextKey, nextMark);
         }
 

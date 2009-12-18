@@ -56,11 +56,9 @@ import com.reardencommerce.kernel.collections.shared.evictable.ConcurrentLinkedH
  * TODO: Wishlist:
  * * Add a block header containing metadata, such as the compression type?
  * * Align more row keys with the beginnings of blocks by flushing blocks on
- *   key changes falling between MIN and MAX.
+ *   key changes falling within a threshold of MAX.
  * * ColumnKey.Comparator could encode the depth of difference in its return
  *   value so we can accomplish the previous bullet without an extra compare.
- * * Reduce buffer copies in append() by buffering Column objects (instead of buffers),
- *   which we can serialize directly to the block.
  */
 public class SSTableWriter extends SSTable
 {
