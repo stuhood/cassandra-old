@@ -106,7 +106,7 @@ public class AntiEntropyService
     public final static String TREE_RESPONSE_VERB = "TREE-RESPONSE-VERB";
 
     // millisecond lifetime to store remote trees before they become stale
-    public final static long TREE_CACHE_LIFETIME = 1800000;
+    public final static long TREE_CACHE_LIFETIME = 600000;
 
     // singleton enforcement
     private static volatile AntiEntropyService aeService;
