@@ -187,7 +187,7 @@
       <artifactId>libthrift</artifactId>
       <version>UNKNOWN</version>
       <scope>system</scope>
-      <systemPath>${basedir}/lib/libthrift-r808609.jar</systemPath>
+      <systemPath>${basedir}/lib/libthrift-r820831.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>reardencommerce</groupId>
@@ -224,6 +224,12 @@
         <directory>${basedir}/test/conf</directory>
         <includes>
           <include>**/*</include>
+        </includes>
+      </testResource>
+      <testResource>
+        <directory>${basedir}/test/resources</directory>
+        <includes>
+          <include>*.json</include>
         </includes>
       </testResource>
     </testResources>
