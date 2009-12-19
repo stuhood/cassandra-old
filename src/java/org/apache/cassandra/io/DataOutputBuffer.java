@@ -32,6 +32,16 @@ public class DataOutputBuffer extends DataOutputStream
 {
     private static class Buffer extends ByteArrayOutputStream
     {
+        public Buffer()
+        {
+            super();
+        }
+
+        public Buffer(int size)
+        {
+            super(size);
+        }
+
         /**
          * Returns the entire content of the buffer, which will often be larger
          * than size() bytes long.
@@ -62,7 +72,15 @@ public class DataOutputBuffer extends DataOutputStream
     {
         this(new Buffer());
     }
-    
+
+    /**
+     * @param size Initial capacity of the buffer in bytes.
+     */
+    public DataOutputBuffer(int size)
+    {
+        this(new Buffer(size));
+    }
+
     private DataOutputBuffer(Buffer buffer)
     {
         super(buffer);
@@ -70,23 +88,22 @@ public class DataOutputBuffer extends DataOutputStream
     }
    
     /**
-     * Returns a copy of the valid data in the buffer.
-     */
-    public byte[] toByteArray()
-    {
-        return buffer.toByteArray();
-    }
-
-    /**
      * Returns the current contents of the buffer without copying. WARNING: Data
-     * is only valid to {@link #getLength()}: use {@link #toByteArray()} to return
-     * a copy of the valid portion of the buffer.
+     * is only valid to {@link #getLength()}.
      */
     public byte[] getData()
     {
         return buffer.getData();
     }
     
+    /**
+     * Allow direct access to the expandable stream backing this buffer.
+     */
+    public ByteArrayOutputStream getBuffer()
+    {
+        return buffer;
+    }
+
     /** Returns the length of the valid data currently in the buffer. */
     public int getLength()
     {
