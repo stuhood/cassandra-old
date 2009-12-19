@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.io;
+package org.apache.cassandra.db;
 
 import java.io.*;
 import java.util.*;

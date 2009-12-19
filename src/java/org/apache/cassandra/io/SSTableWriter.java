@@ -53,6 +53,11 @@ import com.reardencommerce.kernel.collections.shared.evictable.ConcurrentLinkedH
  * mark the end of the block, and indicate whether the subcolumns continue in the next
  * block.
  *
+ * FIXME: The index currently contains an IndexEntry per block, which will be
+ * significantly fewer than before. If we think it is advantageous to have a 
+ * "covering" index, which contains all keys, then we'll want to write an IndexEntry
+ * per key, with multiple entries pointing to each block.
+ *
  * TODO: Wishlist:
  * * Add a block header containing metadata, such as the compression type?
  * * Align more row keys with the beginnings of blocks by flushing blocks on
@@ -165,7 +170,7 @@ public class SSTableWriter extends SSTable
      * @return Approximate # of bytes that were flushed to disk: this will be zero if
      *         the slice was empty.
      */
-    private int flushSlice(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey) throws IOException
+    private int flushSlice(Slice.Metadata parentMeta, ColumnKey columnKey) throws IOException
     {
         if (sliceContext.isEmpty())
             return 0;
@@ -186,7 +191,7 @@ public class SSTableWriter extends SSTable
      * @param columnKey The key that is about to be appended,
      * @return Approximate # of bytes that were flushed to disk in order to make room for the new append.
      */
-    private int beforeAppend(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey) throws IOException
+    private int beforeAppend(Slice.Metadata parentMeta, ColumnKey columnKey) throws IOException
     {
         assert columnKey != null : "Keys must not be null.";
 
@@ -265,16 +270,12 @@ public class SSTableWriter extends SSTable
     /**
      * Appends the given column to the SSTable.
      *
-     * @param parentMeta A list of Pairs of ("markedForDeleteAt","localDeletionTime")
-     *     values for parents of the column. A supercf will have two Pairs, and a
-     *     standard cf will have one Pair. FIXME: I don't like passing the parameters
-     *     this way, but we need to store them once per Slice, and the caller
-     *     shouldn't have to know anything about Slices. At the absolute minimum,
-     *     we should replace Pair with a purpose built metadata object.
+     * @param parentMeta Metadata for the parents of the column. A supercf has
+     *     a Metadata list of length 2, while a standard cf has length 1.
      * @param columnKey The fully qualified key for the column.
      * @param column A column to append to the SSTable.
      */
-    public void append(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey, Column column) throws IOException
+    public void append(Slice.Metadata parentMeta, ColumnKey columnKey, Column column) throws IOException
     {
         assert column != null;
         int bytesFlushed = beforeAppend(parentMeta, columnKey);
@@ -287,7 +288,7 @@ public class SSTableWriter extends SSTable
      * takes a Column.
      */
     @Deprecated
-    public void append(List<Pair<Long,Integer>> parentMeta, ColumnKey columnKey, DataOutputBuffer buffer) throws IOException
+    public void append(Slice.Metadata parentMeta, ColumnKey columnKey, DataOutputBuffer buffer) throws IOException
     {
         int columnLen = buffer.getLength();
         assert columnLen > 0;
@@ -298,17 +299,15 @@ public class SSTableWriter extends SSTable
 
     /**
      * FIXME: inefficent method for flattening a CF into a SSTableWriter: in the long
-     * term the CF structure should probably turn into pure metadata that describes
-     * a range in a Memtable or SSTable, rather than actually containing columns.
+     * term the CF structure should probably be replaced in memory with something
+     * like Slice, or removed altogether.
      */
     @Deprecated
     public void flatteningAppend(DecoratedKey key, ColumnFamily cf) throws IOException
     {
         DataOutputBuffer buffer = new DataOutputBuffer();
-        // super cfs have 2 levels of nested deletion info, standard cfs have 1
-        List<Pair<Long,Integer>> parentMeta = new ArrayList<Pair<Long,Integer>>(2);
-        parentMeta.add(new Pair<Long,Integer>(cf.getMarkedForDeleteAt(),
-                                              cf.getLocalDeletionTime()));
+        Slice.Metadata parentMeta = new Slice.Metadata(cf.getMarkedForDeleteAt(),
+                                                       cf.getLocalDeletionTime());
 
         if (!cf.isSuper())
         {
@@ -321,19 +320,18 @@ public class SSTableWriter extends SSTable
             return;
         }
         
-        // super columns contain an additional level of metadata
-        parentMeta.add(null); 
         for (IColumn column : cf.getSortedColumns())
         {
             SuperColumn sc = (SuperColumn)column;
-            parentMeta.set(1, new Pair<Long,Integer>(sc.getMarkedForDeleteAt(),
-                                                     sc.getLocalDeletionTime()));
+            // super columns contain an additional level of metadata
+            Slice.Metadata childMeta = parentMeta.childWith(sc.getMarkedForDeleteAt(),
+                                                            sc.getLocalDeletionTime());
             for (IColumn subc : sc.getSubColumns())
             {
                 buffer.reset();
                 Column.serializer().serialize(subc, buffer);
                 /* Now write the key and column to disk */
-                append(parentMeta, new ColumnKey(key, sc.name(), subc.name()), buffer);
+                append(childMeta, new ColumnKey(key, sc.name(), subc.name()), buffer);
             }
         }
     }
@@ -401,7 +399,7 @@ public class SSTableWriter extends SSTable
      */
     static class SliceContext
     {
-        private List<Pair<Long,Integer>> parentMeta = null;
+        private Slice.Metadata parentMeta = null;
         private ColumnKey headKey = null;
         private DataOutputBuffer sliceBuffer = new DataOutputBuffer();
 
@@ -451,10 +449,9 @@ public class SSTableWriter extends SSTable
         /**
          * Begins a slice with the given shared metadata and first key.
          */
-        public void reset(List<Pair<Long,Integer>> parentMeta, ColumnKey headKey)
+        public void reset(Slice.Metadata parentMeta, ColumnKey headKey)
         {
-            this.parentMeta = parentMeta != null ?
-                new LinkedList<Pair<Long,Integer>>(parentMeta) : null;
+            this.parentMeta = parentMeta;
             this.headKey = headKey;
             sliceBuffer.reset();
         }

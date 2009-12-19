@@ -118,14 +118,12 @@ public class SSTableUtils
     {
         File f = tempSSTableFile(tablename, cfname);
         SSTableWriter writer = new SSTableWriter(f.getAbsolutePath(), entries.size(), StorageService.getPartitioner());
-        // empty metadata
-        List<Pair<Long,Integer>> parentMeta = new LinkedList<Pair<Long,Integer>>();
 
         DataOutputBuffer buff = new DataOutputBuffer();
         for (Map.Entry<ColumnKey, byte[]> entry : entries.entrySet())
         {
             buff.write(entry.getValue(), 0, entry.getValue().length);
-            writer.append(parentMeta, entry.getKey(), buff);
+            writer.append(null, entry.getKey(), buff);
             buff.reset();
         }
         new File(writer.indexFilename()).deleteOnExit();

@@ -263,7 +263,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             // i.e., its insertion position
             int greaterThan = (index + 1) * -1;
             if (greaterThan == 0)
-                return -1;
+                return null;
             return indexEntries.get(greaterThan - 1);
         }
         else
@@ -298,7 +298,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
      */
     public long getPosition(ColumnKey target) throws IOException
     {
-        if (!bf.isPresent(comparator.forBloom(target))
+        if (!bf.isPresent(comparator.forBloom(target)))
             return -1;
         if (keyCache != null)
         {
@@ -306,21 +306,19 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             if (cachedEntry != null)
                 return cachedEntry.dataOffset;
         }
-        long start = getIndexScanPosition(target);
-        if (start < 0)
+        IndexEntry indexEntry = getIndexScanPosition(target);
+        if (indexEntry == null)
         {
             return -1;
         }
 
-        // TODO mmap the index file?
         BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(path), "r");
-        input.seek(start);
+        input.seek(indexEntry.indexOffset);
         int i = 0;
         try
         {
             do
             {
-                IndexEntry indexEntry;
                 try
                 {
                     indexEntry = IndexEntry.deserialize(input);
@@ -336,15 +334,16 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                         keyCache.put(indexEntry, indexEntry);
                     return indexEntry.dataOffset;
                 }
-                if (v > 0)
-                    return -1;
+                // FIXME: keys will not always exist in the index now, so we need to
+                // return the position pointed to by the last entry
+                throw new RuntimeException("FIXME: Not implemented.");
             } while  (++i < INDEX_INTERVAL);
         }
         finally
         {
             input.close();
         }
-        return -1;
+        //return -1;
     }
 
     /** like getPosition, but if key is not found will return the location of the first key _greater_than/equal_to_ the desired one, or -1 if no such key exists. */
@@ -353,19 +352,18 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         // TODO: should contain column names as well
         ColumnKey target = new ColumnKey(decoratedKey, new byte[0][]);
 
-        long start = getIndexScanPosition(target);
-        if (start < 0)
+        IndexEntry indexEntry = getIndexScanPosition(target);
+        if (indexEntry == null)
         {
             return 0;
         }
 
         BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(path), "r");
-        input.seek(start);
+        input.seek(indexEntry.indexOffset);
         try
         {
             while (true)
             {
-                IndexEntry indexEntry;
                 try
                 {
                     indexEntry = IndexEntry.deserialize(input);

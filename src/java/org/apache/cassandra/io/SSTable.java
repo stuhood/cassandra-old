@@ -31,7 +31,7 @@ import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.utils.BloomFilter;
 import org.apache.cassandra.utils.FileUtils;
 import org.apache.cassandra.utils.Pair;
-import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.ColumnKey;
 
 /**
  * This class is built on top of the SequenceFile. It stores
@@ -212,12 +212,11 @@ public abstract class SSTable
          */
         public SliceMark(ColumnKey currentKey, ColumnKey nextKey, int nextMark)
         {
-            this(new Slice.Metadata(), currentKey, nextKey, nextMark);
+            this(null, currentKey, nextKey, nextMark);
         }
 
         public SliceMark(Slice.Metadata parentMeta, ColumnKey currentKey, ColumnKey nextKey, int nextMark)
         {
-            assert parentMeta.size() < Byte.MAX_VALUE;
             assert currentKey != null;
             this.currentKey = currentKey;
             this.nextKey = nextKey;
@@ -234,7 +233,7 @@ public abstract class SSTable
                 nextKey.serialize(dos);
 
             dos.writeInt(nextMark);
-            parentMeta.serialize(dos);
+            Slice.Metadata.serialize(parentMeta, dos);
         }
 
         public static SliceMark deserialize(DataInput dis) throws IOException
