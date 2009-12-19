@@ -80,7 +80,7 @@ public class Slice
             this(markedForDeleteAt, localDeletionTime, null);
         }
 
-        Metadata(long markedForDeleteAt, int localDeletionTime, Metadata parent)
+        private Metadata(long markedForDeleteAt, int localDeletionTime, Metadata parent)
         {
             this.markedForDeleteAt = markedForDeleteAt;
             this.localDeletionTime = localDeletionTime;

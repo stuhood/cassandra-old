@@ -197,9 +197,8 @@ public abstract class SSTable
     {
         // a mark with this status indicates the end of a block: the mark should
         // contain the last key in the current block, and the first key of the next
-        // block. if this was the last block in the file, then nextKey will be null
+        // block. if this is the last block in the file, then nextKey will be null
         public static final int BLOCK_END = -1;
-
 
         public final ColumnKey currentKey;
         public final ColumnKey nextKey;
@@ -248,6 +247,53 @@ public abstract class SSTable
         public String toString()
         {
             return "#<SliceMark " + currentKey + " " + nextKey + " " + nextMark + ">";
+        }
+    }
+
+    /**
+     * Plays the role of header for an SSTable file, or footer for a block. BlockMarks
+     * lie outside the portion of a block that might be compressed, and can be used
+     * to store things like compression info for an SSTable or a checksum for a block.
+     */
+    static class BlockMark
+    {
+        public final Map<String,byte[]> meta;
+
+        public BlockMark()
+        {
+            this(Collections.<String,byte[]>emptyMap());
+        }
+
+        public BlockMark(Map<String,byte[]> meta)
+        {
+            assert meta.size() < Byte.MAX_VALUE;
+            this.meta = meta;
+        }
+
+        public void serialize(DataOutput dos) throws IOException
+        {
+            assert meta.size() < Byte.MAX_VALUE;
+            dos.writeByte(meta.size());
+            for (Map.Entry<String,byte[]> entry : meta.entrySet())
+            {
+                dos.writeUTF(entry.getKey());
+                dos.writeInt(entry.getValue().length);
+                dos.write(entry.getValue());
+            }
+        }
+
+        public static BlockMark deserialize(DataInput dis) throws IOException
+        {
+            byte metaLen = dis.readByte();
+            HashMap<String,byte[]> meta = new HashMap<String,byte[]>(metaLen, 1.0f);
+            for (int i = 0; i < metaLen; i++)
+            {
+                String key = dis.readUTF();
+                byte[] val = new byte[dis.readInt()];
+                dis.readFully(val);
+                meta.put(key, val);
+            }
+            return new BlockMark(meta);
         }
     }
 }
