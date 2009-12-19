@@ -232,6 +232,7 @@
       <formatter type="brief" usefile="false"/>
       <jvmarg value="-Dstorage-config=${test.conf}"/>
       <jvmarg value="-ea"/>
+      <jvmarg value="-Xmx1G"/>
       <classpath>
         <path refid="cassandra.classpath" />
         <pathelement location="${test.classes}"/>

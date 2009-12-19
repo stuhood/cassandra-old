@@ -112,9 +112,9 @@ public class SSTableTest extends CleanupHelper
     }
 
     @Test
-    public void testGetIndexedDecoratedKeysFor() throws IOException
+    public void testGetIndexedDecoratedKeysFor() throws Exception
     {
-        final int numkeys = 1000;
+        final int numkeys = 500000;
         final int colsPerKey = 5;
         final byte[] columnVal = "This would normally be a serialized Column.".getBytes();
         final int columnBytes = columnVal.length;
@@ -133,8 +133,11 @@ public class SSTableTest extends CleanupHelper
         }
 
         // write
+        Thread.sleep(5000);
+        long start = System.currentTimeMillis(); // FIXME
         SSTableReader ssTable = SSTableUtils.writeRawSSTable(SSTableUtils.TABLENAME,
                                                              SSTableUtils.CFNAME, map);
+        System.out.println("Wrote " + numkeys + " * " + colsPerKey + " in " + (System.currentTimeMillis() - start) + "ms.");
 
         // verify
         Predicate<SSTable> cfpred;
