@@ -251,49 +251,42 @@ public abstract class SSTable
     }
 
     /**
-     * Plays the role of header for an SSTable file, or footer for a block. BlockMarks
-     * lie outside the portion of a block that might be compressed, and can be used
-     * to store things like compression info for an SSTable or a checksum for a block.
+     * Plays the role of header for a block. BlockMarks lie before the portion of a
+     * block that might be compressed, and are used to store things like compression
+     * info, decompressed length, and a checksum.
      */
     static class BlockMark
     {
-        public final Map<String,byte[]> meta;
+        // uncompressed length of the block
+        public final int length;
+        // compression codec
+        public final String codecClass;
+        // checksum for the block // TODO: unused
+        public final byte[] checksum;
 
-        public BlockMark()
+        public BlockMark(int length, String codecClass, byte[] checksum)
         {
-            this(Collections.<String,byte[]>emptyMap());
-        }
-
-        public BlockMark(Map<String,byte[]> meta)
-        {
-            assert meta.size() < Byte.MAX_VALUE;
-            this.meta = meta;
+            assert checksum.length < Byte.MAX_VALUE;
+            this.length = length;
+            this.codecClass = codecClass;
+            this.checksum = checksum;
         }
 
         public void serialize(DataOutput dos) throws IOException
         {
-            assert meta.size() < Byte.MAX_VALUE;
-            dos.writeByte(meta.size());
-            for (Map.Entry<String,byte[]> entry : meta.entrySet())
-            {
-                dos.writeUTF(entry.getKey());
-                dos.writeInt(entry.getValue().length);
-                dos.write(entry.getValue());
-            }
+            dos.writeInt(length);
+            dos.writeUTF(codecClass);
+            dos.writeByte(checksum.length);
+            dos.write(checksum);
         }
 
         public static BlockMark deserialize(DataInput dis) throws IOException
         {
-            byte metaLen = dis.readByte();
-            HashMap<String,byte[]> meta = new HashMap<String,byte[]>(metaLen, 1.0f);
-            for (int i = 0; i < metaLen; i++)
-            {
-                String key = dis.readUTF();
-                byte[] val = new byte[dis.readInt()];
-                dis.readFully(val);
-                meta.put(key, val);
-            }
-            return new BlockMark(meta);
+            int length = dis.readInt();
+            String codecClass = dis.readUTF();
+            byte[] checksum = new byte[dis.readByte()];
+            dis.readFully(checksum);
+            return new BlockMark(length, codecClass, checksum);
         }
     }
 }

@@ -68,7 +68,7 @@ public class SSTableWriter extends SSTable
     private static Logger logger = Logger.getLogger(SSTableWriter.class);
 
     /**
-     * The target decompressed size of a block. An entire block will need to be
+     * The target decompressed size of a block. An entire block might need to be
      * read from disk in order to read a single column. If a column is large
      * enough, the block containing it might be stretched to larger than this value.
      * TODO: tune
@@ -133,16 +133,12 @@ public class SSTableWriter extends SSTable
     }
 
     /**
-     * Initializes the data and index files. A completely empty SSTable data file
-     * will still contain a single BlockMark header.
+     * Initializes the data and index files.
      */
     private void open() throws IOException
     {
         dataFile = new BufferedRandomAccessFile(path, "rw", (int)(DatabaseDescriptor.getFlushDataBufferSizeInMB() * 1024 * 1024));
         indexFile = new BufferedRandomAccessFile(indexFilename(), "rw", (int)(DatabaseDescriptor.getFlushIndexBufferSizeInMB() * 1024 * 1024));
-        // immediately write a header
-        // TODO: add compression info here
-        new BlockMark().serialize(dataFile);
     }
 
     /**
@@ -157,11 +153,9 @@ public class SSTableWriter extends SSTable
         if (lastWrittenKey == null && approxBlockLen == 0)
             return false;
        
-        // cap the block with a BLOCK_END SliceMark, and a BlockMark
+        // cap the block with a BLOCK_END SliceMark
         SliceMark mark = new SliceMark(lastWrittenKey, columnKey, SliceMark.BLOCK_END);
         mark.serialize(dataFile);
-        // TODO: add checksum info here
-        new BlockMark().serialize(dataFile);
 
         // reset for the next block
         blocksWritten++;

@@ -447,14 +447,15 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     }
 
     /**
-     * A block in the SSTable, with methods to perform streaming reads.
+     * A block in the SSTable, with a method to perform streaming reads.
      *
-     * As a non-static class, it holds a reference to the SSTable it was created for
-     * and prevents it from being cleaned up.
+     * As a non-static class, a Block holds a reference to the SSTable it was
+     * created for and should prevent it from being cleaned up.
      */
     public class Block
     {
         public final BufferedRandomAccessFile file;
+        // offset from the beginning of the data file
         public final long offset;
 
         Block(BufferedRandomAccessFile file, long offset)
@@ -464,14 +465,22 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         }
 
         /**
-         * TODO: handle setting up an appropriate decompression stream here
+         *
+         * @return An InputStream appropriate for reading this block from disk.
          */
         public InputStream open()
         {
+            file.seek(offset);
+
+            // read the block header
+            BlockMark mark = BlockMark.deserialize(file);
+
+            // TODO: handle setting up an appropriate decompression stream here
+
             // NB: we do not use a buffered stream here, for two reasons:
             // * it might read past the end of the block,
             // * we're using a buffered file implementation anyway.
-
+            return new BoundedInputStream(FileInputStream(file.getFD()), mark.length);
         }
     }
 }
