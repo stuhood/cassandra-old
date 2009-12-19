@@ -278,25 +278,21 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
      * Deprecated: use getPosition(ColumnKey) instead, for higher resolution.
      * Also, this method will never match the BloomFilter, which means extra
      * reads.
+     *
+     * FIXME: remove
      */
     @Deprecated
-    public long getPosition(DecoratedKey decoratedKey) throws IOException
+    public long getBlockPosition(DecoratedKey decoratedKey) throws IOException
     {
         ColumnKey target = new ColumnKey(decoratedKey, new byte[0][]);
-        return getPosition(target);
+        return getBlockPosition(target);
     }
 
     /**
-     * FIXME: This method needs a redesign to support block compression: we should probably
-     * return a data file scanning structure which can encapsulate reading from blocks
-     * (possibly compressed). We also need to consider the case of a reverse scan: should
-     * they need to read from the beginning of the block to each slice?, or can we abstract
-     * that into a reverse column read somehow?
-     *
-     * @return The position in the data file to find the given key, or -1 if
-     * the key is not present.
+     * @return The position of the block that might contain the target key,
+     * or -1 if the key is not contained in this SSTable.
      */
-    public long getPosition(ColumnKey target) throws IOException
+    public long getBlockPosition(ColumnKey target) throws IOException
     {
         if (!bf.isPresent(comparator.forBloom(target)))
             return -1;
@@ -344,43 +340,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             input.close();
         }
         //return -1;
-    }
-
-    /** like getPosition, but if key is not found will return the location of the first key _greater_than/equal_to_ the desired one, or -1 if no such key exists. */
-    public long getNearestPosition(DecoratedKey decoratedKey) throws IOException
-    {
-        // TODO: should contain column names as well
-        ColumnKey target = new ColumnKey(decoratedKey, new byte[0][]);
-
-        IndexEntry indexEntry = getIndexScanPosition(target);
-        if (indexEntry == null)
-        {
-            return 0;
-        }
-
-        BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(path), "r");
-        input.seek(indexEntry.indexOffset);
-        try
-        {
-            while (true)
-            {
-                try
-                {
-                    indexEntry = IndexEntry.deserialize(input);
-                }
-                catch (EOFException e)
-                {
-                    return -1;
-                }
-                int v = comparator.compare(indexEntry, target);
-                if (v >= 0)
-                    return indexEntry.dataOffset;
-            }
-        }
-        finally
-        {
-            input.close();
-        }
     }
 
     public long length()
