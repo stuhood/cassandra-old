@@ -44,7 +44,8 @@ public class SSTableNamesIterator extends SimpleAbstractColumnIterator
         this.columns = columnNames;
 
         DecoratedKey decoratedKey = ssTable.getPartitioner().decorateKey(key);
-        long position = ssTable.getPosition(decoratedKey);
+        // FIXME: long position = ssTable.getPosition(decoratedKey);
+        long position = 0;
         if (position < 0)
             return;
 

@@ -77,7 +77,7 @@ public abstract class SSTable
         this.path = filename;
         this.partitioner = partitioner;
         this.indexEntries = new ArrayList<IndexEntry>();
-        this.comparator = ColumnKey.getComparator(getTableName(), getColumnFamilyName());;
+        this.comparator = ColumnKey.getComparator(getTableName(), getColumnFamilyName());
     }
 
     protected static String indexFilename(String dataFile)

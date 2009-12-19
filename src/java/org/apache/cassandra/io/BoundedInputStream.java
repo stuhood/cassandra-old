@@ -41,7 +41,7 @@ public class BoundedInputStream extends FilterInputStream
     }
 
     @Override
-    public int available()
+    public int available() throws IOException
     {
         return Math.min(max-cur, in.available());
     }
@@ -62,7 +62,7 @@ public class BoundedInputStream extends FilterInputStream
     }
 
     @Override
-    public int read()
+    public int read() throws IOException
     {
         if (cur >= max)
             return -1;
@@ -73,7 +73,7 @@ public class BoundedInputStream extends FilterInputStream
     }
 
     @Override
-    public int read(byte[] b)
+    public int read(byte[] b) throws IOException
     {
         int read = in.read(b, 0, Math.min(max-cur, b.length));
         if (read > 0)
@@ -83,7 +83,7 @@ public class BoundedInputStream extends FilterInputStream
     }
 
     @Override
-    public int read(byte[] b, int off, int len)
+    public int read(byte[] b, int off, int len) throws IOException
     {
         int read = in.read(b, off, Math.min(max-cur, len));
         if (read > 0)
@@ -93,7 +93,7 @@ public class BoundedInputStream extends FilterInputStream
     }
 
     @Override
-    public long skip(long n)
+    public long skip(long n) throws IOException
     {
         long skipped = in.skip(Math.min(max-cur, n));
         if (skipped > 0)

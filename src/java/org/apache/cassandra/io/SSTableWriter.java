@@ -487,17 +487,24 @@ public class SSTableWriter extends SSTable
             DataOutputBuffer dob = new DataOutputBuffer(approxLength);
             DataOutputStream dos = new DataOutputStream(dob.getBuffer());
             // write slice content
-            ColumnSerializer cserializer = Column.serializer();
-            while (!blockBuffer.isEmpty())
+            try
             {
-                SliceBuffer slice = blockBuffer.poll();
-                slice.left.serialize(dos);
-                for (Column slicecol : slice.right)
-                    cserializer.serialize(slicecol, dos);
+                ColumnSerializer cserializer = Column.serializer();
+                while (!blockBuffer.isEmpty())
+                {
+                    SliceBuffer slice = blockBuffer.poll();
+                    slice.left.serialize(dos);
+                    for (Column slicecol : slice.right)
+                        cserializer.serialize(slicecol, dos);
+                }
+                // close the block content with a BLOCK_END SliceMark
+                endMark.serialize(dos);
+                dos.flush();
             }
-            // close the block content with a BLOCK_END SliceMark
-            endMark.serialize(dos);
-            dos.flush();
+            catch(IOException e)
+            {
+                throw new AssertionError(e);
+            }
             return dob;
         }
 
