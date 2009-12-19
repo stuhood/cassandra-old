@@ -26,8 +26,8 @@ import java.io.*;
 public class BoundedInputStream extends FilterInputStream
 {
     // the current and maximum offsets within the wrapped stream
-    public static int cur;
-    public static int max;
+    private int cur;
+    private int max;
 
     /**
      * @param in The input stream to wrap. 

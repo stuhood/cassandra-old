@@ -94,17 +94,15 @@ public class SSTableWriter extends SSTable
     // buffer for data contained in the current slice
     private SliceContext sliceContext;
 
-    // the disk position of the start of the current block, and its approx length
+    // the disk position of the start of the current block
     private long currentBlockPos;
-    // TODO: this value is approximate at the moment, because it doesn't include SliceMarks:
-    //       see SliceContext.markAndFlush(). Worst case, for blocks containing lots of slices
-    //       with small numbers of columns, we will overshoot TARGET_MAX_BLOCK by 50-100%.
-    private int approxBlockLen;
+    // buffer for data contained in the current block
+    private BlockContext blockContext;
 
     private long keysWritten;
     private int blocksWritten;
-    private BufferedRandomAccessFile dataFile;
-    private BufferedRandomAccessFile indexFile;
+    private BufferedOutputStream dataFile;
+    private BufferedOutputStream indexFile;
 
     private BloomFilter bf;
     private ColumnKey lastWrittenKey;
@@ -121,8 +119,8 @@ public class SSTableWriter extends SSTable
         sliceContext = new SliceContext();
 
         // block metadata
-        approxBlockLen = 0;
         currentBlockPos = 0;
+        blockContext = new BlockContext();
 
         // etc
         keysWritten = 0;
@@ -137,8 +135,10 @@ public class SSTableWriter extends SSTable
      */
     private void open() throws IOException
     {
-        dataFile = new BufferedRandomAccessFile(path, "rw", (int)(DatabaseDescriptor.getFlushDataBufferSizeInMB() * 1024 * 1024));
-        indexFile = new BufferedRandomAccessFile(indexFilename(), "rw", (int)(DatabaseDescriptor.getFlushIndexBufferSizeInMB() * 1024 * 1024));
+        dataFile = new BufferedOutputStream(FileOutputStream(path),
+                                            DatabaseDescriptor.getFlushDataBufferSizeInMB() * 1024 * 1024);
+        indexFile = new BufferedOutputStream(FileOutputStream(indexFilename()),
+                                            DatabaseDescriptor.getFlushIndexBufferSizeInMB() * 1024 * 1024);
     }
 
     /**
@@ -150,17 +150,15 @@ public class SSTableWriter extends SSTable
      */
     private boolean closeBlock(ColumnKey columnKey) throws IOException
     {
-        if (lastWrittenKey == null && approxBlockLen == 0)
+        if (lastWrittenKey == null && blockContext.isEmpty())
             return false;
-       
-        // cap the block with a BLOCK_END SliceMark
-        SliceMark mark = new SliceMark(lastWrittenKey, columnKey, SliceMark.BLOCK_END);
-        mark.serialize(dataFile);
+
+        int blockLen = blockContext.markAndFlush(dataFile, lastWrittenKey, columnKey);
 
         // reset for the next block
         blocksWritten++;
-        approxBlockLen = 0;
-        currentBlockPos = dataFile.getFilePointer();
+        blockContext.reset();
+        currentBlockPos += blockLen;
         return true;
     }
 
@@ -169,19 +167,21 @@ public class SSTableWriter extends SSTable
      * given key. A slice always begins with a SliceMark indicating the length
      * of the slice.
      *
-     * @return Approximate # of bytes that were flushed to disk: this will be zero if
-     *         the slice was empty.
+     * @return # of bytes that were flushed to disk: this will be zero if the slice
+     *         was empty.
      */
     private int flushSlice(Slice.Metadata parentMeta, ColumnKey columnKey) throws IOException
     {
         if (sliceContext.isEmpty())
             return 0;
 
-        // flush the currently slice (after prepending a mark)
-        int bytesFlushed = sliceContext.markAndFlush(dataFile, columnKey);
+        // close the current slice, and buffer it to the current block
+        SliceBuffer slice = sliceContext.close(columnKey);
+        blockContext.bufferSlice(bufferedSlice);
+
         // then reset for the next slice
         sliceContext.reset(parentMeta, columnKey);
-        return bytesFlushed;
+        return slice.length;
     }
 
     /**
@@ -397,49 +397,30 @@ public class SSTableWriter extends SSTable
     {
         private Slice.Metadata parentMeta = null;
         private ColumnKey headKey = null;
-        private DataOutputBuffer sliceBuffer = new DataOutputBuffer();
-
-        public SliceContext()
-        {
-            this.parentMeta = parentMeta;
-            this.headKey = headKey;
-        }
+        private final List<Column> sliceBuffer = new ArrayList<Column>();
+        private int length = 0;
 
         /**
          * Serializes and buffers the given column into the current slice.
+         * NB: Depends on the accuracy of Column.size().
          */
-        public void bufferColumn(Column column)
+        public void appendColumn(Column column)
         {
-            Column.serializer().serialize(column, sliceBuffer);
+            sliceBuffer.add(column);
+            length += column.size();
         }
 
         /**
-         * Buffers bytes up to len as a serialized 'Column' object to be written to
-         * the current slice.
-         */
-        public void bufferColumn(byte[] column, int len)
-        {
-            try
-            {
-                sliceBuffer.write(column, 0, len);
-            }
-            catch (IOException e)
-            {
-                throw new AssertionError(e);
-            }
-        }
-
-        /**
-         * Returns true if no slice has been initialized.
+         * Returns true if the slice current slice is empty.
          */
         public boolean isEmpty()
         {
-            return headKey == null || sliceBuffer.getLength() < 1;
+            return headKey == null && sliceBuffer.isEmpty();
         }
 
         public int getLength()
         {
-            return sliceBuffer.getLength();
+            return length;
         }
 
         /**
@@ -449,23 +430,106 @@ public class SSTableWriter extends SSTable
         {
             this.parentMeta = parentMeta;
             this.headKey = headKey;
-            sliceBuffer.reset();
+            sliceBuffer.clear();
+            length = 0;
         }
 
         /**
-         * Prepend a mark to our buffer to indicate the beginning of the slice, and
-         * then flush the buffered data to the given output.
-         *
-         * @return The approximate number of bytes that were flushed. The entire slice
-         *         is always flushed, but the value is approximate because we don't
-         *         currently include the serialized length of the SliceMark.
+         * Close the current Slice, returning a SliceBuffer.
          */
-        public int markAndFlush(DataOutput dos, ColumnKey nextKey) throws IOException
+        public SliceBuffer close(ColumnKey nextKey) throws IOException
         {
-            int sliceLen = sliceBuffer.getLength();
-            new SliceMark(parentMeta, headKey, nextKey, sliceLen).serialize(dos);
-            dos.write(sliceBuffer.getData(), 0, sliceLen);
-            return sliceLen;
+            SliceMark mark = new SliceMark(parentMeta, headKey, nextKey, length);
+            return new SliceBuffer(mark, new ArrayList(sliceBuffer),
+                                   length + mark.size());
+        }
+    }
+
+    /**
+     * A mutable class representing the currently buffered block. All data within a
+     * block will be buffered here.
+     */
+    static class BlockContext
+    {
+        private int length = 0;
+        private final List<SliceBuffer> blockBuffer = new ArrayList<SliceBuffer>();
+
+        /**
+         * Buffers the given slice into the current block.
+         */
+        public void appendSlice(SliceBuffer slice)
+        {
+            blockBuffer.add(slice);
+            length += slice.length;
+        }
+
+        /**
+         * Returns true if the current block is empty.
+         */
+        public boolean isEmpty()
+        {
+            return length < 1 && sliceBuffer.isEmpty();
+        }
+
+        public int getLength()
+        {
+            return length;
+        }
+
+        /**
+         * Begins a new block.
+         */
+        public void reset()
+        {
+            this.length = 0;
+            blockBuffer.reset();
+        }
+
+        /**
+         * Prepend a mark to our buffer to indicate the beginning of the block, and
+         * then flush the buffered block to the given output.
+         *
+         * TODO: use a compressed stream here, and write the type to the header
+         *
+         * @return The exact length of the block on disk.
+         */
+        public int markAndFlush(OutputStream os, ColumnKey lastKey, ColumnKey curKey) throws IOException
+        {
+            // caps for the block
+            SliceMark endMark = new SliceMark(lastKey, curKey, SliceMark.BLOCK_END);
+            BlockHeader header = new BlockHeader(length + endMark.size(), "FIXME");
+
+            header.serialize(dos);
+            // NB: the file handles buffering and closing this stream
+            CountedOutputStream cos = new CountedOutputStream(os);
+            // write slice content
+            for (SliceBuffer slice : blockBuffer)
+            {
+                slice.left.serialize(cos);
+                slice.right.serialize(cos);
+            }
+            // cap the block with a BLOCK_END SliceMark
+            endMark.serialize(cos);
+            cos.flush();
+            return cos.written();
+        }
+    }
+
+    /**
+     * A SliceBuffer represents a Slice which has been closed, but not yet flushed
+     * to disk.
+     *
+     * Rather than storing the closed slice as a buffer of bytes, we store it as
+     * Columns, which presumably need to stay in memory anyway, and which never
+     * need to be copied to buffers.
+     */
+    static class SliceBuffer extends Pair<SliceMark,List<Column>>
+    {
+        public final int length;
+        public SliceBuffer(SliceMark mark, List<Column> columns, int length)
+        {
+            super(mark, columns);
+            this.length = length;
         }
     }
 }

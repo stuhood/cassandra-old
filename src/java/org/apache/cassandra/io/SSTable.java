@@ -251,42 +251,34 @@ public abstract class SSTable
     }
 
     /**
-     * Plays the role of header for a block. BlockMarks lie before the portion of a
-     * block that might be compressed, and are used to store things like compression
-     * info, decompressed length, and a checksum.
+     * Plays the role of header for a block. BlockHeaders lie before the portion of a
+     * block that might be compressed, and are used to store compression info.
      */
-    static class BlockMark
+    static class BlockHeader
     {
         // uncompressed length of the block
         public final int length;
         // compression codec
         public final String codecClass;
-        // checksum for the block // TODO: unused
-        public final byte[] checksum;
 
-        public BlockMark(int length, String codecClass, byte[] checksum)
+        public BlockHeader(int length, String codecClass)
         {
             assert checksum.length < Byte.MAX_VALUE;
             this.length = length;
             this.codecClass = codecClass;
-            this.checksum = checksum;
         }
 
         public void serialize(DataOutput dos) throws IOException
         {
             dos.writeInt(length);
             dos.writeUTF(codecClass);
-            dos.writeByte(checksum.length);
-            dos.write(checksum);
         }
 
-        public static BlockMark deserialize(DataInput dis) throws IOException
+        public static BlockHeader deserialize(DataInput dis) throws IOException
         {
             int length = dis.readInt();
             String codecClass = dis.readUTF();
-            byte[] checksum = new byte[dis.readByte()];
-            dis.readFully(checksum);
-            return new BlockMark(length, codecClass, checksum);
+            return new BlockHeader(length, codecClass);
         }
     }
 }
