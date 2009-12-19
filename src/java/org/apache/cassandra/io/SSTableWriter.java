@@ -34,7 +34,6 @@ import org.apache.cassandra.utils.BloomFilter;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import com.reardencommerce.kernel.collections.shared.evictable.ConcurrentLinkedHashMap;
 
 /**
  * An SSTable is made up of an 'index', 'filter' and 'data' file.
@@ -55,7 +54,7 @@ import com.reardencommerce.kernel.collections.shared.evictable.ConcurrentLinkedH
  *
  * FIXME: The index currently contains an IndexEntry per block, which will be
  * significantly fewer than before. If we think it is advantageous to have a 
- * "covering" index contains all keys, then we'll want to write an IndexEntry
+ * "covering" index containing all keys, then we'll want to write an IndexEntry
  * per key, meaning multiple entries pointing to each block.
  *
  * TODO: Wishlist:
@@ -69,7 +68,7 @@ public class SSTableWriter extends SSTable
     private static Logger logger = Logger.getLogger(SSTableWriter.class);
 
     /**
-     * The target decompressed size of a block. An entire block might need to be
+     * The target decompressed size of a block. An entire block will need to be
      * read from disk in order to read a single column. If a column is large
      * enough, the block containing it might be stretched to larger than this value.
      * TODO: tune
@@ -370,11 +369,7 @@ public class SSTableWriter extends SSTable
         rename(indexFilename());
         rename(filterFilename());
         path = rename(path); // important to do this last since index & filter file names are derived from it
-
-        ConcurrentLinkedHashMap<ColumnKey, IndexEntry> keyCache = cacheFraction > 0
-                                                        ? SSTableReader.createKeyCache((int) (cacheFraction * keysWritten))
-                                                        : null;
-        return new SSTableReader(path, partitioner, indexEntries, bf, keyCache);
+        return new SSTableReader(path, partitioner, indexEntries, bf, cacheFraction * keysWritten);
     }
 
     static String rename(String tmpFilename)
