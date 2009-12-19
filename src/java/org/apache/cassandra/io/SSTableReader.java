@@ -168,11 +168,8 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         SSTableReader sstable = new SSTableReader(dataFileName, partitioner);
         sstable.loadIndexFile();
         sstable.loadBloomFilter();
-        sstable.loadHeader();
         if (cacheFraction > 0)
-        {
             sstable.keyCache = createKeyCache((int)((sstable.getIndexEntries().size() + 1) * INDEX_INTERVAL * cacheFraction));
-        }
         if (logger.isDebugEnabled())
             logger.debug("INDEX LOAD TIME for "  + dataFileName + ": " + (System.currentTimeMillis() - start) + " ms.");
 
@@ -185,7 +182,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     }
 
     // offset of the first block in the data file
-    private long firstBlockOffset;
     FileDeletingReference phantomReference;
     private ConcurrentLinkedHashMap<ColumnKey, IndexEntry> keyCache;
 
@@ -205,7 +201,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
     private SSTableReader(String filename, IPartitioner partitioner)
     {
-        this(filename, partitioner, new ArrayList<IndexEntry>(), null, null);
+        this(filename, partitioner, new ArrayList<IndexEntry>(), null, 0);
     }
 
     public List<IndexEntry> getIndexEntries()
@@ -246,25 +242,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                 else
                     IndexEntry.skip(input);
             }
-        }
-        finally
-        {
-            input.close();
-        }
-    }
-
-    /**
-     * Loads the header for the data file, and records the position of the first
-     * block.
-     */
-    void loadHeader() throws IOException
-    {
-        BufferedRandomAccessFile input = new BufferedRandomAccessFile(getFilename(), "r");
-        try
-        {
-            // TODO: read compression info here
-            BlockMark header = BlockMark.deserialize(input);
-            firstBlockOffset = input.getFilePointer();
         }
         finally
         {
@@ -411,7 +388,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
      */
     public SSTableScanner getScanner() throws IOException
     {
-        return new SSTableScanner(this, firstBlockPosition);
+        return new SSTableScanner(this, 0);
     }
 
     /**
@@ -465,7 +442,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         }
 
         /**
-         *
          * @return An InputStream appropriate for reading this block from disk.
          */
         public InputStream open()
@@ -473,14 +449,15 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             file.seek(offset);
 
             // read the block header
-            BlockMark mark = BlockMark.deserialize(file);
+            BlockHeader mark = BlockHeader.deserialize(file);
 
             // TODO: handle setting up an appropriate decompression stream here
 
             // NB: we do not use a buffered stream here, for two reasons:
             // * it might read past the end of the block,
             // * we're using a buffered file implementation anyway.
-            return new BoundedInputStream(FileInputStream(file.getFD()), mark.length);
+            return new BoundedInputStream(new FileInputStream(file.getFD()),
+                                          mark.length);
         }
     }
 }

@@ -34,7 +34,7 @@ import org.apache.cassandra.service.StorageService;
 public class ColumnKey
 {
     public final DecoratedKey key;
-    // FIXME: safer structure?
+    // FIXME: safer/more efficient structure?
     public final byte[][] names;
 
     public ColumnKey(DecoratedKey key, byte[]... names)

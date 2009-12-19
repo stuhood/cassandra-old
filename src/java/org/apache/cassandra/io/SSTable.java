@@ -256,14 +256,13 @@ public abstract class SSTable
      */
     static class BlockHeader
     {
-        // uncompressed length of the block
+        // disk length of the block, from the end of the header to the next block
         public final int length;
         // compression codec
         public final String codecClass;
 
         public BlockHeader(int length, String codecClass)
         {
-            assert checksum.length < Byte.MAX_VALUE;
             this.length = length;
             this.codecClass = codecClass;
         }

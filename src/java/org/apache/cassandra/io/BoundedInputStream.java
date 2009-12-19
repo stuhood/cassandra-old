@@ -95,7 +95,7 @@ public class BoundedInputStream extends FilterInputStream
     @Override
     public long skip(long n)
     {
-        int skipped = in.skip(Math.min(max-cur, n));
+        long skipped = in.skip(Math.min(max-cur, n));
         if (skipped > 0)
             cur += skipped;
         assert cur <= max;
