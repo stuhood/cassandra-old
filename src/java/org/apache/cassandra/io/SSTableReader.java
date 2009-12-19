@@ -444,7 +444,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         /**
          * @return An InputStream appropriate for reading this block from disk.
          */
-        public InputStream open()
+        public InputStream open() throws IOException
         {
             file.seek(offset);
 

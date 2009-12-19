@@ -23,6 +23,7 @@ import java.io.Closeable;
 import java.util.Iterator;
 import java.util.Arrays;
 
+import org.apache.cassandra.db.ColumnKey;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.log4j.Logger;
 import com.google.common.collect.AbstractIterator;
@@ -61,7 +62,8 @@ public class SSTableScanner extends AbstractIterator<IteratingRow> implements Cl
 
     /**
      * Seeks to the first slice for the given key.
-     * FIXME: optimize forward seeks within the same block by not reopening the block
+     * FIXME: optimize forward seeks within the same block by not reopening
+     *        the block/iterator
      */
     public void seekTo(ColumnKey seekKey)
     {
@@ -86,11 +88,9 @@ public class SSTableScanner extends AbstractIterator<IteratingRow> implements Cl
         return iterator.next();
     }
 
-    public void remove()
-    {
-        throw new UnsupportedOperationException();
-    }
-
+    /**
+     * FIXME: Has not been modified to intepret blocks.
+     */
     private class KeyScanningIterator implements Iterator<IteratingRow>
     {
         public boolean hasNext()

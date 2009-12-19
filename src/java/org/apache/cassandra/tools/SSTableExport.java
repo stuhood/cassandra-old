@@ -21,6 +21,7 @@ package org.apache.cassandra.tools;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -149,6 +150,8 @@ public class SSTableExport
         
         outs.println("{");
         
+        // try to always seek forward
+        Arrays.sort(keys);
         for (String key : keys)
         {
             DecoratedKey<?> dk = partitioner.decorateKey(key);
