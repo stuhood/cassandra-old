@@ -53,13 +53,7 @@ import com.reardencommerce.kernel.collections.shared.evictable.ConcurrentLinkedH
  * mark the end of the block, and indicate whether the subcolumns continue in the next
  * block.
  *
- * FIXME: The index currently contains an IndexEntry per block, which will be
- * significantly fewer than before. If we think it is advantageous to have a 
- * "covering" index, which contains all keys, then we'll want to write an IndexEntry
- * per key, with multiple entries pointing to each block.
- *
  * TODO: Wishlist:
- * * Add a block header containing metadata, such as the compression type?
  * * Align more row keys with the beginnings of blocks by flushing blocks on
  *   key changes falling within a threshold of MAX.
  * * ColumnKey.Comparator could encode the depth of difference in its return
@@ -93,13 +87,8 @@ public class SSTableWriter extends SSTable
      */
     private final int sliceDepth;
 
-    // buffer for data contained in the current slice
-    private SliceContext sliceContext;
-
-    // the disk position of the start of the current block, and its approx length
-    private long currentBlockPos;
-    // this value is approximate, because it doesn't include SliceMarks
-    private int approxBlockLen;
+    // buffer for data contained in the current slice/block
+    private BlockContext blockContext;
 
     private long columnsWritten;
     private long slicesWritten;
@@ -120,11 +109,9 @@ public class SSTableWriter extends SSTable
 
         // slice metadata
         sliceDepth = "Super".equals(DatabaseDescriptor.getColumnFamilyType(getTableName(), getColumnFamilyName())) ? 1 : 0;
-        sliceContext = new SliceContext();
 
         // block metadata
-        approxBlockLen = 0;
-        currentBlockPos = 0;
+        blockContext = new BlockContext();
 
         // etc
         columnsWritten = 0;
@@ -147,19 +134,14 @@ public class SSTableWriter extends SSTable
      */
     private boolean closeBlock(ColumnKey columnKey) throws IOException
     {
-        if (lastWrittenKey == null && approxBlockLen == 0)
+        if (lastWrittenKey == null || blockContext.getApproxBlockLength() == 0)
             return false;
        
-        // cap the block with a BLOCK_END mark: BLOCK_END indicates the end of the block,
-        // and contains the first key from the next block, so that a reader can determine
-        // if they need to continue
-        SliceMark mark = new SliceMark(lastWrittenKey, columnKey, SliceMark.BLOCK_END);
-        mark.serialize(dataFile);
+        // close the block
+        blockContext.closeBlock(dataFile, lastWrittenKey, columnKey);
 
-        // reset for the next block
+        // reset for the next
         blocksWritten++;
-        approxBlockLen = 0;
-        currentBlockPos = dataFile.getFilePointer();
         return true;
     }
 
@@ -167,47 +149,40 @@ public class SSTableWriter extends SSTable
      * Flushes the current slice if it is not empty, and begins a new one with the
      * given key. A slice always begins with a SliceMark indicating the length
      * of the slice.
-     *
-     * @return Approximate # of bytes that were flushed to disk: this will be zero if
-     *         the slice was empty.
      */
-    private int flushSlice(Slice.Metadata parentMeta, ColumnKey columnKey) throws IOException
+    private boolean flushSlice(Slice.Metadata parentMeta, ColumnKey columnKey) throws IOException
     {
-        if (sliceContext.isEmpty())
-            return 0;
+        if (blockContext.isEmpty())
+            return false;
 
         // flush the currently slice (after prepending a mark)
-        int bytesFlushed = sliceContext.markAndFlush(dataFile, columnKey);
+        blockContext.flushSlice(dataFile, columnKey);
         slicesWritten++;
         // then reset for the next slice
-        sliceContext.reset(parentMeta, columnKey);
-        return bytesFlushed;
+        blockContext.resetSlice(parentMeta, columnKey);
+        return true;
     }
 
     /**
-     * Handles prepending metadata to the data file before writing the given ColumnKey.
-     *
-     * TODO: This is where we could write a block header containing compression info.
+     * Prepares to buffer the given ColumnKey.
      *
      * @param parentMeta @see append.
-     * @param columnKey The key that is about to be appended,
-     * @return Approximate # of bytes that were flushed to disk in order to make room for the new append.
+     * @param columnKey The key that is about to be appended.
+     * @return True if the given columnKey will be the first in a new block.
      */
-    private int beforeAppend(Slice.Metadata parentMeta, ColumnKey columnKey) throws IOException
+    private boolean beforeAppend(Slice.Metadata parentMeta, ColumnKey columnKey) throws IOException
     {
         assert columnKey != null : "Keys must not be null.";
-        int bytesFlushed = 0;
-
         if (lastWrittenKey == null)
         {
             // we're beginning the first slice
-            sliceContext.reset(parentMeta, columnKey);
-            return bytesFlushed;
+            blockContext.resetSlice(parentMeta, columnKey);
+            return true;
         }
 
         // determine if this key falls into the current slice
         int comparison;
-        if (sliceContext.getMeta() != null && sliceContext.getMeta() == parentMeta)
+        if (blockContext.getMeta() != null && blockContext.getMeta() == parentMeta)
             // skip the key comparison if parentMeta objects have reference equality
             comparison = 0;
         else
@@ -219,54 +194,48 @@ public class SSTableWriter extends SSTable
         // if the slice size threshold has already been reached
         assert comparison <= 0 : "Keys written out of order! Last written key : " +
             lastWrittenKey + " Current key : " + columnKey + " Writing to " + path;
-        if (comparison < 0 || sliceContext.getLength() > TARGET_MAX_SLICE_BYTES)
+        if (comparison < 0 || blockContext.getSliceLength() > TARGET_MAX_SLICE_BYTES)
         {
             // flush the previous slice to the data file
-            bytesFlushed = flushSlice(parentMeta, columnKey);
-            assert bytesFlushed > 0 : "Failed to flush non-empty slice!";
+            assert flushSlice(parentMeta, columnKey) :
+                "Failed to flush non-empty slice!";
             if (logger.isTraceEnabled())
                 logger.trace("Flushed slice marked by " + columnKey + " to " + getFilename());
         }
-        return bytesFlushed;
+
+        // close the block if it has reached its threshold
+        if (TARGET_MAX_BLOCK_BYTES < blockContext.getApproxBlockLength())
+        {
+            // current block is at least TARGET_MAX_BLOCK_BYTES long: close.
+            assert closeBlock(columnKey) : "Failed to close a non-empty block!";
+            return true;
+        }
+        return false;
     }
 
     /**
      * Handles appending any metadata to the index and filter files after having
      * written the given ColumnKey to the data file.
      *
-     * @param parentMeta Metadata for parents of the appended column.
      * @param columnKey The key for the appended column.
-     * @param bytesFlushed The approximate number of bytes that were flushed to disk as a result of
-     *                     the append. This value will be zero unless a slice was flushed.
+     * @param newBlock True if the given key is the first in a new block.
      */
-    private void afterAppend(ColumnKey columnKey, int bytesFlushed) throws IOException
+    private void afterAppend(ColumnKey columnKey, boolean newBlock) throws IOException
     {
-        boolean blockClosed = false;
-
-        // close the block if it has reached its threshold
-        approxBlockLen += bytesFlushed;
-        if (TARGET_MAX_BLOCK_BYTES < approxBlockLen)
-        {
-            // current block is at least TARGET_MAX_BLOCK_BYTES long: close.
-            blockClosed = closeBlock(columnKey);
-            assert blockClosed : "Failed to close a non-empty block!";
-        }
-
-
         // update the filter and index files
         bf.add(comparator.forBloom(columnKey));
         lastWrittenKey = columnKey;
         columnsWritten++;
 
-        if (lastIndexEntry != null && !blockClosed)
+        if (lastIndexEntry != null && !newBlock)
             // this append fell into the last block: don't need a new IndexEntry
             return;
         // else: the previous block was closed, or this is the first block in the file
         
         // a single col is buffered for a new block: write an IndexEntry to mark the new block
         long indexPosition = indexFile.getFilePointer();
-        lastIndexEntry = new IndexEntry(columnKey.key, columnKey.names,
-                                        indexPosition, currentBlockPos);
+        lastIndexEntry = new IndexEntry(columnKey.key, columnKey.names, indexPosition,
+                                        blockContext.getCurrentBlockPos());
         lastIndexEntry.serialize(indexFile);
         if (logger.isDebugEnabled())
             logger.debug("Initialized block marked by " + lastIndexEntry + " in " + getFilename());
@@ -288,15 +257,15 @@ public class SSTableWriter extends SSTable
     public void append(Slice.Metadata parentMeta, ColumnKey columnKey, Column column) throws IOException
     {
         assert column != null;
-        int bytesFlushed = beforeAppend(parentMeta, columnKey);
-        sliceContext.bufferColumn(column);
-        afterAppend(columnKey, bytesFlushed);
+        boolean newBlock = beforeAppend(parentMeta, columnKey);
+        blockContext.bufferColumn(column);
+        afterAppend(columnKey, newBlock);
     }
 
     /**
-     * FIXME: inefficent method for flattening a CF into a SSTableWriter: in the long
-     * term the CF structure should probably be replaced in memory with something
-     * like Slice, or removed altogether.
+     * FIXME: Flattens a CF into a SSTableWriter: in the long term the CF structure
+     * should probably be replaced in memory with something like Slice, or removed
+     * altogether.
      */
     @Deprecated
     public void flatteningAppend(DecoratedKey key, ColumnFamily cf) throws IOException
@@ -384,15 +353,20 @@ public class SSTableWriter extends SSTable
     }
 
     /**
-     * A mutable class representing the currently buffered slice. All data between
-     * individual SliceMarks will be buffered here, so that we can determine the
-     * length from the first mark to the second.
+     * A mutable class representing the currently buffered slice, and the containing
+     * block. All data between individual SliceMarks will be buffered here, so that
+     * we can determine the length from the first mark to the second.
      */
-    static class SliceContext
+    static class BlockContext
     {
         private Slice.Metadata parentMeta = null;
         private ColumnKey headKey = null;
         private DataOutputBuffer sliceBuffer = new DataOutputBuffer();
+
+        private int slicesInBlock = 0;
+        // this value is approximate, because it doesn't include SliceMarks
+        private int approxBlockLen = 0;
+        private long currentBlockPos = 0;
 
         /**
          * Serializes and buffers the given column into the current slice.
@@ -411,22 +385,50 @@ public class SSTableWriter extends SSTable
         }
 
         /**
-         * Returns true if no slice has been initialized.
+         * Returns true if nothing is buffered for the current slice.
          */
         public boolean isEmpty()
         {
-            return headKey == null || sliceBuffer.getLength() < 1;
+            return sliceBuffer.getLength() < 1;
         }
 
-        public int getLength()
+        public long getCurrentBlockPos()
+        {
+            return currentBlockPos;
+        }
+
+        public int getApproxBlockLength()
+        {
+            return approxBlockLen;
+        }
+
+        public int getSliceLength()
         {
             return sliceBuffer.getLength();
         }
 
         /**
+         * Closes the current block, and resets the context so that the next
+         * flushed slice will be the first in a new block.
+         */
+        public void closeBlock(RandomAccessFile file, ColumnKey lastKey, ColumnKey nextKey) throws IOException
+        {
+            assert isEmpty() && approxBlockLen > 0 :
+                "Should not write empty blocks: " + approxBlockLen;
+
+            // cap the block with a BLOCK_END mark
+            new SliceMark(lastKey, nextKey, SliceMark.BLOCK_END).serialize(file);
+
+            // reset for the next block
+            approxBlockLen = 0;
+            slicesInBlock = 0;
+            currentBlockPos = file.getFilePointer();
+        }
+
+        /**
          * Begins a slice with the given shared metadata and first key.
          */
-        public void reset(Slice.Metadata parentMeta, ColumnKey headKey)
+        public void resetSlice(Slice.Metadata parentMeta, ColumnKey headKey)
         {
             this.parentMeta = parentMeta;
             this.headKey = headKey;
@@ -436,17 +438,20 @@ public class SSTableWriter extends SSTable
         /**
          * Prepend a mark to our buffer to indicate the beginning of the slice, and
          * then flush the buffered data to the given output.
-         *
-         * @return The approximate number of bytes that were flushed. The entire slice
-         *         is always flushed, but the value is approximate because we don't
-         *         currently include the serialized length of the SliceMark.
          */
-        public int markAndFlush(DataOutput dos, ColumnKey nextKey) throws IOException
+        public void flushSlice(DataOutput dos, ColumnKey nextKey) throws IOException
         {
+            if (slicesInBlock == 0)
+                // first slice in block: prepend BlockHeader
+                new BlockHeader("FIXME").serialize(dos);
+
             int sliceLen = sliceBuffer.getLength();
             new SliceMark(parentMeta, headKey, nextKey, sliceLen).serialize(dos);
             dos.write(sliceBuffer.getData(), 0, sliceLen);
-            return sliceLen;
+
+            // update block counts
+            approxBlockLen += sliceLen;
+            slicesInBlock++;
         }
     }
 }
