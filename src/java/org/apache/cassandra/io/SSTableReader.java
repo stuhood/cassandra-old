@@ -453,7 +453,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
             // TODO: handle setting up an appropriate decompression stream here
 
-            // FIXME: we need to implement a stream that utilizes the BRAF buffer.
+            // FIXME: we need to implement streams that utilize the BRAF buffer.
             return new FileInputStream(file.getFD());
         }
     }

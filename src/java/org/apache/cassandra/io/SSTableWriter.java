@@ -178,6 +178,7 @@ public class SSTableWriter extends SSTable
 
         // flush the currently slice (after prepending a mark)
         int bytesFlushed = sliceContext.markAndFlush(dataFile, columnKey);
+        slicesWritten++;
         // then reset for the next slice
         sliceContext.reset(parentMeta, columnKey);
         return bytesFlushed;
@@ -195,7 +196,6 @@ public class SSTableWriter extends SSTable
     private int beforeAppend(Slice.Metadata parentMeta, ColumnKey columnKey) throws IOException
     {
         assert columnKey != null : "Keys must not be null.";
-
         int bytesFlushed = 0;
 
         if (lastWrittenKey == null)
@@ -205,11 +205,18 @@ public class SSTableWriter extends SSTable
             return bytesFlushed;
         }
 
-        // flush the slice if the new key does not fall into the last slice, or if
-        // TARGET_MAX_SLICE_BYTES for the current slice has already been reached
-        // TODO: we could micro-optimize to skip this comparison by comparing the
-        // parentMeta objects for reference equality first
-        int comparison = comparator.compare(lastWrittenKey, columnKey, sliceDepth);
+        // determine if this key falls into the current slice
+        int comparison;
+        if (sliceContext.getMeta() != null && sliceContext.getMeta() == parentMeta)
+            // skip the key comparison if parentMeta objects have reference equality
+            comparison = 0;
+        else
+            // metadata changed since last call: compare keys
+            comparison = comparator.compare(lastWrittenKey, columnKey, sliceDepth);
+
+
+        // flush the slice if the new key does not fall into the current slice, or
+        // if the slice size threshold has already been reached
         assert comparison <= 0 : "Keys written out of order! Last written key : " +
             lastWrittenKey + " Current key : " + columnKey + " Writing to " + path;
         if (comparison < 0 || sliceContext.getLength() > TARGET_MAX_SLICE_BYTES)
@@ -217,7 +224,6 @@ public class SSTableWriter extends SSTable
             // flush the previous slice to the data file
             bytesFlushed = flushSlice(parentMeta, columnKey);
             assert bytesFlushed > 0 : "Failed to flush non-empty slice!";
-            slicesWritten++;
             if (logger.isTraceEnabled())
                 logger.trace("Flushed slice marked by " + columnKey + " to " + getFilename());
         }
@@ -288,20 +294,6 @@ public class SSTableWriter extends SSTable
     }
 
     /**
-     * Deprecated: This version requires an extra buffer copy: use the version that
-     * takes a Column.
-     */
-    @Deprecated
-    public void append(Slice.Metadata parentMeta, ColumnKey columnKey, DataOutputBuffer buffer) throws IOException
-    {
-        int columnLen = buffer.getLength();
-        assert columnLen > 0;
-        int bytesFlushed = beforeAppend(parentMeta, columnKey);
-        sliceContext.bufferColumn(buffer.getData(), columnLen);
-        afterAppend(columnKey, bytesFlushed);
-    }
-
-    /**
      * FIXME: inefficent method for flattening a CF into a SSTableWriter: in the long
      * term the CF structure should probably be replaced in memory with something
      * like Slice, or removed altogether.
@@ -309,18 +301,13 @@ public class SSTableWriter extends SSTable
     @Deprecated
     public void flatteningAppend(DecoratedKey key, ColumnFamily cf) throws IOException
     {
-        DataOutputBuffer buffer = new DataOutputBuffer();
         Slice.Metadata parentMeta = new Slice.Metadata(cf.getMarkedForDeleteAt(),
                                                        cf.getLocalDeletionTime());
 
         if (!cf.isSuper())
         {
             for (IColumn column : cf.getSortedColumns())
-            {
-                buffer.reset();
-                Column.serializer().serialize(column, buffer);
-                append(parentMeta, new ColumnKey(key, column.name()), buffer);
-            }
+                append(parentMeta, new ColumnKey(key, column.name()), (Column)column);
             return;
         }
         
@@ -332,10 +319,9 @@ public class SSTableWriter extends SSTable
                                                             sc.getLocalDeletionTime());
             for (IColumn subc : sc.getSubColumns())
             {
-                buffer.reset();
-                Column.serializer().serialize(subc, buffer);
                 /* Now write the key and column to disk */
-                append(childMeta, new ColumnKey(key, sc.name(), subc.name()), buffer);
+                append(childMeta, new ColumnKey(key, sc.name(), subc.name()),
+                       (Column)subc);
             }
         }
     }
@@ -408,12 +394,6 @@ public class SSTableWriter extends SSTable
         private ColumnKey headKey = null;
         private DataOutputBuffer sliceBuffer = new DataOutputBuffer();
 
-        public SliceContext()
-        {
-            this.parentMeta = parentMeta;
-            this.headKey = headKey;
-        }
-
         /**
          * Serializes and buffers the given column into the current slice.
          */
@@ -423,19 +403,11 @@ public class SSTableWriter extends SSTable
         }
 
         /**
-         * Buffers bytes up to len as a serialized 'Column' object to be written to
-         * the current slice.
+         * Return the metadata for the current slice, or null.
          */
-        public void bufferColumn(byte[] column, int len)
+        public Slice.Metadata getMeta()
         {
-            try
-            {
-                sliceBuffer.write(column, 0, len);
-            }
-            catch (IOException e)
-            {
-                throw new AssertionError(e);
-            }
+            return parentMeta;
         }
 
         /**
