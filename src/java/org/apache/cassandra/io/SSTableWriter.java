@@ -103,8 +103,10 @@ public class SSTableWriter extends SSTable
     //       with small numbers of columns, we will overshoot TARGET_MAX_BLOCK by 50-100%.
     private int approxBlockLen;
 
-    private long keysWritten;
+    private long columnsWritten;
+    private long slicesWritten;
     private int blocksWritten;
+
     private BufferedRandomAccessFile dataFile;
     private BufferedRandomAccessFile indexFile;
 
@@ -127,7 +129,8 @@ public class SSTableWriter extends SSTable
         currentBlockPos = 0;
 
         // etc
-        keysWritten = 0;
+        columnsWritten = 0;
+        slicesWritten = 0;
         blocksWritten = 0;
         bf = new BloomFilter((int)keyCount, 15); // TODO fix long -> int cast
         lastWrittenKey = null;
@@ -216,6 +219,7 @@ public class SSTableWriter extends SSTable
             // flush the previous slice to the data file
             bytesFlushed = flushSlice(parentMeta, columnKey);
             assert bytesFlushed > 0 : "Failed to flush non-empty slice!";
+            slicesWritten++;
             if (logger.isTraceEnabled())
                 logger.trace("Flushed slice marked by " + columnKey + " to " + getFilename());
         }
@@ -248,7 +252,7 @@ public class SSTableWriter extends SSTable
         // update the filter and index files
         bf.add(comparator.forBloom(columnKey));
         lastWrittenKey = columnKey;
-        keysWritten++;
+        columnsWritten++;
 
         if (lastIndexEntry != null && !blockClosed)
             // this append fell into the last block: don't need a new IndexEntry
@@ -362,12 +366,15 @@ public class SSTableWriter extends SSTable
         // main data
         dataFile.close(); // calls force
 
+        logger.info("Wrote " + blocksWritten + " blocks, " +
+            slicesWritten + " slices, and " + columnsWritten + " columns to " + path);
+
         rename(indexFilename());
         rename(filterFilename());
         path = rename(path); // important to do this last since index & filter file names are derived from it
 
         return new SSTableReader(path, partitioner, indexEntries, bf,
-                                (int)(cacheFraction * keysWritten));
+                                (int)(cacheFraction * columnsWritten));
     }
 
     static String rename(String tmpFilename)
