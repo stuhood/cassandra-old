@@ -189,36 +189,34 @@ public abstract class SSTable
     @Override
     public String toString()
     {
-        return getClass().getName() + "(" +
-               "path='" + path + '\'' +
-               ')';
+        return getClass().getName() + "(" + "path='" + path + "')";
     }
 
     /**
-     * A marker used in the SSTable data file to delineate slices, store shared
-     * metadata about those slices, and mark the end of blocks.
+     * A marker used in the SSTable data file to delineate slices, and store shared
+     * metadata about those slices. The status codes in SliceMarks describe the
+     * position of the slice in the block.
      */
     static class SliceMark extends Slice
     {
-        // a mark with this status indicates the end of a block: the mark should
-        // contain the last key in the current block, and the first key of the next
-        // block. if this is the last block in the file, then nextKey will be null
-        public static final int BLOCK_END = -1;
-        // uncompressed bytes to next SliceMark, or a negative status value
-        public final int nextMark;
+        // there are more slices in the block
+        public static final byte BLOCK_CONTINUE = (byte)0;
+        // this is the last slice in the block
+        public static final byte BLOCK_END = (byte)-1;
 
-        /**
-         * Create a mark with empty metadata.
-         */
-        public SliceMark(ColumnKey currentKey, ColumnKey nextKey, int nextMark)
-        {
-            this(null, currentKey, nextKey, nextMark);
-        }
+        // uncompressed bytes to next SliceMark
+        public final int length;
+        // number of columns in the slice
+        public final int numCols;
+        // status of this slice in the current block
+        public final byte status;
 
-        public SliceMark(Slice.Metadata parentMeta, ColumnKey currentKey, ColumnKey nextKey, int nextMark)
+        public SliceMark(Slice.Metadata parentMeta, ColumnKey currentKey, ColumnKey nextKey, int length, int numCols, byte status)
         {
             super(parentMeta, currentKey, nextKey);
-            this.nextMark = nextMark;
+            this.length = length;
+            this.numCols = numCols;
+            this.status = status;
         }
 
         public void serialize(DataOutput dos) throws IOException
@@ -228,25 +226,31 @@ public abstract class SSTable
             dos.writeBoolean(nextKey != null);
             if (nextKey != null)
                 nextKey.serialize(dos);
-
-            dos.writeInt(nextMark);
             Slice.Metadata.serialize(parentMeta, dos);
+
+            dos.writeInt(length);
+            dos.writeInt(numCols);
+            dos.writeByte(status);
         }
 
         public static SliceMark deserialize(DataInput dis) throws IOException
         {
             ColumnKey currentKey = ColumnKey.deserialize(dis);
             ColumnKey nextKey = dis.readBoolean() ? ColumnKey.deserialize(dis) : null;
-            int nextMark = dis.readInt();
             Slice.Metadata parentMeta = Slice.Metadata.deserialize(dis);
-            return new SliceMark(parentMeta, currentKey, nextKey, nextMark);
+
+            int length = dis.readInt();
+            int numCols = dis.readInt();
+            byte status = dis.readByte();
+            return new SliceMark(parentMeta, currentKey, nextKey,
+                                 length, numCols, status);
         }
 
         public String toString()
         {
             StringBuilder buff = new StringBuilder();
-            buff.append("#<SliceMark ").append(currentKey).append(" ");
-            buff.append(nextKey).append(" ").append(nextMark).append(">");
+            buff.append("#<SliceMark ").append(currentKey).append(" (");
+            buff.append(numCols).append(") ").append(nextKey).append(">");
             return buff.toString();
         }
     }

@@ -18,10 +18,8 @@
 
 package org.apache.cassandra.io;
 
-import java.io.IOException;
-import java.io.Closeable;
-import java.util.Iterator;
-import java.util.Arrays;
+import java.io.*;
+import java.util.*;
 
 import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnKey;
@@ -43,9 +41,13 @@ public class SSTableScanner implements Closeable
     private final SSTableReader sstable;
     private final ColumnKey.Comparator comparator;
 
-    // current block and slice pointers
+    /**
+     * Current block and slice pointers: the block should never be null, but
+     * the slice might be if a seek*() failed.
+     */
     private Block block;
     private SliceMark slice;
+    private List<Column> sliceCols;
 
     /**
      * To acquire a Scanner over an SSTable, call SSTReader.getScanner().
@@ -57,99 +59,161 @@ public class SSTableScanner implements Closeable
         // TODO: configurable buffer size.
         file = new BufferedRandomAccessFile(sstable.getFilename(), "r",
                                             256 * 1024);
-        block = sstable.new Block(file, blockPosition);
+        block = sstable.getBlock(file, blockPosition);
         slice = null;
     }
 
+    /**
+     * Releases the file handle associated with this scanner.
+     */
     public void close() throws IOException
     {
         file.close();
     }
 
     /**
-     * Seeks to the first slice for the given key. See the contract for seekTo(CK).
+     * Seeks to the first slice  given key. See the contract for seekTo(CK).
      */
-    public boolean seekTo(DecoratedKey seekKey)
+    public boolean seekTo(DecoratedKey seekKey) throws IOException
     {
         return seekTo(new ColumnKey(seekKey, new byte[0][]));
     }
 
     /**
-     * Seeks to the slice containing the given key. If such a slice does not
-     * exist, the next calls to the getSlice methods will be invalid.
-     *
-     * TODO: optimize forward seeks within the same block by not reopening
-     *       the block
+     * Seeks to the first slice with a key greater than or equal to the given key. If
+     * such a slice does not exist, the next calls to get*() will have undefined
+     * results.
      * @return False if no such Slice was found.
      */
-    public boolean seekTo(ColumnKey seekKey)
+    public boolean seekBefore(ColumnKey seekKey) throws IOException
     {
-        try
-        {
-            long position = sstable.getBlockPosition(seekKey);
-            if (position < 0)
+        // seek to the correct block
+        if (!seekInternal(seekKey))
+            return false;
+
+        // seek forward within the block to the slice
+        while (comparator.compare(seekKey, slice.currentKey) > 0)
+            if (!next())
+                // TODO: assert that this loop never seeks outside of a block
+                // reached the end of the file without finding a match
                 return false;
 
-            if (position != block.offset)
-                // acquire the new block
-                block = sstable.new Block(file, position);
-            block.reset();
-
-            // seek forward within the block to the slice
-            return seekForwardInBlock(seekKey);
-        }
-        catch (IOException e)
-        {
-            throw new RuntimeException("corrupt sstable", e);
-        }
+        // current slice matches
         return true;
     }
 
     /**
-     * Called internally when we're positioned at the beginning of the only block
-     * which could possibly contain the given key.
+     * Seeks to the slice which would contain the given key. If such a slice does not
+     * exist, the next calls to get*() will have undefined results.
+     * @return False if no such Slice was found.
      */
-    private boolean seekForwardInBlock(ColumnKey seekKey)
+    public boolean seekTo(ColumnKey seekKey)
     {
-        int distance = 0;
-        do
-        {
-            block.stream().skip(distance);
-            slice = SliceMark.deserialize(block.stream());
-            if (comparator.compare(slice.currentKey, seekKey) <= 0 &&
-                comparator.compare(seekKey, slice.nextKey) < 0)
-                // positioned at the beginning of the slice containing the key
-                return true;
-            
-        } // seek past the current slice
-        while ((distance = slice.nextMark) != -1);
-       
-        throw new AssertionError("Began seeking within an incorrect block.");
+        // seek to the first slice greater than or equal to the key
+        if (!seekBefore(seekKey))
+            return false;
+
+        // confirm that the slice might contain the key
+        if (slice.nextKey == null)
+            // last slice in file
+            return true;
+        return comparator.compare(seekKey, slice.nextKey) < 0;
+    }
+
+    /**
+     * Seeks to the proper block for the given seekKey, and opens the first slice.
+     * FIXME: optimize forward seeks within the same block by not resetting the block
+     */
+    private boolean seekInternal(ColumnKey seekKey)
+    {
+        long position = sstable.getBlockPosition(seekKey);
+        if (position < 0)
+            return false;
+
+        if (position != block.offset)
+            // acquire the new block
+            block = sstable.getBlock(file, position);
+        block.reset();
+
+        // read the first slice from the block
+        slice = SliceMark.deserialize(block.stream());
+        sliceCols = null;
+
+        return true;
+    }
+
+    /**
+     * @return In constant time, the first ColumnKey contained in the next Slice, or
+     * null if we're not positioned at a slice, or are positioned at the last Slice
+     * in the file. Call next() to seek to the next Slice.
+     */
+    public ColumnKey peek()
+    {
+        Slice slice = get();
+        if (slice == null)
+            return null;
+        return slice.nextKey;
     }
 
     /**
      * @return The Slice at our current position, or null if the last call to
      * seekTo failed, or we're at EOF.
      */
-    public Slice getSlice()
+    public Slice get()
     {
         return slice;
     }
 
     /**
-     * Return the columns for the Slice at our current position, or null if the
-     * last call to seekTo failed, or we're at EOF.
+     * @return The sorted columns for the Slice at our current position, or null if
+     * the last call to seekTo failed, or we're at EOF.
      */
-    public Iterable<Column> getSliceColumns()
+    public List<Column> getColumns() throws IOException
     {
-        throw new RuntimeException("Not implemented!"); // FIXME
+        if (slice == null)
+            // not positioned at a slice
+            return null;
+        if (sliceCols == null)
+        {
+            // lazily deserialize the columns
+            Column[] cols = new Column[slice.numCols];
+            DataInputStream stream = block.stream();
+            for (int i = 0; i < cols.length; i++)
+                cols[i] = (Column)Column.serializer().deserialize(stream);
+            sliceCols = Arrays.asList(cols);
+        }
+        return sliceCols;
     }
 
     /**
-     * Moves to the next slice, unless we are at the end of the file.
+     * Seeks to the next slice, unless the last call to seek*() failed, or we are at
+     * the end of the file.
+     * @return True if we are positioned at a valid slice.
      */
-    public boolean next()
+    public boolean next() throws IOException
     {
-        throw new RuntimeException("Not implemented!"); // FIXME
+        if (slice == null)
+            // position is invalid
+            return false;
+        if (slice.nextKey == null)
+            // end of file: no more slices
+            return false;
+
+        // skip the remainder of the current slice
+        SliceMark oldSlice = slice; // heh
+        if (sliceCols == null)
+            // NB: because we don't know the disk length of the block, we have to
+            // skip on the stream, rather than on the file, meaning that we may
+            // decompress the last slice of a block unnecessarily
+            block.stream().skip(oldSlice.length);
+
+        // seek to the next slice
+        if (oldSlice.status == SliceMark.BLOCK_END)
+            // positioned at the beginning of a new block
+            block = sstable.getBlock(file, file.getFilePointer());
+        
+        // finally, read the slice
+        slice = SliceMark.deserialize(block.stream());
+        sliceCols = null;
     }
 }

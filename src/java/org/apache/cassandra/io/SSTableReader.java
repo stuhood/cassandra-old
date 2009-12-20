@@ -343,6 +343,16 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         //return -1;
     }
 
+    /**
+     * Factory function for blocks within this SSTable.
+     */
+    public Block getBlock(BufferedRandomAccessFile file, long blockPosition)
+    {
+        // TODO: plug in an optional (decompressed) block cache, to trade memory
+        // for cpu.
+        return new Block(file, blockPosition);
+    }
+
     public long length()
     {
         return new File(path).length();
@@ -437,7 +447,10 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         // the currently opened stream for this block, or null;
         public DataInputStream stream;
 
-        Block(BufferedRandomAccessFile file, long offset)
+        /**
+         * To construct a Block, use SSTReader.getBlock().
+         */
+        private Block(BufferedRandomAccessFile file, long offset)
         {
             this.file = file;
             this.offset = offset;

@@ -45,6 +45,20 @@ public class ColumnKey
     }
 
     /**
+     * @return A clone of this ColumnKey, with the given value as the least
+     * significant name.
+     */
+    public ColumnKey withName(byte[] name)
+    {
+        assert names.length > 0;
+
+        // shallow copy of the names
+        byte[][] namesClone = Arrays.copyOf(names, names.length);
+        namesClone[namesClone.length-1] = name;
+        return new ColumnKey(key, namesClone);
+    }
+
+    /**
      * Returns a comparator that compares ColumnKeys by key and then names, using
      * the appropriate comparator at each level. The ColumnKeys must contain
      * an equal number of names: for example, a ColumnFamily containing columns
