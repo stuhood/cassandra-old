@@ -98,9 +98,7 @@ public class SSTableWriter extends SSTable
 
     // the disk position of the start of the current block, and its approx length
     private long currentBlockPos;
-    // TODO: this value is approximate at the moment, because it doesn't include SliceMarks:
-    //       see SliceContext.markAndFlush(). Worst case, for blocks containing lots of slices
-    //       with small numbers of columns, we will overshoot TARGET_MAX_BLOCK by 50-100%.
+    // this value is approximate, because it doesn't include SliceMarks
     private int approxBlockLen;
 
     private long columnsWritten;

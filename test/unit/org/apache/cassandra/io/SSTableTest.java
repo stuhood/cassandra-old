@@ -89,7 +89,7 @@ public class SSTableTest extends CleanupHelper
     }
 
     @Test
-    public void testGetIndexedDecoratedKeysFor() throws IOException
+    public void testGetIndexedDecoratedKeysFor() throws Exception
     {
         final int numkeys = 1000;
         final int colsPerKey = 5;
@@ -115,8 +115,11 @@ public class SSTableTest extends CleanupHelper
         }
 
         // write
+        Thread.sleep(1000); // FIXME
+        long start = System.currentTimeMillis();
         SSTableReader ssTable = SSTableUtils.writeRawSSTable(SSTableUtils.TABLENAME,
                                                              SSTableUtils.CFNAME, map);
+        System.out.println("Wrote " + numkeys + " * " + colsPerKey + " in " + (System.currentTimeMillis() - start) + "ms.");
 
         // verify
         Predicate<SSTable> cfpred;

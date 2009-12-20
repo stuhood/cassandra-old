@@ -256,28 +256,22 @@ public abstract class SSTable
      */
     static class BlockHeader
     {
-        // disk length of the block, from the end of the header to the next block
-        public final int length;
         // compression codec
         public final String codecClass;
 
-        public BlockHeader(int length, String codecClass)
+        public BlockHeader(String codecClass)
         {
-            this.length = length;
             this.codecClass = codecClass;
         }
 
         public void serialize(DataOutput dos) throws IOException
         {
-            dos.writeInt(length);
             dos.writeUTF(codecClass);
         }
 
         public static BlockHeader deserialize(DataInput dis) throws IOException
         {
-            int length = dis.readInt();
-            String codecClass = dis.readUTF();
-            return new BlockHeader(length, codecClass);
+            return new BlockHeader(dis.readUTF());
         }
     }
 }
