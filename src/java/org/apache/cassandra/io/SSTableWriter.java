@@ -135,6 +135,8 @@ public class SSTableWriter extends SSTable
 
     /**
      * Initializes the data and index files.
+     * FIXME: ack... DataOutputStream uses an int to represent the bytes written:
+     *        need to implement a FilterOutputStream below a DOS
      * FIXME: because each block is buffered in memory anyway, we should explore
      *        removing the buffering on dataFile to eliminate copies
      */
@@ -162,10 +164,24 @@ public class SSTableWriter extends SSTable
      */
     private boolean closeBlock(ColumnKey columnKey) throws IOException
     {
-        if (lastWrittenKey == null && blockContext.isEmpty())
+        if (lastWrittenKey == null || blockContext.isEmpty())
             return false;
 
+        // write an index entry for the block
+        long indexPosition = indexFile.written();
+        ColumnKey firstKey = blockContext.firstSlice().currentKey;
+        lastIndexEntry = new IndexEntry(firstKey.key, firstKey.names,
+                                        indexPosition, currentBlockPos);
+        lastIndexEntry.serialize(indexFile);
+
+        // flush the block
         blockContext.markAndFlush(dataFile, lastWrittenKey, columnKey);
+        if (logger.isDebugEnabled())
+            logger.debug("Wrote block marked by " + lastIndexEntry + " to " + getFilename());
+
+        // hold every INDEX_INTERVAL IndexEntries in memory
+        if (blocksWritten % INDEX_INTERVAL == 0)
+            indexEntries.add(lastIndexEntry);
 
         // reset for the next block
         blocksWritten++;
@@ -231,45 +247,21 @@ public class SSTableWriter extends SSTable
      * Handles appending any metadata to the index and filter files after having
      * written the given ColumnKey to the data file.
      *
-     * @param parentMeta Metadata for parents of the appended column.
      * @param columnKey The key for the appended column.
-     * @param bytesFlushed The approximate number of bytes that were flushed to disk as a result of
-     *                     the append. This value will be zero unless a slice was flushed.
      */
     private void afterAppend(ColumnKey columnKey) throws IOException
     {
-        boolean blockClosed = false;
-
         // close the block if it has reached its threshold
         if (blockContext.getApproxLength() > TARGET_MAX_BLOCK_BYTES)
         {
             // current block is at least TARGET_MAX_BLOCK_BYTES long: close.
-            blockClosed = closeBlock(columnKey);
-            assert blockClosed : "Failed to close a non-empty block!";
+            assert closeBlock(columnKey) : "Failed to close a non-empty block!";
         }
 
-        // update the filter and index files
+        // update the filter
         bf.add(comparator.forBloom(columnKey));
         lastWrittenKey = columnKey;
         keysWritten++;
-
-        if (lastIndexEntry != null && !blockClosed)
-            // this append fell into the last block: don't need a new IndexEntry
-            return;
-        // else: the previous block was closed, or this is the first block in the file
-        
-        // a single col is buffered for a new block: write an IndexEntry to mark the new block
-        long indexPosition = indexFile.written();
-        lastIndexEntry = new IndexEntry(columnKey.key, columnKey.names,
-                                        indexPosition, currentBlockPos);
-        lastIndexEntry.serialize(indexFile);
-        if (logger.isDebugEnabled())
-            logger.debug("Initialized block marked by " + lastIndexEntry + " in " + getFilename());
-
-        // if we've written INDEX_INTERVAL blocks/IndexEntries, hold onto one in memory
-        if (blocksWritten % INDEX_INTERVAL != 0)
-            return;
-        indexEntries.add(lastIndexEntry);
     }
 
     /**
@@ -386,7 +378,7 @@ public class SSTableWriter extends SSTable
     {
         private Slice.Metadata parentMeta = null;
         private ColumnKey headKey = null;
-        private final List<Column> sliceBuffer = new ArrayList<Column>();
+        private List<Column> sliceBuffer = new ArrayList<Column>();
         private int length = 0;
 
         /**
@@ -422,7 +414,7 @@ public class SSTableWriter extends SSTable
         {
             this.parentMeta = parentMeta;
             this.headKey = headKey;
-            sliceBuffer.clear();
+            sliceBuffer = new ArrayList<Column>();
             length = 0;
         }
 
@@ -432,7 +424,7 @@ public class SSTableWriter extends SSTable
         public SliceBuffer close(ColumnKey nextKey) throws IOException
         {
             SliceMark mark = new SliceMark(parentMeta, headKey, nextKey, length);
-            return new SliceBuffer(mark, new ArrayList(sliceBuffer), length);
+            return new SliceBuffer(mark, sliceBuffer);
         }
     }
 
@@ -451,7 +443,17 @@ public class SSTableWriter extends SSTable
         public void appendSlice(SliceBuffer slice)
         {
             blockBuffer.add(slice);
-            approxLength += slice.length;
+            approxLength += slice.left.nextMark;
+        }
+
+        /**
+         * Asserts that the block is not empty.
+         * @return The mark for the first buffered slice in the block.
+         */
+        public SliceMark firstSlice()
+        {
+            assert !isEmpty();
+            return blockBuffer.peek().left;
         }
 
         /**
@@ -459,7 +461,7 @@ public class SSTableWriter extends SSTable
          */
         public boolean isEmpty()
         {
-            return approxLength < 1 && blockBuffer.isEmpty();
+            return blockBuffer.isEmpty();
         }
 
         /**
@@ -539,11 +541,9 @@ public class SSTableWriter extends SSTable
      */
     static class SliceBuffer extends Pair<SliceMark,List<Column>>
     {
-        public final int length;
-        public SliceBuffer(SliceMark mark, List<Column> columns, int length)
+        public SliceBuffer(SliceMark mark, List<Column> columns)
         {
             super(mark, columns);
-            this.length = length;
         }
     }
 }
