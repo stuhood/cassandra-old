@@ -102,10 +102,8 @@ public class SSTableWriter extends SSTable
     private long keysWritten;
     private int blocksWritten;
 
-    private FileChannel dataFileChannel;
-    private CountedOutputStream dataFile;
-    private FileChannel indexFileChannel;
-    private CountedOutputStream indexFile;
+    private BufferedRandomAccessFile dataFile;
+    private BufferedRandomAccessFile indexFile;
 
     private BloomFilter bf;
     private ColumnKey lastWrittenKey;
@@ -143,16 +141,12 @@ public class SSTableWriter extends SSTable
     private void open() throws IOException
     {
         int dataBufferBytes = (int)(DatabaseDescriptor.getFlushDataBufferSizeInMB() * 1024 * 1024);
-        FileOutputStream datafstream = new FileOutputStream(path);
-        dataFileChannel = datafstream.getChannel();
-        dataFile = new CountedOutputStream(new BufferedOutputStream(datafstream,
-                                                                    dataBufferBytes));
+        dataFile = new BufferedRandomAccessFile(path, "rw",
+                                                dataBufferBytes);
 
         int indexBufferBytes = (int)(DatabaseDescriptor.getFlushIndexBufferSizeInMB() * 1024 * 1024);
-        FileOutputStream indexfstream = new FileOutputStream(indexFilename());
-        indexFileChannel = indexfstream.getChannel();
-        indexFile = new CountedOutputStream(new BufferedOutputStream(indexfstream,
-                                                                     indexBufferBytes));
+        indexFile = new BufferedRandomAccessFile(indexFilename(), "rw",
+                                                 indexBufferBytes);
     }
 
     /**
@@ -168,7 +162,7 @@ public class SSTableWriter extends SSTable
             return false;
 
         // write an index entry for the block
-        long indexPosition = indexFile.written();
+        long indexPosition = indexFile.getFilePointer();
         ColumnKey firstKey = blockContext.firstSlice().currentKey;
         lastIndexEntry = new IndexEntry(firstKey.key, firstKey.names,
                                         indexPosition, currentBlockPos);
@@ -185,7 +179,7 @@ public class SSTableWriter extends SSTable
 
         // reset for the next block
         blocksWritten++;
-        currentBlockPos = dataFile.written();
+        currentBlockPos = dataFile.getFilePointer();
         return true;
     }
 
@@ -332,12 +326,10 @@ public class SSTableWriter extends SSTable
 
         // index
         indexFile.flush();
-        indexFileChannel.force(true);
         indexFile.close();
 
         // main data
         dataFile.flush();
-        dataFileChannel.force(true);
         dataFile.close();
 
         rename(indexFilename());
@@ -514,7 +506,7 @@ public class SSTableWriter extends SSTable
          * Prepend a header to the block, and then flush the buffered block to the
          * given output, and reset for another block.
          */
-        public void markAndFlush(DataOutputStream dos, ColumnKey lastKey, ColumnKey curKey) throws IOException
+        public void markAndFlush(DataOutput dos, ColumnKey lastKey, ColumnKey curKey) throws IOException
         {
             // caps for the block
             String codecClass = "FIXME";
