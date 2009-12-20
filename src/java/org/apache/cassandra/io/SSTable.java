@@ -286,7 +286,9 @@ public abstract class SSTable
         public static BlockHeader deserialize(DataInput dis) throws IOException
         {
             assert MAGIC == dis.readInt() && VERSION == dis.readByte():
-                "A corrupt or outdated SSTable was detected.";
+                "An outdated or corrupt SSTable was detected. If you recently " +
+                "upgraded Cassandra, you will need to run an upgrade command " +
+                "before starting the server.";
             return new BlockHeader(dis.readUTF());
         }
     }
