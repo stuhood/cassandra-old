@@ -29,32 +29,36 @@ import org.apache.cassandra.utils.Pair;
  * An immutable object representing a Slice read from disk: A Slice is a sorted
  * sequence of columns within a SSTable block that share the same parents, and thus
  * the same Metadata.
+ *
+ * A Slice contains columns between currentKey, inclusive, and nextKey, exclusive.
  */
 public class Slice
 {
     public final Metadata parentMeta;
-    // the key of the first column: all but the last name will be equal for columns in the slice
-    public final ColumnKey firstKey;
-    // immutable sequence of immutable columns
-    public final Iterable<Column> columns;
+    // the key of the first column: all but the last name will be equal for
+    // columns in the slice
+    public final ColumnKey currentKey;
+    // first key of the next slice on disk (exclusive end to our range)
+    public final ColumnKey nextKey;
 
     /**
      * @param parentMeta Metadata for the parents of this Slice.
-     * @param firstKey The key for the first column in the Slice.
-     * @param columns Once ownership of the column list is passed to a Slice,
-     *        it should not be modified.
+     * @param currentKey The key for the first column in the Slice.
+     * @param nextKey The key for the first column of the next Slice, or null if
+     * there are no more slices in this context.
      */
-    Slice(Metadata parentMeta, ColumnKey firstKey, List<Column> columns)
+    Slice(Metadata parentMeta, ColumnKey currentKey, ColumnKey nextKey)
     {
+        assert currentKey != null;
         this.parentMeta = parentMeta;
-        this.firstKey = firstKey;
-        this.columns = Collections.unmodifiableList(columns);
+        this.currentKey = currentKey;
+        this.nextKey = nextKey;
     }
 
     public String toString()
     {
         StringBuilder buff = new StringBuilder();
-        buff.append("#<Slice ").append(firstKey).append(" ").append(columns).append(">");
+        buff.append("#<Slice ").append(currentKey).append(" ").append(nextKey).append(">");
         return buff.toString();
     }
 

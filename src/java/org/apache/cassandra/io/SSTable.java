@@ -147,6 +147,11 @@ public abstract class SSTable
         return Arrays.asList(indexFilename(), filterFilename(), getFilename());
     }
 
+    public ColumnKey.Comparator getComparator()
+    {
+        return comparator;
+    }
+
     public String getColumnFamilyName()
     {
         return columnFamilyName;
@@ -193,18 +198,14 @@ public abstract class SSTable
      * A marker used in the SSTable data file to delineate slices, store shared
      * metadata about those slices, and mark the end of blocks.
      */
-    static class SliceMark
+    static class SliceMark extends Slice
     {
         // a mark with this status indicates the end of a block: the mark should
         // contain the last key in the current block, and the first key of the next
         // block. if this is the last block in the file, then nextKey will be null
         public static final int BLOCK_END = -1;
-
-        public final ColumnKey currentKey;
-        public final ColumnKey nextKey;
         // uncompressed bytes to next SliceMark, or a negative status value
         public final int nextMark;
-        public final Slice.Metadata parentMeta;
 
         /**
          * Create a mark with empty metadata.
@@ -216,11 +217,8 @@ public abstract class SSTable
 
         public SliceMark(Slice.Metadata parentMeta, ColumnKey currentKey, ColumnKey nextKey, int nextMark)
         {
-            assert currentKey != null;
-            this.currentKey = currentKey;
-            this.nextKey = nextKey;
+            super(parentMeta, currentKey, nextKey);
             this.nextMark = nextMark;
-            this.parentMeta = parentMeta;
         }
 
         public void serialize(DataOutput dos) throws IOException
@@ -246,7 +244,10 @@ public abstract class SSTable
 
         public String toString()
         {
-            return "#<SliceMark " + currentKey + " " + nextKey + " " + nextMark + ">";
+            StringBuilder buff = new StringBuilder();
+            buff.append("#<SliceMark ").append(currentKey).append(" ");
+            buff.append(nextKey).append(" ").append(nextMark).append(">");
+            return buff.toString();
         }
     }
 

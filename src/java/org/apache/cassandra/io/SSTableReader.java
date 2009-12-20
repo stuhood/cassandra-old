@@ -429,24 +429,46 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
      * As a non-static class, a Block holds a reference to the SSTable it was
      * created for and should prevent it from being cleaned up.
      */
-    public class Block
+    class Block
     {
         public final BufferedRandomAccessFile file;
         // offset from the beginning of the data file
         public final long offset;
+        // the currently opened stream for this block, or null;
+        public DataInputStream stream;
 
         Block(BufferedRandomAccessFile file, long offset)
         {
             this.file = file;
             this.offset = offset;
+            stream = null;
         }
 
         /**
-         * @return An InputStream appropriate for reading this block from disk.
+         * Resets the block: calling stream() after this method will start streaming
+         * from the beginning of the block.
+         * @return this.
          */
-        public InputStream open() throws IOException
+        public Block reset() throws IOException
         {
+            stream = null;
             file.seek(offset);
+            return this;
+        }
+
+        /**
+         * Calling stream() on a newly created Block will begin streaming from the
+         * beginning of the block. Calling stream() additional times will return the
+         * same stream object until reset() is called.
+         *
+         * @return An InputStream appropriate for reading the content of this block
+         * from disk.
+         */
+        public DataInputStream stream() throws IOException
+        {
+            if (stream != null)
+                // return the existing stream
+                return stream;
 
             // read the block header
             BlockHeader mark = BlockHeader.deserialize(file);
@@ -454,7 +476,8 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             // TODO: handle setting up an appropriate decompression stream here
 
             // FIXME: we need to implement streams that utilize the BRAF buffer.
-            return new FileInputStream(file.getFD());
+            stream = new DataInputStream(new FileInputStream(file.getFD()));
+            return stream;
         }
     }
 }

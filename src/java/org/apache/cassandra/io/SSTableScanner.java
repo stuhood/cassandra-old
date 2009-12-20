@@ -23,28 +23,42 @@ import java.io.Closeable;
 import java.util.Iterator;
 import java.util.Arrays;
 
+import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnKey;
 import org.apache.cassandra.db.DecoratedKey;
-import org.apache.log4j.Logger;
-import com.google.common.collect.AbstractIterator;
+import org.apache.cassandra.io.SSTable.SliceMark;
+import org.apache.cassandra.io.SSTableReader.Block;
 
-public class SSTableScanner extends AbstractIterator<IteratingRow> implements Closeable
+import org.apache.log4j.Logger;
+
+/**
+ * A Scanner is an abstraction for reading slices from an SSTable. In this
+ * implementation, slices are read in forward order.
+ */
+public class SSTableScanner implements Closeable
 {
     private static Logger logger = Logger.getLogger(SSTableScanner.class);
 
-    private IteratingRow row;
-    private BufferedRandomAccessFile file;
-    private SSTableReader sstable;
-    private Iterator<IteratingRow> iterator;
+    private final BufferedRandomAccessFile file;
+    private final SSTableReader sstable;
+    private final ColumnKey.Comparator comparator;
 
+    // current block and slice pointers
+    private Block block;
+    private SliceMark slice;
+
+    /**
+     * To acquire a Scanner over an SSTable, call SSTReader.getScanner().
+     */
     SSTableScanner(SSTableReader sstable, long blockPosition) throws IOException
     {
-        // TODO this is used for both compactions and key ranges.  the buffer sizes we want
-        // to use for these ops are very different.  here we are leaning towards the key-range
-        // use case since that is more common.  What we really want is to split those
-        // two uses of this class up.
-        this.file = new BufferedRandomAccessFile(sstable.getFilename(), "r", 256 * 1024);
         this.sstable = sstable;
+        comparator = sstable.getComparator();
+        // TODO: configurable buffer size.
+        file = new BufferedRandomAccessFile(sstable.getFilename(), "r",
+                                            256 * 1024);
+        block = sstable.new Block(file, blockPosition);
+        slice = null;
     }
 
     public void close() throws IOException
@@ -53,76 +67,89 @@ public class SSTableScanner extends AbstractIterator<IteratingRow> implements Cl
     }
 
     /**
-     * Seeks to the first slice for the given key.
+     * Seeks to the first slice for the given key. See the contract for seekTo(CK).
      */
-    public void seekTo(DecoratedKey seekKey)
+    public boolean seekTo(DecoratedKey seekKey)
     {
-        seekTo(new ColumnKey(seekKey, new byte[0][]));
+        return seekTo(new ColumnKey(seekKey, new byte[0][]));
     }
 
     /**
-     * Seeks to the first slice for the given key.
-     * FIXME: optimize forward seeks within the same block by not reopening
-     *        the block/iterator
+     * Seeks to the slice containing the given key. If such a slice does not
+     * exist, the next calls to the getSlice methods will be invalid.
+     *
+     * TODO: optimize forward seeks within the same block by not reopening
+     *       the block
+     * @return False if no such Slice was found.
      */
-    public void seekTo(ColumnKey seekKey)
+    public boolean seekTo(ColumnKey seekKey)
     {
         try
         {
             long position = sstable.getBlockPosition(seekKey);
             if (position < 0)
-                return;
-            file.seek(position);
-            row = null;
+                return false;
+
+            if (position != block.offset)
+                // acquire the new block
+                block = sstable.new Block(file, position);
+            block.reset();
+
+            // seek forward within the block to the slice
+            return seekForwardInBlock(seekKey);
         }
         catch (IOException e)
         {
             throw new RuntimeException("corrupt sstable", e);
         }
-    }
-
-    public IteratingRow computeNext()
-    {
-        if (iterator == null)
-            iterator = new KeyScanningIterator();
-        return iterator.next();
+        return true;
     }
 
     /**
-     * FIXME: Has not been modified to intepret blocks.
+     * Called internally when we're positioned at the beginning of the only block
+     * which could possibly contain the given key.
      */
-    private class KeyScanningIterator implements Iterator<IteratingRow>
+    private boolean seekForwardInBlock(ColumnKey seekKey)
     {
-        public boolean hasNext()
+        int distance = 0;
+        do
         {
-            try
-            {
-                return (row == null && !file.isEOF()) || row.getEndPosition() < file.length();
-            }
-            catch (IOException e)
-            {
-                throw new RuntimeException(e);
-            }
-        }
+            block.stream().skip(distance);
+            slice = SliceMark.deserialize(block.stream());
+            if (comparator.compare(slice.currentKey, seekKey) <= 0 &&
+                comparator.compare(seekKey, slice.nextKey) < 0)
+                // positioned at the beginning of the slice containing the key
+                return true;
+            
+        } // seek past the current slice
+        while ((distance = slice.nextMark) != -1);
+       
+        throw new AssertionError("Began seeking within an incorrect block.");
+    }
 
-        public IteratingRow next()
-        {
-            try
-            {
-                if (row != null)
-                    row.skipRemaining();
-                assert !file.isEOF();
-                return row = new IteratingRow(file, sstable);
-            }
-            catch (IOException e)
-            {
-                throw new RuntimeException(e);
-            }
-        }
+    /**
+     * @return The Slice at our current position, or null if the last call to
+     * seekTo failed, or we're at EOF.
+     */
+    public Slice getSlice()
+    {
+        return slice;
+    }
 
-        public void remove()
-        {
-            throw new UnsupportedOperationException();
-        }
+    /**
+     * Return the columns for the Slice at our current position, or null if the
+     * last call to seekTo failed, or we're at EOF.
+     */
+    public Iterable<Column> getSliceColumns()
+    {
+        throw new RuntimeException("Not implemented!"); // FIXME
+    }
+
+    /**
+     * Moves to the next slice, unless we are at the end of the file.
+     */
+    public boolean next()
+    {
+        throw new RuntimeException("Not implemented!"); // FIXME
     }
 }
