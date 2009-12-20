@@ -27,20 +27,28 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.io.SSTable.SliceMark;
 import org.apache.cassandra.io.SSTableReader.Block;
 
+// FIXME: remove when getCF() is removed
+import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.db.ColumnFamily;
+import org.apache.cassandra.db.SuperColumn;
+
 import org.apache.log4j.Logger;
 
 /**
  * A Scanner is an abstraction for reading slices from an SSTable. In this
  * implementation, slices are read in forward order.
+ *
+ * TODO: extract an SSTableScanner interface that will be shared between forward
+ * and reverse scanners
  */
 public class SSTableScanner implements Closeable
 {
     private static Logger logger = Logger.getLogger(SSTableScanner.class);
 
-    private final BufferedRandomAccessFile file;
     private final SSTableReader sstable;
     private final ColumnKey.Comparator comparator;
 
+    private BufferedRandomAccessFile file;
     /**
      * Current block and slice pointers: the block should never be null, but
      * the slice might be if a seek*() failed.
@@ -52,15 +60,19 @@ public class SSTableScanner implements Closeable
     /**
      * To acquire a Scanner over an SSTable, call SSTReader.getScanner().
      */
-    SSTableScanner(SSTableReader sstable, long blockPosition) throws IOException
+    SSTableScanner(SSTableReader sstable, int bufferSize) throws IOException
     {
         this.sstable = sstable;
         comparator = sstable.getComparator();
-        // TODO: configurable buffer size.
+
         file = new BufferedRandomAccessFile(sstable.getFilename(), "r",
-                                            256 * 1024);
-        block = sstable.getBlock(file, blockPosition);
-        slice = null;
+                                            bufferSize);
+        if (file.length() > 0)
+            throw new IOException("Cannot scan empty file!");
+
+        // an sstable must contain at least one block and slice
+        block = sstable.getBlock(file, 0);
+        slice = SliceMark.deserialize(block.stream());
     }
 
     /**
@@ -68,15 +80,17 @@ public class SSTableScanner implements Closeable
      */
     public void close() throws IOException
     {
-        file.close();
+        if (file != null);
+            file.close();
+        file = null;
     }
 
     /**
-     * Seeks to the first slice  given key. See the contract for seekTo(CK).
+     * See the contract for seekBefore(CK).
      */
-    public boolean seekTo(DecoratedKey seekKey) throws IOException
+    public boolean seekBefore(DecoratedKey seekKey) throws IOException
     {
-        return seekTo(new ColumnKey(seekKey, new byte[0][]));
+        return seekBefore(new ColumnKey(seekKey, new byte[0][]));
     }
 
     /**
@@ -100,6 +114,14 @@ public class SSTableScanner implements Closeable
 
         // current slice matches
         return true;
+    }
+
+    /**
+     * See the contract for seekTo(CK).
+     */
+    public boolean seekTo(DecoratedKey seekKey) throws IOException
+    {
+        return seekTo(new ColumnKey(seekKey, new byte[0][]));
     }
 
     /**
@@ -183,6 +205,61 @@ public class SSTableScanner implements Closeable
             sliceCols = Arrays.asList(cols);
         }
         return sliceCols;
+    }
+
+    /**
+     * Reads the entire ColumnFamily defined by the key of the current Slice. After
+     * the call, the Scanner will be positioned at the beginning of the first Slice
+     * for the next ColumnFamily.
+     *
+     * FIXME: This is here temporarily as we port more callers to the Slice API.
+     *
+     * @return The current ColumnFamily, or null if get() would return null.
+     */
+    @Deprecated
+    public Pair<DecoratedKey,ColumnFamily> getCF()
+    {
+        if (slice == null)
+            return null;
+
+        ColumnKey firstKey = slice.currentKey;
+        DecoratedKey key = firstKey.key;
+        ColumnFamily cf = ColumnFamily.create(sstable.getTableName(),
+                                              sstable.getColumnFamilyName());
+        // record deletion info
+        cf.delete(slice.meta.get(0).localDeletionTime,
+                  slice.meta.get(0).markedForDeleteAt);
+
+        AbstractType subtype = cf.getSubComparator();
+        boolean eof = false;
+        while (!eof && comparator.compare(firstKey, slice.currentKey.key, 0) == 0)
+        {
+            if (!cf.isSuper())
+            {
+                // standard: read all slices with the same key into one CF
+                for (Column column : getColumns())
+                    cf.addColumn(column);
+                if (!next())
+                    eof = true;
+                continue;
+            }
+
+            // else: super: additional layer of metadata and names
+            SuperColumn supcol = new SuperColumn(slice.currentKey.name(1), subtype);
+            supcol.markForDeleteAt(slice.meta.get(1).localDeletionTime,
+                                   slice.meta.get(1).markedForDeleteAt);
+            while (!eof && comparator.compare(firstKey, slice.currentKey.key, 1) == 0)
+            {
+                for (Column column : getColumns())
+                    supcol.addColumn(column);
+                // seek to next slice
+                if (!next())
+                    // break both loops
+                    eof = true;
+            }
+            cf.addColumn(supcol);
+        }
+        return new Pair(key, cf);
     }
 
     /**

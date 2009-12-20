@@ -46,7 +46,10 @@ public final class SuperColumn implements IColumn, IColumnContainer
 	private long markedForDeleteAt = Long.MIN_VALUE;
     private AtomicInteger size_ = new AtomicInteger(0);
 
-    SuperColumn(byte[] name, AbstractType comparator)
+    /**
+     * Construct an empty SuperColumn.
+     */
+    public SuperColumn(byte[] name, AbstractType comparator)
     {
         this(name, new ConcurrentSkipListMap<byte[], IColumn>(comparator));
     }

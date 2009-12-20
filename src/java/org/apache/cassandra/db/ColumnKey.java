@@ -34,7 +34,7 @@ import org.apache.cassandra.service.StorageService;
 public class ColumnKey
 {
     public final DecoratedKey key;
-    // FIXME: safer/more efficient structure?
+    // FIXME: more efficient structure? perhaps model after Slice.Metadata?
     public final byte[][] names;
 
     public ColumnKey(DecoratedKey key, byte[]... names)
@@ -56,6 +56,15 @@ public class ColumnKey
         byte[][] namesClone = Arrays.copyOf(names, names.length);
         namesClone[namesClone.length-1] = name;
         return new ColumnKey(key, namesClone);
+    }
+
+    /**
+     * @return The name at the given depth: the key is at depth 0, so names
+     * begin at depth 1.
+     */
+    public byte[] name(int depth)
+    {
+        return names[depth-1];
     }
 
     /**

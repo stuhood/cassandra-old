@@ -34,7 +34,7 @@ import org.apache.cassandra.utils.Pair;
  */
 public class Slice
 {
-    public final Metadata parentMeta;
+    public final Metadata meta;
     // the key of the first column: all but the last name will be equal for
     // columns in the slice
     public final ColumnKey currentKey;
@@ -42,15 +42,15 @@ public class Slice
     public final ColumnKey nextKey;
 
     /**
-     * @param parentMeta Metadata for the parents of this Slice.
+     * @param meta Metadata for the parents of this Slice.
      * @param currentKey The key for the first column in the Slice.
      * @param nextKey The key for the first column of the next Slice, or null if
      * there are no more slices in this context.
      */
-    Slice(Metadata parentMeta, ColumnKey currentKey, ColumnKey nextKey)
+    Slice(Metadata meta, ColumnKey currentKey, ColumnKey nextKey)
     {
-        assert currentKey != null;
-        this.parentMeta = parentMeta;
+        assert meta != null && currentKey != null;
+        this.meta = meta;
         this.currentKey = currentKey;
         this.nextKey = nextKey;
     }
@@ -72,12 +72,19 @@ public class Slice
      */
     static final class Metadata
     {
-        // TODO: document the meaning of these fields
+        // TODO: document the actual meaning of these fields
         public final long markedForDeleteAt;
         public final int localDeletionTime;
 
         // next item (our parent) in the list
         public final Metadata parent;
+        // our depth: our parent has depth-1, and the root has depth 0
+        private final byte depth;
+
+        Metadata()
+        {
+            this(Long.MIN_VALUE, Integer.MIN_VALUE);
+        }
 
         Metadata(long markedForDeleteAt, int localDeletionTime)
         {
@@ -89,6 +96,7 @@ public class Slice
             this.markedForDeleteAt = markedForDeleteAt;
             this.localDeletionTime = localDeletionTime;
             this.parent = parent;
+            depth = (parent == null) ? 0 : (byte)(1+parent.depth);
         }
 
         /**
@@ -101,29 +109,45 @@ public class Slice
         }
 
         /**
-         * Serialize a Metadata list, which may be null to indicate an empty list.
+         * @return Metadata for the given depth: asserts that the depth exists.
          */
-        public static void serialize(Metadata meta, DataOutput dos) throws IOException
+        public Metadata get(int depth)
         {
+            assert this.depth >= depth;
+            if (this.depth == depth)
+                return this;
+            return get(depth++);
+        }
+
+        /**
+         * Serialize this Metadata list.
+         */
+        public void serialize(DataOutput dos) throws IOException
+        {
+            // write the length of the list
+            dos.writeByte((byte)(depth+1));
+            Metadata meta = this;
             while (meta != null)
             {
-                dos.writeBoolean(true);
                 dos.writeLong(meta.markedForDeleteAt);
                 dos.writeInt(meta.localDeletionTime);
                 meta = meta.parent;
             }
-            dos.writeBoolean(false);
         }
 
         /**
-         * Deserialize a Metadata list.
+         * Recursively deserialize a Metadata list.
          */
         public static Metadata deserialize(DataInput dis) throws IOException
         {
-            if (!dis.readBoolean())
-                return null;
-            // recursively
-            return new Metadata(dis.readLong(), dis.readInt(), deserialize(dis));
+            byte depth = dis.readByte();
+            return deserialize(dis, depth);
+        }
+
+        private static Metadata deserialize(DataInput dis, byte depth) throws IOException
+        {
+            return new Metadata(dis.readLong(), dis.readInt(),
+                                (depth == 0 ? null : deserialize(dis, --depth)));
         }
     }
 }

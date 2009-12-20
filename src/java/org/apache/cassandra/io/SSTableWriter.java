@@ -127,7 +127,7 @@ public class SSTableWriter extends SSTable
      * given key. A slice always begins with a SliceMark indicating the length
      * of the slice.
      */
-    private boolean flushSlice(Slice.Metadata parentMeta, ColumnKey columnKey, boolean closeBlock) throws IOException
+    private boolean flushSlice(Slice.Metadata meta, ColumnKey columnKey, boolean closeBlock) throws IOException
     {
         if (blockContext.isEmpty())
             return false;
@@ -137,31 +137,31 @@ public class SSTableWriter extends SSTable
         if (closeBlock) blocksWritten++;
         slicesWritten++;
         // then reset for the next slice
-        blockContext.resetSlice(parentMeta, columnKey);
+        blockContext.resetSlice(meta, columnKey);
         return true;
     }
 
     /**
      * Prepares to buffer the given ColumnKey.
      *
-     * @param parentMeta @see append.
+     * @param meta @see append.
      * @param columnKey The key that is about to be appended.
      * @return True if the given columnKey will be the first in a new block.
      */
-    private boolean beforeAppend(Slice.Metadata parentMeta, ColumnKey columnKey) throws IOException
+    private boolean beforeAppend(Slice.Metadata meta, ColumnKey columnKey) throws IOException
     {
         assert columnKey != null : "Keys must not be null.";
         if (lastWrittenKey == null)
         {
             // we're beginning the first slice
-            blockContext.resetSlice(parentMeta, columnKey);
+            blockContext.resetSlice(meta, columnKey);
             return true;
         }
 
         // determine if this key falls into the current slice
         int comparison;
-        if (blockContext.getMeta() != null && blockContext.getMeta() == parentMeta)
-            // skip the key comparison if parentMeta objects have reference equality
+        if (blockContext.getMeta() != null && blockContext.getMeta() == meta)
+            // skip the key comparison if meta objects have reference equality
             comparison = 0;
         else
             // metadata changed since last call: compare keys
@@ -179,7 +179,7 @@ public class SSTableWriter extends SSTable
         if (comparison < 0 || blockContext.getSliceLength() > TARGET_MAX_SLICE_BYTES)
         {
             // flush the previous slice to the data file
-            flushed = flushSlice(parentMeta, columnKey, filled);
+            flushed = flushSlice(meta, columnKey, filled);
             assert flushed : "Failed to flush non-empty slice!";
             if (logger.isTraceEnabled())
                 logger.trace("Flushed slice marked by " + columnKey + " to " + getFilename());
@@ -223,15 +223,15 @@ public class SSTableWriter extends SSTable
     /**
      * Appends the given column to the SSTable.
      *
-     * @param parentMeta Metadata for the parents of the column. A supercf has
+     * @param meta Metadata for the parents of the column. A supercf has
      *     a Metadata list of length 2, while a standard cf has length 1.
      * @param columnKey The fully qualified key for the column.
      * @param column A column to append to the SSTable.
      */
-    public void append(Slice.Metadata parentMeta, ColumnKey columnKey, Column column) throws IOException
+    public void append(Slice.Metadata meta, ColumnKey columnKey, Column column) throws IOException
     {
         assert column != null;
-        boolean newBlock = beforeAppend(parentMeta, columnKey);
+        boolean newBlock = beforeAppend(meta, columnKey);
         blockContext.bufferColumn(column);
         afterAppend(columnKey, newBlock);
     }
@@ -244,13 +244,13 @@ public class SSTableWriter extends SSTable
     @Deprecated
     public void flatteningAppend(DecoratedKey key, ColumnFamily cf) throws IOException
     {
-        Slice.Metadata parentMeta = new Slice.Metadata(cf.getMarkedForDeleteAt(),
-                                                       cf.getLocalDeletionTime());
+        Slice.Metadata meta = new Slice.Metadata(cf.getMarkedForDeleteAt(),
+                                                 cf.getLocalDeletionTime());
 
         if (!cf.isSuper())
         {
             for (IColumn column : cf.getSortedColumns())
-                append(parentMeta, new ColumnKey(key, column.name()), (Column)column);
+                append(meta, new ColumnKey(key, column.name()), (Column)column);
             return;
         }
         
@@ -258,8 +258,8 @@ public class SSTableWriter extends SSTable
         {
             SuperColumn sc = (SuperColumn)column;
             // super columns contain an additional level of metadata
-            Slice.Metadata childMeta = parentMeta.childWith(sc.getMarkedForDeleteAt(),
-                                                            sc.getLocalDeletionTime());
+            Slice.Metadata childMeta = meta.childWith(sc.getMarkedForDeleteAt(),
+                                                      sc.getLocalDeletionTime());
             for (IColumn subc : sc.getSubColumns())
             {
                 /* Now write the key and column to disk */
@@ -332,7 +332,7 @@ public class SSTableWriter extends SSTable
      */
     static class BlockContext
     {
-        private Slice.Metadata parentMeta = null;
+        private Slice.Metadata meta = null;
         private ColumnKey headKey = null;
         private DataOutputBuffer sliceBuffer = new DataOutputBuffer();
         private int numCols = 0;
@@ -352,11 +352,12 @@ public class SSTableWriter extends SSTable
         }
 
         /**
-         * Return the metadata for the current slice, or null.
+         * @return The metadata for the current slice, or null if a slice has not
+         * been started.
          */
         public Slice.Metadata getMeta()
         {
-            return parentMeta;
+            return meta;
         }
 
         /**
@@ -368,7 +369,7 @@ public class SSTableWriter extends SSTable
         }
 
         /**
-         * @return Count of columns in current slice.
+         * @return Count of columns buffered for current slice.
          */
         public int getSliceColCount()
         {
@@ -408,9 +409,9 @@ public class SSTableWriter extends SSTable
         /**
          * Begins a slice with the given shared metadata and first key.
          */
-        public void resetSlice(Slice.Metadata parentMeta, ColumnKey headKey)
+        public void resetSlice(Slice.Metadata meta, ColumnKey headKey)
         {
-            this.parentMeta = parentMeta;
+            this.meta = meta;
             this.headKey = headKey;
             sliceBuffer.reset();
             numCols = 0;
@@ -429,7 +430,7 @@ public class SSTableWriter extends SSTable
 
             int sliceLen = sliceBuffer.getLength();
             byte status = closeBlock ? SliceMark.BLOCK_END : SliceMark.BLOCK_CONTINUE;
-            new SliceMark(parentMeta, headKey, nextKey,
+            new SliceMark(meta, headKey, nextKey,
                           sliceLen, numCols, status).serialize(file);
             file.write(sliceBuffer.getData(), 0, sliceLen);
 

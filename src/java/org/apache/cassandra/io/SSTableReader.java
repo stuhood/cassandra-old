@@ -394,21 +394,11 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     }
 
     /**
-     * @return A Scanner positioned at the first block of the SSTable.
+     * @return A Scanner for this SSTable with given disk buffer size.
      */
-    public SSTableScanner getScanner() throws IOException
+    public SSTableScanner getScanner(int bufferSize)
     {
-        return new SSTableScanner(this, 0);
-    }
-
-    /**
-     * @return A Scanner positioned at the block that might contain the given
-     * key.
-     */
-    public SSTableScanner getScanner(ColumnKey key) throws IOException
-    {
-        long blockPosition = getBlockPosition(key);
-        return new SSTableScanner(this, blockPosition);
+        return new SSTableScanner(this, bufferSize);
     }
 
     /**

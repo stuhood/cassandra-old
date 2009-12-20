@@ -34,20 +34,24 @@ import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.db.ColumnKey;
 
 /**
- * This class is built on top of the SequenceFile. It stores
- * data on disk in sorted fashion. However the sorting is upto
- * the application. This class expects keys to be handed to it
- * in sorted order.
+ * This class stores columns on disk in sorted fashion. See SSTableWriter for
+ * a more thorough explanation of the file format.
  *
- * A separate index file is maintained as well, containing the
- * SSTable keys and the offset into the SSTable at which they are found.
- * Every 1/indexInterval key is read into memory when the SSTable is opened.
+ * A separate index file is maintained, containing the offsets of SSTable blocks.
+ * Every 1/indexInterval index entry is read into memory when the SSTable is opened.
  *
  * Finally, a bloom filter file is also kept for the keys in each SSTable.
  */
 public abstract class SSTable
 {
     private static final Logger logger = Logger.getLogger(SSTable.class);
+
+    /**
+     * The version of the SSTable file format that can be read and written using
+     * this class: attempting to open an sstable version that does not match will
+     * raise an assertion.
+     */
+    public static final byte VERSION = (byte)1;
 
     public static final int FILES_ON_DISK = 3; // data, index, and bloom filter
 
@@ -211,9 +215,9 @@ public abstract class SSTable
         // status of this slice in the current block
         public final byte status;
 
-        public SliceMark(Slice.Metadata parentMeta, ColumnKey currentKey, ColumnKey nextKey, int length, int numCols, byte status)
+        public SliceMark(Slice.Metadata meta, ColumnKey currentKey, ColumnKey nextKey, int length, int numCols, byte status)
         {
-            super(parentMeta, currentKey, nextKey);
+            super(meta, currentKey, nextKey);
             this.length = length;
             this.numCols = numCols;
             this.status = status;
@@ -226,7 +230,7 @@ public abstract class SSTable
             dos.writeBoolean(nextKey != null);
             if (nextKey != null)
                 nextKey.serialize(dos);
-            Slice.Metadata.serialize(parentMeta, dos);
+            meta.serialize(dos);
 
             dos.writeInt(length);
             dos.writeInt(numCols);
@@ -237,12 +241,12 @@ public abstract class SSTable
         {
             ColumnKey currentKey = ColumnKey.deserialize(dis);
             ColumnKey nextKey = dis.readBoolean() ? ColumnKey.deserialize(dis) : null;
-            Slice.Metadata parentMeta = Slice.Metadata.deserialize(dis);
+            Slice.Metadata meta = Slice.Metadata.deserialize(dis);
 
             int length = dis.readInt();
             int numCols = dis.readInt();
             byte status = dis.readByte();
-            return new SliceMark(parentMeta, currentKey, nextKey,
+            return new SliceMark(meta, currentKey, nextKey,
                                  length, numCols, status);
         }
 
@@ -257,10 +261,13 @@ public abstract class SSTable
 
     /**
      * Plays the role of header for a block. BlockHeaders lie before the portion of a
-     * block that might be compressed, and are used to store compression info.
+     * block that might be compressed, and are used to store compression and version
+     * info.
      */
     static class BlockHeader
     {
+        public static final int MAGIC = 1337;
+
         // compression codec
         public final String codecClass;
 
@@ -271,11 +278,15 @@ public abstract class SSTable
 
         public void serialize(DataOutput dos) throws IOException
         {
+            dos.writeInt(MAGIC);
+            dos.writeByte(VERSION);
             dos.writeUTF(codecClass);
         }
 
         public static BlockHeader deserialize(DataInput dis) throws IOException
         {
+            assert MAGIC == dis.readInt() && VERSION == dis.readByte():
+                "A corrupt or outdated SSTable was detected.";
             return new BlockHeader(dis.readUTF());
         }
     }
