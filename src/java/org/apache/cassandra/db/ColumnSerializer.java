@@ -28,14 +28,15 @@ import org.apache.cassandra.utils.FBUtilities;
 
 public class ColumnSerializer implements ICompactSerializer2<IColumn>
 {
+    /**
+     * Writes a name of max length Short.MAX_VALUE, with a Short length prepended.
+     */
     public static void writeName(byte[] name, DataOutput out)
     {
-        int length = name.length;
-        assert 0 <= length && length <= IColumn.MAX_NAME_LENGTH;
+        assert name.length <= Short.MAX_VALUE;
         try
         {
-            out.writeByte((length >> 8) & 0xFF);
-            out.writeByte(length & 0xFF);
+            out.writeShort((short)name.length);
             out.write(name);
         }
         catch (IOException e)

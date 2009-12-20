@@ -77,7 +77,7 @@ public abstract class SSTable
         this.path = filename;
         this.partitioner = partitioner;
         this.indexEntries = new ArrayList<IndexEntry>();
-        this.comparator = ColumnKey.getComparator(getTableName(), getColumnFamilyName());;
+        this.comparator = ColumnKey.getComparator(getTableName(), getColumnFamilyName());
     }
 
     protected static String indexFilename(String dataFile)
@@ -197,9 +197,8 @@ public abstract class SSTable
     {
         // a mark with this status indicates the end of a block: the mark should
         // contain the last key in the current block, and the first key of the next
-        // block. if this was the last block in the file, then nextKey will be null
+        // block. if this is the last block in the file, then nextKey will be null
         public static final int BLOCK_END = -1;
-
 
         public final ColumnKey currentKey;
         public final ColumnKey nextKey;
@@ -248,6 +247,37 @@ public abstract class SSTable
         public String toString()
         {
             return "#<SliceMark " + currentKey + " " + nextKey + " " + nextMark + ">";
+        }
+    }
+
+    /**
+     * Plays the role of header for a block. BlockHeaders lie before the portion of a
+     * block that might be compressed, and are used to store compression info.
+     */
+    static class BlockHeader
+    {
+        // disk length of the block, from the end of the header to the next block
+        public final int length;
+        // compression codec
+        public final String codecClass;
+
+        public BlockHeader(int length, String codecClass)
+        {
+            this.length = length;
+            this.codecClass = codecClass;
+        }
+
+        public void serialize(DataOutput dos) throws IOException
+        {
+            dos.writeInt(length);
+            dos.writeUTF(codecClass);
+        }
+
+        public static BlockHeader deserialize(DataInput dis) throws IOException
+        {
+            int length = dis.readInt();
+            String codecClass = dis.readUTF();
+            return new BlockHeader(length, codecClass);
         }
     }
 }

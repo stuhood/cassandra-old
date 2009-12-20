@@ -206,6 +206,8 @@ public class SSTableWriter extends SSTable
 
         // flush the slice if the new key does not fall into the last slice, or if
         // TARGET_MAX_SLICE_BYTES for the current slice has already been reached
+        // TODO: we could micro-optimize to skip this comparison by comparing the
+        // parentMeta objects for reference equality first
         int comparison = comparator.compare(lastWrittenKey, columnKey, sliceDepth);
         assert comparison <= 0 : "Keys written out of order! Last written key : " +
             lastWrittenKey + " Current key : " + columnKey + " Writing to " + path;
@@ -364,10 +366,8 @@ public class SSTableWriter extends SSTable
         rename(filterFilename());
         path = rename(path); // important to do this last since index & filter file names are derived from it
 
-        ConcurrentLinkedHashMap<ColumnKey, IndexEntry> keyCache = cacheFraction > 0
-                                                        ? SSTableReader.createKeyCache((int) (cacheFraction * keysWritten))
-                                                        : null;
-        return new SSTableReader(path, partitioner, indexEntries, bf, keyCache);
+        return new SSTableReader(path, partitioner, indexEntries, bf,
+                                (int)(cacheFraction * keysWritten));
     }
 
     static String rename(String tmpFilename)

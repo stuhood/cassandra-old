@@ -39,48 +39,39 @@ public class SSTableTest extends CleanupHelper
     public void testSingleWrite() throws IOException {
         // write test data
         String key = Integer.toString(1);
-        byte[] bytes = new byte[1024];
-        new Random().nextBytes(bytes);
+        byte[] byteval = new byte[1024];
+        new Random().nextBytes(byteval);
+        Column col = new Column("1".getBytes(), byteval, System.currentTimeMillis());
 
-        TreeMap<ColumnKey, byte[]> map =
-            new TreeMap<ColumnKey,byte[]>(ColumnKey.getComparator(SSTableUtils.TABLENAME, SSTableUtils.CFNAME));
+        TreeMap<ColumnKey, Column> map =
+            new TreeMap<ColumnKey, Column>(ColumnKey.getComparator(SSTableUtils.TABLENAME, SSTableUtils.CFNAME));
         map.put(new ColumnKey(StorageService.getPartitioner().decorateKey(key),
                               key.getBytes()),
-                bytes);
+                col);
         SSTableReader ssTable = SSTableUtils.writeRawSSTable(SSTableUtils.TABLENAME, SSTableUtils.CFNAME, map);
 
         // verify
-        verifySingle(ssTable, bytes, key);
+        verifySingle(ssTable, byteval, key);
         SSTableReader.reopenUnsafe(); // force reloading the index
-        verifySingle(ssTable, bytes, key);
+        verifySingle(ssTable, byteval, key);
     }
 
     private void verifySingle(SSTableReader sstable, byte[] bytes, String key) throws IOException
     {
-    /**
-     * FIXME: needs rethinking
-        BufferedRandomAccessFile file = new BufferedRandomAccessFile(sstable.path, "r");
-        file.seek(sstable.getPosition(sstable.partitioner.decorateKey(key)));
-        assert key.equals(file.readUTF());
-        int size = file.readInt();
-        byte[] bytes2 = new byte[size];
-        file.readFully(bytes2);
-        assert Arrays.equals(bytes2, bytes);
-    */
+        throw new RuntimeException("Not implemented"); // FIXME
     }
 
-    /**
-     * FIXME: writes without deletion metadata (see SSTableUtils)
-     */
     @Test
     public void testManyWrites() throws IOException {
-        TreeMap<ColumnKey, byte[]> map =
-            new TreeMap<ColumnKey,byte[]>(ColumnKey.getComparator(SSTableUtils.TABLENAME, SSTableUtils.CFNAME));
+        TreeMap<ColumnKey, Column> map =
+            new TreeMap<ColumnKey, Column>(ColumnKey.getComparator(SSTableUtils.TABLENAME, SSTableUtils.CFNAME));
         for ( int i = 100; i < 1000; ++i )
         {
             ColumnKey key = new ColumnKey(StorageService.getPartitioner().decorateKey(Integer.toString(i)),
                                           Integer.toString(i).getBytes());
-            map.put(key, ("Avinash Lakshman is a good man: " + i).getBytes());
+            map.put(key, new Column((i + "").getBytes(),
+                                    ("Avinash Lakshman is a good man: " + i).getBytes(),
+                                    System.currentTimeMillis()));
         }
 
         // write
@@ -92,23 +83,9 @@ public class SSTableTest extends CleanupHelper
         verifyMany(ssTable, map);
     }
 
-    private void verifyMany(SSTableReader sstable, TreeMap<ColumnKey, byte[]> map) throws IOException
+    private void verifyMany(SSTableReader sstable, TreeMap<ColumnKey, Column> map) throws IOException
     {
-    /**
-     * FIXME: needs rethinking
-        List<String> keys = new ArrayList<String>(map.keySet());
-        Collections.shuffle(keys);
-        BufferedRandomAccessFile file = new BufferedRandomAccessFile(sstable.path, "r");
-        for (String key : keys)
-        {
-            file.seek(sstable.getPosition(sstable.partitioner.decorateKey(key)));
-            assert key.equals(file.readUTF());
-            int size = file.readInt();
-            byte[] bytes2 = new byte[size];
-            file.readFully(bytes2);
-            assert Arrays.equals(bytes2, map.get(key));
-        }
-    */
+        throw new RuntimeException("Not implemented"); // FIXME
     }
 
     @Test
@@ -116,20 +93,25 @@ public class SSTableTest extends CleanupHelper
     {
         final int numkeys = 1000;
         final int colsPerKey = 5;
-        final byte[] columnVal = "This would normally be a serialized Column.".getBytes();
-        final int columnBytes = columnVal.length;
+        final byte[] columnVal = "This is the value of the columns!".getBytes();
+        int columnBytes = 0;
         final String magic = "MAGIC!";
 
-        TreeMap<ColumnKey, byte[]> map =
-            new TreeMap<ColumnKey,byte[]>(ColumnKey.getComparator(SSTableUtils.TABLENAME, SSTableUtils.CFNAME));
+        TreeMap<ColumnKey, Column> map =
+            new TreeMap<ColumnKey, Column>(ColumnKey.getComparator(SSTableUtils.TABLENAME, SSTableUtils.CFNAME));
         for (int i = 0; i < numkeys; i++)
         {
             String stringKey = magic + Integer.toString(i);
             DecoratedKey decKey = StorageService.getPartitioner().decorateKey(stringKey);
             // write colsPerKey columns
             for (int k = 0; k < colsPerKey; k++)
+            {
+                Column col = new Column((k + "").getBytes(), columnVal,
+                                        System.currentTimeMillis());
                 map.put(new ColumnKey(decKey, Integer.toString(k).getBytes()),
-                        columnVal);
+                        col);
+                columnBytes += col.size();
+            }
         }
 
         // write
@@ -158,8 +140,7 @@ public class SSTableTest extends CleanupHelper
 
         // the number of keys in memory should be approximately:
         // numkeys * bytes_per_key / SSTWriter.TARGET_MAX_BLOCK_BYTES / SSTable.INDEX_INTERVAL
-        int totColumnBytes = numkeys * (columnBytes * colsPerKey);
-        double numSlices = (double)totColumnBytes / SSTableWriter.TARGET_MAX_BLOCK_BYTES;
+        double numSlices = (double)columnBytes / SSTableWriter.TARGET_MAX_BLOCK_BYTES;
         double expected = Math.ceil(numSlices / SSTable.INDEX_INTERVAL);
         assert actual <= expected : "actual " + actual + " !<= expected " + expected;
     }

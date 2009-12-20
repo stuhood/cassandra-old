@@ -169,25 +169,26 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         sstable.loadIndexFile();
         sstable.loadBloomFilter();
         if (cacheFraction > 0)
-        {
             sstable.keyCache = createKeyCache((int)((sstable.getIndexEntries().size() + 1) * INDEX_INTERVAL * cacheFraction));
-        }
         if (logger.isDebugEnabled())
             logger.debug("INDEX LOAD TIME for "  + dataFileName + ": " + (System.currentTimeMillis() - start) + " ms.");
 
         return sstable;
     }
 
-    FileDeletingReference phantomReference;
-
-    public static ConcurrentLinkedHashMap<ColumnKey, IndexEntry> createKeyCache(int size)
+    private static ConcurrentLinkedHashMap<ColumnKey, IndexEntry> createKeyCache(int size)
     {
         return ConcurrentLinkedHashMap.create(ConcurrentLinkedHashMap.EvictionPolicy.SECOND_CHANCE, size);
     }
 
+    // offset of the first block in the data file
+    FileDeletingReference phantomReference;
     private ConcurrentLinkedHashMap<ColumnKey, IndexEntry> keyCache;
 
-    SSTableReader(String filename, IPartitioner partitioner, List<IndexEntry> indexEntries, BloomFilter bloomFilter, ConcurrentLinkedHashMap<ColumnKey, IndexEntry> keyCache)
+    /**
+     * Package protected: to open an SSTableReader, use the open(*) factory methods.
+     */
+    SSTableReader(String filename, IPartitioner partitioner, List<IndexEntry> indexEntries, BloomFilter bloomFilter, int keysToCache)
     {
         super(filename, partitioner);
         this.indexEntries = indexEntries;
@@ -195,12 +196,12 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         phantomReference = new FileDeletingReference(this, finalizerQueue);
         finalizers.add(phantomReference);
         openedFiles.put(filename, this);
-        this.keyCache = keyCache;
+        this.keyCache = keysToCache < 1 ? null : createKeyCache(keysToCache);
     }
 
     private SSTableReader(String filename, IPartitioner partitioner)
     {
-        this(filename, partitioner, new ArrayList<IndexEntry>(), null, null);
+        this(filename, partitioner, new ArrayList<IndexEntry>(), null, 0);
     }
 
     public List<IndexEntry> getIndexEntries()
@@ -278,25 +279,21 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
      * Deprecated: use getPosition(ColumnKey) instead, for higher resolution.
      * Also, this method will never match the BloomFilter, which means extra
      * reads.
+     *
+     * FIXME: remove
      */
     @Deprecated
-    public long getPosition(DecoratedKey decoratedKey) throws IOException
+    long getBlockPosition(DecoratedKey decoratedKey) throws IOException
     {
         ColumnKey target = new ColumnKey(decoratedKey, new byte[0][]);
-        return getPosition(target);
+        return getBlockPosition(target);
     }
 
     /**
-     * FIXME: This method needs a redesign to support block compression: we should probably
-     * return a data file scanning structure which can encapsulate reading from blocks
-     * (possibly compressed). We also need to consider the case of a reverse scan: should
-     * they need to read from the beginning of the block to each slice?, or can we abstract
-     * that into a reverse column read somehow?
-     *
-     * @return The position in the data file to find the given key, or -1 if
-     * the key is not present.
+     * @return The position of the block that might contain the target key,
+     * or -1 if the key is not contained in this SSTable.
      */
-    public long getPosition(ColumnKey target) throws IOException
+    long getBlockPosition(ColumnKey target) throws IOException
     {
         if (!bf.isPresent(comparator.forBloom(target)))
             return -1;
@@ -346,43 +343,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         //return -1;
     }
 
-    /** like getPosition, but if key is not found will return the location of the first key _greater_than/equal_to_ the desired one, or -1 if no such key exists. */
-    public long getNearestPosition(DecoratedKey decoratedKey) throws IOException
-    {
-        // TODO: should contain column names as well
-        ColumnKey target = new ColumnKey(decoratedKey, new byte[0][]);
-
-        IndexEntry indexEntry = getIndexScanPosition(target);
-        if (indexEntry == null)
-        {
-            return 0;
-        }
-
-        BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(path), "r");
-        input.seek(indexEntry.indexOffset);
-        try
-        {
-            while (true)
-            {
-                try
-                {
-                    indexEntry = IndexEntry.deserialize(input);
-                }
-                catch (EOFException e)
-                {
-                    return -1;
-                }
-                int v = comparator.compare(indexEntry, target);
-                if (v >= 0)
-                    return indexEntry.dataOffset;
-            }
-        }
-        finally
-        {
-            input.close();
-        }
-    }
-
     public long length()
     {
         return new File(path).length();
@@ -423,11 +383,28 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         return partitioner;
     }
 
+    /**
+     * @return A Scanner positioned at the first block of the SSTable.
+     */
     public SSTableScanner getScanner() throws IOException
     {
-        return new SSTableScanner(this);
+        return new SSTableScanner(this, 0);
     }
 
+    /**
+     * @return A Scanner positioned at the block that might contain the given
+     * key.
+     */
+    public SSTableScanner getScanner(ColumnKey key) throws IOException
+    {
+        long blockPosition = getBlockPosition(key);
+        return new SSTableScanner(this, blockPosition);
+    }
+
+    /**
+     * Deprecated: should remove in favor of the ColumnKey.Comparator every SSTable
+     * holds.
+     */
     @Deprecated
     public AbstractType getColumnComparator()
     {
@@ -444,6 +421,41 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         return DatabaseDescriptor.getColumnFamilyType(getTableName(), getColumnFamilyName()).equals("Standard")
                ? Column.serializer()
                : SuperColumn.serializer(getColumnComparator());
+    }
+
+    /**
+     * A block in the SSTable, with a method to open a stream for the block.
+     *
+     * As a non-static class, a Block holds a reference to the SSTable it was
+     * created for and should prevent it from being cleaned up.
+     */
+    public class Block
+    {
+        public final BufferedRandomAccessFile file;
+        // offset from the beginning of the data file
+        public final long offset;
+
+        Block(BufferedRandomAccessFile file, long offset)
+        {
+            this.file = file;
+            this.offset = offset;
+        }
+
+        /**
+         * @return An InputStream appropriate for reading this block from disk.
+         */
+        public InputStream open() throws IOException
+        {
+            file.seek(offset);
+
+            // read the block header
+            BlockHeader mark = BlockHeader.deserialize(file);
+
+            // TODO: handle setting up an appropriate decompression stream here
+
+            // FIXME: we need to implement a stream that utilizes the BRAF buffer.
+            return new FileInputStream(file.getFD());
+        }
     }
 }
 

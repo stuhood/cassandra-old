@@ -79,9 +79,8 @@ public class SSTableUtils
 
     public static SSTableReader writeSSTable(SortedMap<String, ColumnFamily> entries) throws IOException
     {
-        TreeMap<ColumnKey, byte[]> map =
-            new TreeMap<ColumnKey, byte[]>(ColumnKey.getComparator(TABLENAME, CFNAME));
-        DataOutputBuffer buffer = new DataOutputBuffer();
+        TreeMap<ColumnKey, Column> map =
+            new TreeMap<ColumnKey, Column>(ColumnKey.getComparator(TABLENAME, CFNAME));
         for (Map.Entry<String, ColumnFamily> entry : entries.entrySet())
         {
             DecoratedKey key = StorageService.getPartitioner().decorateKey(entry.getKey());
@@ -89,21 +88,16 @@ public class SSTableUtils
             // flatten the column family into columns
             for (IColumn col : entry.getValue().getSortedColumns())
             {
-                buffer.reset();
                 if (!entry.getValue().isSuper())
                 {
-                    Column.serializer().serialize(col, buffer);
-                    map.put(new ColumnKey(key, col.name()), buffer.toByteArray());
+                    map.put(new ColumnKey(key, col.name()), (Column)col);
                     continue;
                 }
 
                 SuperColumn supercol = (SuperColumn)col;
                 for (IColumn subcol : supercol.getSubColumns())
                 {
-                    Column.serializer().serialize(subcol, buffer);
-                    map.put(new ColumnKey(key, supercol.name(), subcol.name()),
-                            buffer.toByteArray());
-                    buffer.reset();
+                    map.put(new ColumnKey(key, supercol.name(), subcol.name()), (Column)subcol);
                 }
             }
         }
@@ -114,17 +108,14 @@ public class SSTableUtils
      * Writes a series of columns within the same slice. All columns in the slice
      * will have the same empty metadata.
      */
-    public static SSTableReader writeRawSSTable(String tablename, String cfname, SortedMap<ColumnKey, byte[]> entries) throws IOException
+    public static SSTableReader writeRawSSTable(String tablename, String cfname, SortedMap<ColumnKey, Column> entries) throws IOException
     {
         File f = tempSSTableFile(tablename, cfname);
         SSTableWriter writer = new SSTableWriter(f.getAbsolutePath(), entries.size(), StorageService.getPartitioner());
 
-        DataOutputBuffer buff = new DataOutputBuffer();
-        for (Map.Entry<ColumnKey, byte[]> entry : entries.entrySet())
+        for (Map.Entry<ColumnKey, Column> entry : entries.entrySet())
         {
-            buff.write(entry.getValue(), 0, entry.getValue().length);
-            writer.append(null, entry.getKey(), buff);
-            buff.reset();
+            writer.append(null, entry.getKey(), entry.getValue());
         }
         new File(writer.indexFilename()).deleteOnExit();
         new File(writer.filterFilename()).deleteOnExit();

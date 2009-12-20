@@ -23,12 +23,16 @@ import java.util.ArrayList;
 
 import org.apache.cassandra.dht.IPartitioner;
 
+/**
+ * Deprecated: use SSTableUtils instead.
+ */
+@Deprecated
 public class SSTableAccessor
 {
     public static SSTableReader getSSTableReader(String filename, IPartitioner<?> partitioner)
     throws IOException
     {
-        SSTableReader sstable =  new SSTableReader(filename, partitioner, new ArrayList<IndexEntry>(), null, null);
+        SSTableReader sstable =  new SSTableReader(filename, partitioner, new ArrayList<IndexEntry>(), null, 0);
         sstable.loadBloomFilter();
         sstable.loadIndexFile();
         return sstable;

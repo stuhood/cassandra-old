@@ -23,22 +23,21 @@ import java.io.Closeable;
 import java.util.Iterator;
 import java.util.Arrays;
 
+import org.apache.cassandra.db.ColumnKey;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.log4j.Logger;
 import com.google.common.collect.AbstractIterator;
 
-
-public class SSTableScanner implements Iterator<IteratingRow>, Closeable
+public class SSTableScanner extends AbstractIterator<IteratingRow> implements Closeable
 {
     private static Logger logger = Logger.getLogger(SSTableScanner.class);
 
     private IteratingRow row;
-    private boolean exhausted = false;
     private BufferedRandomAccessFile file;
     private SSTableReader sstable;
     private Iterator<IteratingRow> iterator;
 
-    SSTableScanner(SSTableReader sstable) throws IOException
+    SSTableScanner(SSTableReader sstable, long blockPosition) throws IOException
     {
         // TODO this is used for both compactions and key ranges.  the buffer sizes we want
         // to use for these ops are very different.  here we are leaning towards the key-range
@@ -53,16 +52,26 @@ public class SSTableScanner implements Iterator<IteratingRow>, Closeable
         file.close();
     }
 
+    /**
+     * Seeks to the first slice for the given key.
+     */
     public void seekTo(DecoratedKey seekKey)
+    {
+        seekTo(new ColumnKey(seekKey, new byte[0][]));
+    }
+
+    /**
+     * Seeks to the first slice for the given key.
+     * FIXME: optimize forward seeks within the same block by not reopening
+     *        the block/iterator
+     */
+    public void seekTo(ColumnKey seekKey)
     {
         try
         {
-            long position = sstable.getNearestPosition(seekKey);
+            long position = sstable.getBlockPosition(seekKey);
             if (position < 0)
-            {
-                exhausted = true;
                 return;
-            }
             file.seek(position);
             row = null;
         }
@@ -72,25 +81,16 @@ public class SSTableScanner implements Iterator<IteratingRow>, Closeable
         }
     }
 
-    public boolean hasNext()
+    public IteratingRow computeNext()
     {
         if (iterator == null)
-            iterator = exhausted ? Arrays.asList(new IteratingRow[0]).iterator() : new KeyScanningIterator();
-        return iterator.hasNext();
-    }
-
-    public IteratingRow next()
-    {
-        if (iterator == null)
-            iterator = exhausted ? Arrays.asList(new IteratingRow[0]).iterator() : new KeyScanningIterator();
+            iterator = new KeyScanningIterator();
         return iterator.next();
     }
 
-    public void remove()
-    {
-        throw new UnsupportedOperationException();
-    }
-
+    /**
+     * FIXME: Has not been modified to intepret blocks.
+     */
     private class KeyScanningIterator implements Iterator<IteratingRow>
     {
         public boolean hasNext()
