@@ -27,8 +27,10 @@ import org.apache.cassandra.utils.Pair;
 
 /**
  * An immutable object representing a Slice read from disk: A Slice is a sorted
- * sequence of columns within a SSTable block that share the same parents, and thus
+ * sequence of columns within a SSTable block that share the same parents, and
  * the same Metadata.
+ *
+ * A Slice may be empty on disk if it is acting as a 'tombstone'.
  *
  * A Slice contains columns between currentKey, inclusive, and nextKey, exclusive.
  */

@@ -77,6 +77,14 @@ public class SSTableScanner implements Closeable
     }
 
     /**
+     * @return The column comparator of the underlying SSTable.
+     */
+    public ColumnKey.Comparator comparator()
+    {
+        return comparator;
+    }
+
+    /**
      * Releases the file handle associated with this scanner.
      */
     public void close() throws IOException
@@ -188,6 +196,9 @@ public class SSTableScanner implements Closeable
     }
 
     /**
+     * The list of columns in this slice. A slice may be a tombstone, which only exists
+     * to pass along deletion Metadata, in which case this column list will be empty.
+     *
      * @return The sorted columns for the Slice at our current position, or null if
      * the last call to seekTo failed, or we're at EOF.
      */
