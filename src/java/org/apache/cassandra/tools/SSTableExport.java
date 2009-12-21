@@ -159,16 +159,16 @@ public class SSTableExport
         for (String key : keys)
         {
             DecoratedKey<?> dk = partitioner.decorateKey(key);
+            // seek immediately before the key
             if (!scanner.seekBefore(dk))
                 // key outside file bounds
                 continue;
-            
-            // confirm that the key exists
-            if (key.compareTo(scanner.get().currentKey.key) != 0)
+            if (dk.compareTo(scanner.get().currentKey.key) != 0)
                 // key does not exist
                 continue;
 
-            IteratingRow row = scanner.next();
+            // TODO: convert to Slice API
+            Pair<DecoratedKey,ColumnFamily> row = scanner.getCF();
             try
             {
                 String jsonOut = serializeRow(row);
@@ -210,13 +210,15 @@ public class SSTableExport
     // than once from within the same process.
     static void export(SSTableReader reader, PrintStream outs) throws IOException
     {
-        SSTableScanner scanner = reader.getScanner();
+        // full table scan: large buffer
+        SSTableScanner scanner = reader.getScanner(1 << 18);
         
         outs.println("{");
         
         while(scanner.hasNext())
         {
-            IteratingRow row = scanner.next();
+            // TODO: convert to Slice API
+            Pair<DecoratedKey,ColumnFamily> row = scanner.getCF();
             try
             {
                 String jsonOut = serializeRow(row);
@@ -228,12 +230,12 @@ public class SSTableExport
             }
             catch (IOException ioexcep)
             {
-                System.err.println("WARNING: Corrupt row " + row.getKey().key + " (skipping).");
+                System.err.println("WARNING: Corrupt row " + row.left.key + " (skipping).");
                 continue;
             }
             catch (OutOfMemoryError oom)
             {
-                System.err.println("ERROR: Out of memory deserializing row " + row.getKey().key);
+                System.err.println("ERROR: Out of memory deserializing row " + row.left.key);
                 continue;
             }
         }

@@ -213,7 +213,7 @@ public class SSTableScanner implements Closeable
      * the call, the Scanner will be positioned at the beginning of the first Slice
      * for the next ColumnFamily.
      *
-     * FIXME: This is here temporarily as we port more callers to the Slice API.
+     * FIXME: This is here temporarily as we port callers to the Slice API.
      *
      * @return The current ColumnFamily, or null if get() would return null.
      */
@@ -261,6 +261,15 @@ public class SSTableScanner implements Closeable
             cf.addColumn(supcol);
         }
         return new Pair(key, cf);
+    }
+
+    /**
+     * @return True if we are positioned at a valid slice and a call to next() will be
+     * successful.
+     */
+    public boolean hasNext() throws IOException
+    {
+        return slice != null && slice.nextKey != null;
     }
 
     /**
