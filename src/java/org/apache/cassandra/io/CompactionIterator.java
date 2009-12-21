@@ -62,14 +62,17 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
     private final PriorityQueue<SSTableScanner> scanners;
 
     /**
-     * Queue of Metadata and Column entries. Metadata entries apply to all columns up
+     * List of Metadata and Column entries. Metadata entries apply to all columns up
      * to the next Metadata entry. See BufferEntry.
      *
      * NB: This buffer is the source of the majority of memory usage for compactions.
      * Its maximum size in bytes is roughly equal to:
      * (CompactionManager.maxCompactThreshold * SSTableWriter.TARGET_MAX_SLICE_BYTES)
+     *
+     * The LinkedList is a natural fit for merge sort because it provides random
+     * insertion performance, and allows constant time removal from the head.
      */
-    private ArrayDeque<BufferEntry> mergeBuff;
+    private LinkedList<BufferEntry> mergeBuff;
     /**
      * Metadata for the current output slice. Whenever a Metadata entry reaches the
      * front of the merge buffer, it is stored here to apply and resolve with columns
@@ -134,21 +137,39 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
     }
 
     /**
-     * Merges the given slice into the merge buffer.
+     * Merges the given slice into the merge buffer. Metadata for the slice will act as
+     * the head of the merged list, causing it to apply to the tailing items.
      */
-    public void merge(Slice slice, List<Column> columns)
+    public void merge(Slice slice, List<Column> rhs)
     {
-        PeekingIterator<BufferEntry> lhs = Iterators.peekingIterator(mergeBuffer.iterator());
-        PeekingIterator<Column> rhs = Iterators.peekingIterator(columns.iterator());
+        ListIterator<BufferEntry> buffIter = mergeBuff.listIterator();
+        Iterator<Column> rhsiter = columns.iterator();
 
-        // FIXME: merge sort
-
+        BufferEntry buffcur = null;
         // add a Metadata entry for the slice header
+        BufferEntry rhscur = new MetadataEntry(slice.currentKey, slice.meta);
+        if (buffIter.hasNext())
+        {
+            buffcur = buffIter.next();
+        }
+        while (buffcur != null && rhscur != null)
+        {
+            // compare the heads
+            if ()
+                // Column entries for each column in rhs
+                new ColumnEntry(slice.currentKey.withName(column.name()),
+                                          column)
+        }
+
+        // add the remainder of the rhs to the end of the merge buffer
+        while (rhsiter.hasNext())
+            mergeBuff.add(rhsiter.next());
+        // else, all items have already been merged
+
+
         mergeBuff.add(new MetadataEntry(slice.currentKey, slice.meta));
-        // and Column entries for each column
         for (Column column : columns)
-            mergeBuff.add(new ColumnEntry(slice.currentKey.withName(column.name()),
-                                          column));
+            mergeBuff.add();
     }
 
     @Override
