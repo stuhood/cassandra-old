@@ -34,6 +34,8 @@ import org.apache.cassandra.db.ColumnKey;
 import org.apache.cassandra.utils.Pair;
 
 import com.google.common.collect.AbstractIterator;
+import com.google.common.collect.Iterators;
+import com.google.common.collect.PeekingIterator;
 
 public class CompactionIterator extends AbstractIterator<CompactionColumn> implements Closeable
 {
@@ -67,7 +69,7 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
      * Its maximum size in bytes is roughly equal to:
      * (CompactionManager.maxCompactThreshold * SSTableWriter.TARGET_MAX_SLICE_BYTES)
      */
-    private PriorityQueue<BufferEntry> mergeBuff;
+    private ArrayDeque<BufferEntry> mergeBuff;
     /**
      * Metadata for the current output slice. Whenever a Metadata entry reaches the
      * front of the merge buffer, it is stored here to apply and resolve with columns
@@ -133,18 +135,20 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
 
     /**
      * Merges the given slice into the merge buffer.
-     * FIXME: We're using a PriorityQueue, so this isn't actually merge-sort:
-     *        implement it here for maximum efficiency.
      */
     public void merge(Slice slice, List<Column> columns)
     {
+        PeekingIterator<BufferEntry> lhs = Iterators.peekingIterator(mergeBuffer.iterator());
+        PeekingIterator<Column> rhs = Iterators.peekingIterator(columns.iterator());
+
+        // FIXME: merge sort
+
         // add a Metadata entry for the slice header
         mergeBuff.add(new MetadataEntry(slice.currentKey, slice.meta));
         // and Column entries for each column
         for (Column column : columns)
             mergeBuff.add(new ColumnEntry(slice.currentKey.withName(column.name()),
                                           column));
-            
     }
 
     @Override
@@ -278,6 +282,9 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
      * Represents a tuple of (ColumnKey, (Metadata or Column)). Metadata entries in
      * the buffer play a similar role to the one they play on disk: they apply
      * metadata to all columns up to the next Metadata entry.
+     *
+     * Metadata with keys equal to Columns should sort before the Columns, in order
+     * to apply.
      */
     abstract class BufferEntry implements Comparable<BufferEntry>
     {
@@ -289,7 +296,13 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
             
         public int compareTo(BufferEntry that)
         {
-            return comparator.compare(this.key, that.key);
+            int comparison = comparator.compare(this.key, that.key);
+            if (comparison != 0)
+                return comparison;
+            if (this.getClass().equals(that.getClass()))
+                return 0;
+            // sort Metadata first
+            return this instanceof MetadataEntry ? -1 : 1;
         }
     }
 
