@@ -34,7 +34,6 @@ import org.apache.cassandra.utils.BloomFilter;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import com.reardencommerce.kernel.collections.shared.evictable.ConcurrentLinkedHashMap;
 
 /**
  * An SSTable is made up of an 'index', 'filter' and 'data' file.
@@ -46,18 +45,13 @@ import com.reardencommerce.kernel.collections.shared.evictable.ConcurrentLinkedH
  * which are separated by SliceMark objects which can be used for skipping through the
  * block.
  *
- * SliceMark objects are written _at_least_ at the beginning of every
- * subrange: for instance, for a ColumnFamily of type super, there are SliceMarks
+ * SliceMark objects are written _at_least_ at the beginning of every 'natural'
+ * subrange: for instance, for a column family of type super, there are SliceMarks
  * surrounding each set of subcolumns, but if the subcolumns for one column overflow
- * the end of a block (of target size MAX_BLOCK_BYTES), an additional SliceMark will
- * mark the end of the block, and indicate whether the subcolumns continue in the next
- * block.
+ * the end of a block (of target size MAX_BLOCK_BYTES), an additional 'artificial'
+ * SliceMark will mark the beginning of the next block. See shouldFlushSlice().
  *
- * TODO: Wishlist:
- * * Align more row keys with the beginnings of blocks by flushing blocks on
- *   key changes falling within a threshold of MAX.
- * * ColumnKey.Comparator could encode the depth of difference in its return
- *   value so we can accomplish the previous bullet without an extra compare.
+ * TODO: absolutely, positutely need an ascii diagram here.
  */
 public class SSTableWriter extends SSTable
 {
@@ -132,21 +126,35 @@ public class SSTableWriter extends SSTable
 
     /**
      * A new Slice must be created on disk if any of the following are true.
-     * 1. the new key does not fall into the current slice, or
-     * 2. the new key has different metadata than the current slice, or
+     * 1. the new key does not fall into the current subrange/slice,
+     *   * aka, a 'natural' boundary: the key written in the new slice will be the
+     *     first in the next subrange.
+     * 2. the new key has different metadata than the current slice,
      * 3. the slice size threshold has been reached.
+     *
+     * At a natural boundary, the least significant name in the key will be nulled,
+     * which rounds the beginning of the slice down to the beginning of the subrange,
+     * and causes the Metadata to cover all of the subrange.
+     *
+     * @return The first ColumnKey for a new slice, or null if the current slice
+     * should continue.
      */
-    private boolean shouldFlushSlice(Slice.Metadata meta, ColumnKey columnKey)
+    private ColumnKey shouldFlushSlice(Slice.Metadata meta, ColumnKey columnKey)
     {
         if (blockContext.getSliceLength() > TARGET_MAX_SLICE_BYTES)
-            return true;
+            // max slice length reached: artificial boundary
+            return columnKey;
         if (!blockContext.getMeta().equals(meta))
-            return true;
+            // metadata changed: artificial boundary
+            return columnKey;
 
         int comparison = comparator.compare(lastWrittenKey, columnKey, columnDepth-1);
         assert comparison <= 0 : "Keys written out of order! Last written key : " +
             lastWrittenKey + " Current key : " + columnKey + " Writing to " + path;
-        return comparison < 0;
+        if (comparison < 0)
+            // name changed at sliceDepth: natural boundary
+            return columnKey.withName(null);
+        return null;
     }
 
     /**
@@ -161,8 +169,8 @@ public class SSTableWriter extends SSTable
         assert columnKey != null : "Keys must not be null.";
         if (lastWrittenKey == null)
         {
-            // we're beginning the first slice
-            blockContext.resetSlice(meta, columnKey);
+            // we're beginning the first slice: natural boundary
+            blockContext.resetSlice(meta, columnKey.withName(null));
             return true;
         }
 
@@ -171,10 +179,11 @@ public class SSTableWriter extends SSTable
 
         // determine if we need to flush the current slice
         boolean flushed = false;
-        if (shouldFlushSlice(meta, columnKey))
+        ColumnKey newSliceKey = shouldFlushSlice(meta, columnKey);
+        if (newSliceKey != null)
         {
             // flush the previous slice to the data file
-            flushed = flushSlice(meta, columnKey, filled);
+            flushed = flushSlice(meta, newSliceKey, filled);
             assert flushed : "Failed to flush non-empty slice!";
         }
         return flushed && filled;

@@ -35,10 +35,8 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.utils.Pair;
 
-/**
- * TODO: Replacing the Iterator interface here with an interface with getters for
- * each field would eliminate all of the CompactionColumn object creations.
- */
+import com.google.common.collect.AbstractIterator;
+
 public class CompactionIterator extends AbstractIterator<CompactionColumn> implements Closeable
 {
     private static Logger logger = Logger.getLogger(CompactionIterator.class);
@@ -106,7 +104,7 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
     public List<ScannerWrapper> removeMinimumScanners()
     {
         ColumnKey minimum;
-        if (mergeBuffer.isEmpty())
+        if (mergeBuff.isEmpty())
         {
             if (scanners.isEmpty())
                 // the merge buffer and scanner queue are empty. we're done!
@@ -115,7 +113,7 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
         }
         else
         {
-            minimum = mergeBuffer.peek().currentKey();
+            minimum = mergeBuff.peek().currentKey();
         }
 
         // select any scanners with keys equal to the minimum
@@ -143,11 +141,11 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
                 scanners.add(scanner);
         }
 
-        if (mergeBuffer.isEmpty())
+        if (mergeBuff.isEmpty())
             // no more columns
             return endOfData();
 
-        return mergeBuffer.poll();
+        return mergeBuff.poll();
         /*
 
 
@@ -218,7 +216,7 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
     }
 
     /**
-     * Class representing a column during or after compaction.
+     * Class representing a column after compaction.
      */
     public static final class CompactionColumn
     {
