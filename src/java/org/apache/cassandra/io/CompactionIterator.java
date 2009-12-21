@@ -29,60 +29,128 @@ import java.util.ArrayList;
 import java.util.Comparator;
 
 import org.apache.log4j.Logger;
-import org.apache.commons.collections.iterators.CollatingIterator;
 
-import org.apache.cassandra.utils.ReducingIterator;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.utils.Pair;
 
-public class CompactionIterator extends ReducingIterator<IteratingRow, CompactionIterator.CompactedRow> implements Closeable
+/**
+ * TODO: Replacing the Iterator interface here with an interface with getters for
+ * each field would eliminate all of the CompactionColumn object creations.
+ */
+public class CompactionIterator extends AbstractIterator<CompactionColumn> implements Closeable
 {
     private static Logger logger = Logger.getLogger(CompactionIterator.class);
 
-    private final List<IteratingRow> rows = new ArrayList<IteratingRow>();
-    private final int gcBefore;
-    private boolean major;
+    /**
+     * Total file buffer size for all input SSTables.
+     * TODO: configurable
+     */
+    public static final int TOTAL_FILE_BUFFER_BYTES = 1 << 22;
 
-    @SuppressWarnings("unchecked")
+    private final int gcBefore;
+    private final boolean major;
+
+    /**
+     * The comparator and columnDepth, which should be the same for all SSTables we
+     * are compacting.
+     */
+    private final ColumnKey.Comparator comparator;
+    private final int columnDepth;
+    /**
+     * Scanners are kept sorted by the key of the Slice they are positioned at.
+     */
+    private final PriorityQueue<ScannerWrapper> scanners;
+
+    /**
+     * In each iteration, the head of this buffer is compared to the head of every
+     * Slice, and if any Slices have heads less than the head of the buffer, they are
+     * merged/resolved into the buffer. The merge/resolve process takes creation,
+     * deletion and gc times into account, and results in the head of the buffer
+     * being the smallest CompactionColumn in any of the input SSTables.
+     */
+    private Deque<CompactionColumn> mergeBuff;
+
+    /**
+     * TODO: add a range-based filter like #607, but use it to seek() on the Scanners.
+     */
     public CompactionIterator(Iterable<SSTableReader> sstables, int gcBefore, boolean major) throws IOException
     {
-        super(getCollatingIterator(sstables));
+        super();
+        assert !sstables.isEmpty();
+
         this.gcBefore = gcBefore;
         this.major = major;
+
+        // fields shared for all sstables
+        SSTableReader head = sstables.iterator().next();
+        this.comparator = head.getComparator();
+        this.columnDepth = head.getColumnDepth();
+
+        // open all scanners
+        int bufferPer = TOTAL_FILE_BUFFER_BYTES / sstables.size();
+        this.scanners = new PriorityQueue<ScannerWrapper>(sstables.size());
+        for (SSTableReader sstable : sstables)
+            this.scanners.add(sstable.getScanner(bufferPer));
+        this.mergeBuff = new ArrayDeque<CompactionColumn>();
     }
 
-    @SuppressWarnings("unchecked")
-    private static CollatingIterator getCollatingIterator(Iterable<SSTableReader> sstables) throws IOException
+    /**
+     * Remove and return scanners from the priorityq whose keys are less than or
+     * equal to the head of the merge buffer. If the merge buffer is empty, returns
+     * the scanners containing the minimum slices.
+     *
+     * @return A possibly empty list of matching Scanners.
+     */
+    public List<ScannerWrapper> removeMinimumScanners()
     {
-        // CollatingIterator has a bug that causes NPE when you try to use default comparator. :(
-        CollatingIterator iter = new CollatingIterator(new Comparator()
+        ColumnKey minimum;
+        if (mergeBuffer.isEmpty())
         {
-            public int compare(Object o1, Object o2)
-            {
-                return ((Comparable)o1).compareTo(o2);
-            }
-        });
-        for (SSTableReader sstable : sstables)
-        {
-            iter.addIterator(sstable.getScanner());
+            if (scanners.isEmpty())
+                // the merge buffer and scanner queue are empty. we're done!
+                return Collections.<ScannerWrapper>emptyList();;
+            minimum = scanners.peek().currentKey();
         }
-        return iter;
+        else
+        {
+            minimum = mergeBuffer.peek().currentKey();
+        }
+
+        // select any scanners with keys equal to the minimum
+        List<SSTableScanner> selected = new LinkedList<ScannerWrapper>();
+        while (!scanners.isEmpty() &&
+                comparator.compare(minimum, scanners.peek().currentKey()))
+        {
+            selected.add(scanners.poll());
+        }
+        return selected;
     }
 
     @Override
-    protected boolean isEqual(IteratingRow o1, IteratingRow o2)
+    public CompactionColumn computeNext()
     {
-        return o1.getKey().equals(o2.getKey());
-    }
+        // for each of the minimum slices
+        for (ScannerWrapper scanner : removeMinimumScanners())
+        {
+            // merge the slice to the merge buffer
+            merge(scanner.get(), scanner.getColumns());
 
-    public void reduce(IteratingRow current)
-    {
-        rows.add(current);
-    }
+            // skip to the next slice
+            if (scanner.next())
+                // has more slices: reprioritize
+                scanners.add(scanner);
+        }
 
-    protected CompactedRow getReduced()
-    {
+        if (mergeBuffer.isEmpty())
+            // no more columns
+            return endOfData();
+
+        return mergeBuffer.poll();
+        /*
+
+
         assert rows.size() > 0;
         DataOutputBuffer buffer = new DataOutputBuffer();
         DecoratedKey key = rows.get(0).getKey();
@@ -92,7 +160,7 @@ public class CompactionIterator extends ReducingIterator<IteratingRow, Compactio
         {
             if (rows.size() > 1 || major)
             {
-                for (IteratingRow row : rows)
+                for (Pair<DecoratedKey,ColumnFamily> row : rows)
                 {
                     ColumnFamily thisCF;
                     try
@@ -139,32 +207,64 @@ public class CompactionIterator extends ReducingIterator<IteratingRow, Compactio
             rows.clear();
         }
         return new CompactedRow(key, buffer, cf);
+
+        */
     }
 
     public void close() throws IOException
     {
-        for (Object o : ((CollatingIterator)source).getIterators())
+        for (SSTableScanner scanner : scanners)
+            scanner.close();
+    }
+
+    /**
+     * Class representing a column during or after compaction.
+     */
+    public static final class CompactionColumn
+    {
+        public final ColumnKey key;
+        public final Slice.Metadata meta;
+        public final Column column;
+
+        public CompactionColumn(ColumnKey key, Slice.Metadata meta, Column column)
+        {                   
+            this.key = key;
+            this.meta = meta;
+            this.column = column;
+        }
+
+        /**
+         * Digest the key, metadata and content of this column.
+         */
+        public byte[] digest()
         {
-            ((SSTableScanner)o).close();
+            throw new RuntimeException("Not implemented."); // FIXME
         }
     }
 
     /**
-     * FIXME: added the ColumnFamily reference for simplicity's sake, but the
-     * real solution is major changes to CompactionIterator to make it work on
-     * a column by column basis.
+     * Wraps an SSTScanner to implement Comparable using the key of the Slice
+     * the scanner is positioned at.
+     *
+     * TODO: Consider merging this functionality into SSTScanner.
      */
-    public static class CompactedRow
+    final class ScannerWrapper implements Comparable<ScannerWrapper>
     {
-        public final DecoratedKey key;
-        public final DataOutputBuffer buffer;
-        public final ColumnFamily cf;
-
-        public CompactedRow(DecoratedKey key, DataOutputBuffer buffer, ColumnFamily cf)
+        public final SSTableScanner scanner;
+        public ScannerWrapper(SSTableScanner scanner)
         {
-            this.key = key;
-            this.buffer = buffer;
-            this.cf = cf;
+            this.scanner = scanner;
+        }
+
+        public ColumnKey currentKey()
+        {
+            return scanner.get().currentKey;
+        }
+
+        public int compareTo(ScannerWrapper that)
+        {
+            return comparator.compare(this.currentKey(),
+                                      that.currentKey());
         }
     }
 }
