@@ -141,7 +141,7 @@ public class SSTableWriter extends SSTable
      */
     private ColumnKey shouldFlushSlice(Slice.Metadata meta, ColumnKey columnKey)
     {
-        if (blockContext.getSliceLength() > TARGET_MAX_SLICE_BYTES)
+        if (blockContext.getApproxSliceLength() > TARGET_MAX_SLICE_BYTES)
             // max slice length reached: artificial boundary
             return columnKey;
         if (!blockContext.getMeta().equals(meta))
@@ -392,10 +392,10 @@ public class SSTableWriter extends SSTable
          */
         public int getApproxBlockLength()
         {
-            return blockLen;
+            return blockLen + getApproxSliceLength();
         }
 
-        public int getSliceLength()
+        public int getApproxSliceLength()
         {
             return sliceBuffer.getLength();
         }

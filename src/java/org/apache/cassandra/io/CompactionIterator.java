@@ -60,13 +60,20 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
     private final PriorityQueue<SSTableScanner> scanners;
 
     /**
-     * In each iteration, the head of this buffer is compared to the head of every
-     * Slice, and if any Slices have heads less than the head of the buffer, they are
-     * merged/resolved into the buffer. The merge/resolve process takes creation,
-     * deletion and gc times into account, and results in the head of the buffer
-     * being the smallest CompactionColumn in any of the input SSTables.
+     * Queue of Metadata and Column entries. Metadata entries apply to all columns up
+     * to the next Metadata entry. See BufferEntry.
+     *
+     * NB: This buffer is the source of the majority of memory usage for compactions.
+     * Its maximum size in bytes is roughly equal to:
+     * (CompactionManager.maxCompactThreshold * SSTableWriter.TARGET_MAX_SLICE_BYTES)
      */
-    private Deque<CompactionColumn> mergeBuff;
+    private PriorityQueue<BufferEntry> mergeBuff;
+    /**
+     * Metadata for the current output slice. Whenever a Metadata entry reaches the
+     * front of the merge buffer, it is stored here to apply and resolve with columns
+     * that follow.
+     */
+    private Slice.Metadata outmeta;
 
     /**
      * TODO: add a range-based filter like #607, but use it to seek() on the Scanners.
@@ -95,7 +102,7 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
     /**
      * Remove and return scanners from the priorityq whose keys are less than or
      * equal to the head of the merge buffer. If the merge buffer is empty, returns
-     * the scanners containing the minimum slices.
+     * the scanners starting with the minimum keys.
      *
      * @return A possibly empty list of matching Scanners.
      */
@@ -114,14 +121,30 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
             minimum = mergeBuff.peek().key;
         }
 
-        // select any scanners with keys equal to the minimum
+        // select any scanners with keys less than or equal to the minimum
         List<SSTableScanner> selected = new LinkedList<SSTableScanner>();
         while (!scanners.isEmpty() &&
-               comparator.compare(minimum, scanners.peek().get().currentKey) == 0)
+               comparator.compare(scanners.peek().get().currentKey, minimum) <= 0)
         {
             selected.add(scanners.poll());
         }
         return selected;
+    }
+
+    /**
+     * Merges the given slice into the merge buffer.
+     * FIXME: We're using a PriorityQueue, so this isn't actually merge-sort:
+     *        implement it here for maximum efficiency.
+     */
+    public void merge(Slice slice, List<Column> columns)
+    {
+        // add a Metadata entry for the slice header
+        mergeBuff.add(new MetadataEntry(slice.currentKey, slice.meta));
+        // and Column entries for each column
+        for (Column column : columns)
+            mergeBuff.add(new ColumnEntry(slice.currentKey.withName(column.name()),
+                                          column));
+            
     }
 
     @Override
@@ -139,14 +162,28 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
                 scanners.add(scanner);
         }
 
-        if (mergeBuff.isEmpty())
-            // no more columns
-            return endOfData();
+        // find the first column in the merge buffer
+        // FIXME: entries with equal keys need to be resolved here:
+        //        Metadata or otherwise
+        while (!mergeBuff.isEmpty())
+        {
+            BufferEntry entry = mergeBuff.poll();
+            if (entry instanceof MetadataEntry)
+            {
+                // popped a Metadata object: apply to columns that follow
+                outmeta = ((MetadataEntry)entry).meta;
+                continue;
+            }
+            
+            ColumnEntry colentry = (ColumnEntry)entry;
+            assert outmeta != null;
+            return new CompactionColumn(colentry.key, outmeta, colentry.column);
+        }
 
-        return mergeBuff.poll();
+        // no more columns
+        return endOfData();
+
         /*
-
-
         assert rows.size() > 0;
         DataOutputBuffer buffer = new DataOutputBuffer();
         DecoratedKey key = rows.get(0).getKey();
@@ -203,7 +240,6 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
             rows.clear();
         }
         return new CompactedRow(key, buffer, cf);
-
         */
     }
 
@@ -235,6 +271,45 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
         public byte[] digest()
         {
             throw new RuntimeException("Not implemented."); // FIXME
+        }
+    }
+
+    /**
+     * Represents a tuple of (ColumnKey, (Metadata or Column)). Metadata entries in
+     * the buffer play a similar role to the one they play on disk: they apply
+     * metadata to all columns up to the next Metadata entry.
+     */
+    abstract class BufferEntry implements Comparable<BufferEntry>
+    {
+        public final ColumnKey key;
+        protected BufferEntry(ColumnKey key)
+        {
+            this.key = key;
+        }
+            
+        public int compareTo(BufferEntry that)
+        {
+            return comparator.compare(this.key, that.key);
+        }
+    }
+
+    class MetadataEntry extends BufferEntry
+    {
+        public final Slice.Metadata meta;
+        public MetadataEntry(ColumnKey key, Slice.Metadata meta)
+        {
+            super(key);
+            this.meta = meta;
+        }
+    }
+
+    class ColumnEntry extends BufferEntry
+    {
+        public final Column column;
+        public ColumnEntry(ColumnKey key, Column column)
+        {
+            super(key);
+            this.column = column;
         }
     }
 }
