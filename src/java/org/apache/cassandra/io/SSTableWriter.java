@@ -131,6 +131,25 @@ public class SSTableWriter extends SSTable
     }
 
     /**
+     * A new Slice must be created on disk if any of the following are true.
+     * 1. the new key does not fall into the current slice, or
+     * 2. the new key has different metadata than the current slice, or
+     * 3. the slice size threshold has been reached.
+     */
+    private boolean shouldFlushSlice(Slice.Metadata meta, ColumnKey columnKey)
+    {
+        if (blockContext.getSliceLength() > TARGET_MAX_SLICE_BYTES)
+            return true;
+        if (!blockContext.getMeta().equals(meta))
+            return true;
+
+        int comparison = comparator.compare(lastWrittenKey, columnKey, columnDepth-1);
+        assert comparison <= 0 : "Keys written out of order! Last written key : " +
+            lastWrittenKey + " Current key : " + columnKey + " Writing to " + path;
+        return comparison < 0;
+    }
+
+    /**
      * Prepares to buffer the given ColumnKey.
      *
      * @param meta @see append.
@@ -147,24 +166,16 @@ public class SSTableWriter extends SSTable
             return true;
         }
 
-        // determine if this key falls into the current slice
-        int comparison = comparator.compare(lastWrittenKey, columnKey, columnDepth-1);
-
         // true if the current block has reached its target length
         boolean filled = TARGET_MAX_BLOCK_BYTES < blockContext.getApproxBlockLength();
-        boolean flushed = false;
 
-        // flush the slice if the new key does not fall into the current slice, or
-        // if the slice size threshold has already been reached
-        assert comparison <= 0 : "Keys written out of order! Last written key : " +
-            lastWrittenKey + " Current key : " + columnKey + " Writing to " + path;
-        if (comparison < 0 || blockContext.getSliceLength() > TARGET_MAX_SLICE_BYTES)
+        // determine if we need to flush the current slice
+        boolean flushed = false;
+        if (shouldFlushSlice(meta, columnKey))
         {
             // flush the previous slice to the data file
             flushed = flushSlice(meta, columnKey, filled);
             assert flushed : "Failed to flush non-empty slice!";
-            if (logger.isTraceEnabled())
-                logger.trace("Flushed slice marked by " + columnKey + " to " + getFilename());
         }
         return flushed && filled;
     }
@@ -208,7 +219,8 @@ public class SSTableWriter extends SSTable
      * @param meta Metadata for the parents of the column. A supercf has
      *     a Metadata list of length 2, while a standard cf has length 1.
      * @param columnKey The fully qualified key for the column.
-     * @param column A column to append to the SSTable.
+     * @param column A column to append to the SSTable, or null if the given
+     *     Metadata represents a tombstone.
      */
     public void append(Slice.Metadata meta, ColumnKey columnKey, Column column) throws IOException
     {
@@ -320,8 +332,7 @@ public class SSTableWriter extends SSTable
         private int numCols = 0;
 
         private int slicesInBlock = 0;
-        // this value is approximate, because it doesn't include SliceMarks
-        private int approxBlockLen = 0;
+        private int blockLen = 0;
         private long currentBlockPos = 0;
 
         /**
@@ -329,6 +340,9 @@ public class SSTableWriter extends SSTable
          */
         public void bufferColumn(Column column)
         {
+            if (column == null)
+                // the current slice is a tombstone
+                return;
             Column.serializer().serialize(column, sliceBuffer);
             numCols++;
         }
@@ -363,9 +377,13 @@ public class SSTableWriter extends SSTable
             return currentBlockPos;
         }
 
+        /**
+         * @return The sum of the exact length of the block that has been flushed to
+         * disk, and the approximate length of the currently buffered slice.
+         */
         public int getApproxBlockLength()
         {
-            return approxBlockLen;
+            return blockLen;
         }
 
         public int getSliceLength()
@@ -379,11 +397,11 @@ public class SSTableWriter extends SSTable
          */
         private void closeBlock(RandomAccessFile file) throws IOException
         {
-            assert approxBlockLen > 0 :
-                "Should not write empty blocks: " + approxBlockLen;
+            assert blockLen > 0 :
+                "Should not write empty blocks: " + blockLen;
 
             // reset for the next block
-            approxBlockLen = 0;
+            blockLen = 0;
             slicesInBlock = 0;
             currentBlockPos = file.getFilePointer();
         }
@@ -417,7 +435,7 @@ public class SSTableWriter extends SSTable
             file.write(sliceBuffer.getData(), 0, sliceLen);
 
             // update block counts
-            approxBlockLen += sliceLen;
+            blockLen = (int)(file.getFilePointer() - currentBlockPos);
             slicesInBlock++;
 
             if (closeBlock)
