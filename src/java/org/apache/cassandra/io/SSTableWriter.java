@@ -79,14 +79,6 @@ public class SSTableWriter extends SSTable
      */
     public static final int TARGET_MAX_SLICE_BYTES = 1 << 14;
 
-    /**
-     * The depth of the names in a ColumnKey that separate one slice from another.
-     * For a super column family, this will be 1, since a new super column begins
-     * whenever the first name changes. For a regular column family, it will be 0,
-     * because only the key separates slices.
-     */
-    private final int sliceDepth;
-
     // buffer for data contained in the current slice/block
     private BlockContext blockContext;
 
@@ -106,9 +98,6 @@ public class SSTableWriter extends SSTable
         super(filename, partitioner);
         dataFile = new BufferedRandomAccessFile(path, "rw", (int)(DatabaseDescriptor.getFlushDataBufferSizeInMB() * 1024 * 1024));
         indexFile = new BufferedRandomAccessFile(indexFilename(), "rw", (int)(DatabaseDescriptor.getFlushIndexBufferSizeInMB() * 1024 * 1024));
-
-        // slice metadata
-        sliceDepth = "Super".equals(DatabaseDescriptor.getColumnFamilyType(getTableName(), getColumnFamilyName())) ? 1 : 0;
 
         // block metadata
         blockContext = new BlockContext();
@@ -159,14 +148,7 @@ public class SSTableWriter extends SSTable
         }
 
         // determine if this key falls into the current slice
-        int comparison;
-        if (blockContext.getMeta() != null && blockContext.getMeta() == meta)
-            // skip the key comparison if meta objects have reference equality
-            comparison = 0;
-        else
-            // metadata changed since last call: compare keys
-            comparison = comparator.compare(lastWrittenKey, columnKey, sliceDepth);
-
+        int comparison = comparator.compare(lastWrittenKey, columnKey, columnDepth-1);
 
         // true if the current block has reached its target length
         boolean filled = TARGET_MAX_BLOCK_BYTES < blockContext.getApproxBlockLength();

@@ -27,11 +27,12 @@ import java.util.*;
 import org.apache.log4j.Logger;
 import org.apache.commons.lang.StringUtils;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.ColumnKey;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.utils.BloomFilter;
 import org.apache.cassandra.utils.FileUtils;
 import org.apache.cassandra.utils.Pair;
-import org.apache.cassandra.db.ColumnKey;
 
 /**
  * This class stores columns on disk in sorted fashion. See SSTableWriter for
@@ -52,16 +53,8 @@ public abstract class SSTable
      * raise an assertion.
      */
     public static final byte VERSION = (byte)1;
-
-    public static final int FILES_ON_DISK = 3; // data, index, and bloom filter
-
-    protected String path;
-    protected final IPartitioner partitioner;
-    protected BloomFilter bf;
-    protected List<IndexEntry> indexEntries;
-    protected final String columnFamilyName;
-    protected final ColumnKey.Comparator comparator;
-
+    // data, index, and bloom filter
+    public static final int FILES_ON_DISK = 3;
     /**
      * Every INDEX_INTERVALth index entry is loaded into memory so we know where
      * to start looking for the IndexEntry on disk with less seeking. The index
@@ -70,9 +63,17 @@ public abstract class SSTable
      * FIXME: make configurable
      */
     public static final int INDEX_INTERVAL = 16;
-
-    /* Required extension for temporary files created during compactions. */
+    // required extension for temporary files created during compactions
     public static final String TEMPFILE_MARKER = "tmp";
+
+
+    protected String path;
+    protected final IPartitioner partitioner;
+    protected BloomFilter bf;
+    protected List<IndexEntry> indexEntries;
+    protected final String columnFamilyName;
+    protected final ColumnKey.Comparator comparator;
+    protected final int columnDepth;
 
     public SSTable(String filename, IPartitioner partitioner)
     {
@@ -82,6 +83,18 @@ public abstract class SSTable
         this.partitioner = partitioner;
         this.indexEntries = new ArrayList<IndexEntry>();
         this.comparator = ColumnKey.getComparator(getTableName(), getColumnFamilyName());
+
+        columnDepth = "Super".equals(DatabaseDescriptor.getColumnFamilyType(getTableName(), getColumnFamilyName())) ? 1 : 0;
+    }
+
+    /**
+     * The depth of the Columns in this SSTable. For a super column family, this will
+     * be 2, since a new slice begins whenever the first name changes. For a regular
+     * column family it will be 1, because only the key separates slices.
+     */
+    public int getColumnDepth()
+    {
+        return columnDepth;
     }
 
     protected static String indexFilename(String dataFile)

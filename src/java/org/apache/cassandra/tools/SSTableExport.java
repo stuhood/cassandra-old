@@ -24,6 +24,7 @@ import java.io.PrintStream;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
+
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
@@ -34,6 +35,8 @@ import org.apache.cassandra.io.IteratingRow;
 import org.apache.cassandra.io.SSTableReader;
 import org.apache.cassandra.io.SSTableScanner;
 import static org.apache.cassandra.utils.FBUtilities.bytesToHex;
+import org.apache.cassandra.utils.Pair;
+
 import org.apache.commons.cli.*;
 
 /**
@@ -96,11 +99,11 @@ public class SSTableExport
         return json.toString();
     }
     
-    private static String serializeRow(IteratingRow row) throws IOException
+    private static String serializeRow(Pair<DecoratedKey,ColumnFamily> row) throws IOException
     {
-        ColumnFamily cf = row.getColumnFamily();
+        ColumnFamily cf = row.right;
         AbstractType comparator = cf.getComparator();
-        StringBuilder json = new StringBuilder(asKey(row.getKey().key));
+        StringBuilder json = new StringBuilder(asKey(row.left.key));
         
         if (cf.isSuper())
         {
@@ -144,7 +147,8 @@ public class SSTableExport
     throws IOException
     {
         SSTableReader reader = SSTableReader.open(ssTableFile);
-        SSTableScanner scanner = reader.getScanner();
+        // semi-random access: use a smaller buffer
+        SSTableScanner scanner = reader.getScanner(1 << 14);
         IPartitioner<?> partitioner = DatabaseDescriptor.getPartitioner();    
         int i = 0;
         
@@ -155,30 +159,32 @@ public class SSTableExport
         for (String key : keys)
         {
             DecoratedKey<?> dk = partitioner.decorateKey(key);
-            scanner.seekTo(dk);
+            if (!scanner.seekBefore(dk))
+                // key outside file bounds
+                continue;
             
-            i++;
-            
-            if (scanner.hasNext())
+            // confirm that the key exists
+            if (key.compareTo(scanner.get().currentKey.key) != 0)
+                // key does not exist
+                continue;
+
+            IteratingRow row = scanner.next();
+            try
             {
-                IteratingRow row = scanner.next();
-                try
-                {
-                    String jsonOut = serializeRow(row);
-                    if (i != 1)
-                        outs.println(",");
-                    outs.print("  " + jsonOut);
-                }
-                catch (IOException ioexc)
-                {
-                    System.err.println("WARNING: Corrupt row " + key + " (skipping).");
-                    continue;
-                }
-                catch (OutOfMemoryError oom)
-                {
-                    System.err.println("ERROR: Out of memory deserializing row " + key);
-                    continue;
-                }
+                String jsonOut = serializeRow(row);
+                if (i++ != 0)
+                    outs.println(",");
+                outs.print("  " + jsonOut);
+            }
+            catch (IOException ioexc)
+            {
+                System.err.println("WARNING: Corrupt row " + key + " (skipping).");
+                continue;
+            }
+            catch (OutOfMemoryError oom)
+            {
+                System.err.println("ERROR: Out of memory deserializing row " + key);
+                continue;
             }
         }
         

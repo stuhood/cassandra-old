@@ -276,20 +276,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     }
 
     /**
-     * Deprecated: use getPosition(ColumnKey) instead, for higher resolution.
-     * Also, this method will never match the BloomFilter, which means extra
-     * reads.
-     *
-     * FIXME: remove
-     */
-    @Deprecated
-    long getBlockPosition(DecoratedKey decoratedKey) throws IOException
-    {
-        ColumnKey target = new ColumnKey(decoratedKey, new byte[0][]);
-        return getBlockPosition(target);
-    }
-
-    /**
      * @return The position of the block that might contain the target key,
      * or -1 if the key is not contained in this SSTable.
      */

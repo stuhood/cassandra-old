@@ -29,6 +29,7 @@ import org.apache.cassandra.io.SSTableReader.Block;
 
 // FIXME: remove when getCF() is removed
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.SuperColumn;
 
@@ -90,13 +91,16 @@ public class SSTableScanner implements Closeable
      */
     public boolean seekBefore(DecoratedKey seekKey) throws IOException
     {
-        return seekBefore(new ColumnKey(seekKey, new byte[0][]));
+        // a ColumnKey with null names compares less than any slice with
+        // this DecoratedKey
+        return seekBefore(new ColumnKey(seekKey, new byte[sstable.getColumnDepth()][]));
     }
 
     /**
      * Seeks to the first slice with a key greater than or equal to the given key. If
      * such a slice does not exist, the next calls to get*() will have undefined
      * results.
+     *
      * @return False if no such Slice was found.
      */
     public boolean seekBefore(ColumnKey seekKey) throws IOException
@@ -117,16 +121,13 @@ public class SSTableScanner implements Closeable
     }
 
     /**
-     * See the contract for seekTo(CK).
-     */
-    public boolean seekTo(DecoratedKey seekKey) throws IOException
-    {
-        return seekTo(new ColumnKey(seekKey, new byte[0][]));
-    }
-
-    /**
      * Seeks to the slice which would contain the given key. If such a slice does not
      * exist, the next calls to get*() will have undefined results.
+     *
+     * A seekKey with a depth less than the columnDepth of this SSTable will never
+     * match using this method, because the seekKey will fall between two slices. If
+     * you need to match a slice at a higher level, use seekBefore().
+     *
      * @return False if no such Slice was found.
      */
     public boolean seekTo(ColumnKey seekKey)
@@ -232,7 +233,7 @@ public class SSTableScanner implements Closeable
 
         AbstractType subtype = cf.getSubComparator();
         boolean eof = false;
-        while (!eof && comparator.compare(firstKey, slice.currentKey.key, 0) == 0)
+        while (!eof && comparator.compare(firstKey, slice.currentKey, 0) == 0)
         {
             if (!cf.isSuper())
             {
@@ -248,7 +249,7 @@ public class SSTableScanner implements Closeable
             SuperColumn supcol = new SuperColumn(slice.currentKey.name(1), subtype);
             supcol.markForDeleteAt(slice.meta.get(1).localDeletionTime,
                                    slice.meta.get(1).markedForDeleteAt);
-            while (!eof && comparator.compare(firstKey, slice.currentKey.key, 1) == 0)
+            while (!eof && comparator.compare(firstKey, slice.currentKey, 1) == 0)
             {
                 for (Column column : getColumns())
                     supcol.addColumn(column);

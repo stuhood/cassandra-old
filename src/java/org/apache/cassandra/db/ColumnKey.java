@@ -151,25 +151,45 @@ public class ColumnKey
          * Compares the given column keys to the given depth. Depth 0 will compare
          * just the key field, depth 1 will compare the key and the first name, etc.
          * This can be used to find the boundries of slices of columns.
+         *
+         * A null name compares as less than a non-null name, meaning that you
+         * can match the beginning of a slice with a ColumnKey with tailing null
+         * names.
          */
         public int compare(ColumnKey o1, ColumnKey o2, int depth)
         {
+            // reference equality of CK
+            if (o1 == o2) return 0;
+
+            // sanity checks
             assert depth < Byte.MAX_VALUE;
             assert o1.names.length == o2.names.length;
-            int comp = o1.key.compareTo(o2.key);
-            if (comp != 0)
-                return comp;
+
+            // reference equality of DK
+            if (o1.key != o2.key)
+            {
+                int comp = o1.key.compareTo(o2.key);
+                if (comp != 0) return comp;
+            }
             for (int i = 0; i < depth; i++)
             {
-                comp = nameComparators[i].compare(o1.names[i], o2.names[i]);
-                if (comp != 0)
-                    return comp;
+                // reference equality of Name
+                if (o1.names[i] == o2.names[i]) continue;
+                
+                // nulls compare less than non-nulls
+                if (o1.names[i] == null) return -1;
+                if (o2.names[i] == null) return 1;
+
+                // type based comparison
+                int comp = nameComparators[i].compare(o1.names[i], o2.names[i]);
+                if (comp != 0) return comp;
             }
             return 0;
         }
 
         /**
-         * FIXME: We can definitely find a better way to store the CK in a bloom filter, and we should before release.
+         * FIXME: We can definitely find a better way to store the CK in a bloom,
+         * and we should before release.
          */
         public String forBloom(ColumnKey key)
         {
