@@ -142,34 +142,33 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
      */
     public void merge(Slice slice, List<Column> rhs)
     {
-        ListIterator<BufferEntry> buffIter = mergeBuff.listIterator();
+        ListIterator<BufferEntry> buffiter = mergeBuff.listIterator();
         Iterator<Column> rhsiter = columns.iterator();
 
-        BufferEntry buffcur = null;
-        // add a Metadata entry for the slice header
+        BufferEntry buffcur = buffiter.hasNext() ? buffiter.next() : null;
+        // Metadata for the slice as header
         BufferEntry rhscur = new MetadataEntry(slice.currentKey, slice.meta);
-        if (buffIter.hasNext())
-        {
-            buffcur = buffIter.next();
-        }
         while (buffcur != null && rhscur != null)
         {
             // compare the heads
-            if ()
-                // Column entries for each column in rhs
-                new ColumnEntry(slice.currentKey.withName(column.name()),
-                                          column)
+            int comp = buffcur.compareTo(rhscur);
+            if (comp < 0)
+                // merge buffer contains smaller entry
+                continue;
+            // else, insert smaller entry from rhs at buffcur's position in merge buffer
+            // FIXME: need listIterator docs here
+            buffiter.set(new ColumnEntry(slice.currentKey.withName(column.name()),
+                                         column));
+            // add the entry we replaced after the smaller entry
+            buffiter.add(buffcur);
         }
-
         // add the remainder of the rhs to the end of the merge buffer
         while (rhsiter.hasNext())
             mergeBuff.add(rhsiter.next());
         // else, all items have already been merged
-
-
-        mergeBuff.add(new MetadataEntry(slice.currentKey, slice.meta));
-        for (Column column : columns)
-            mergeBuff.add();
+        
+        logger.trace("Added " + rhs.size() + " items to merge buffer. Contains " +
+            mergeBuff.size()); // FIXME
     }
 
     @Override
