@@ -24,15 +24,13 @@ package org.apache.cassandra.io;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.IOError;
-import java.util.List;
-import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.*;
 
 import org.apache.log4j.Logger;
 
+import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnFamily;
-import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.ColumnKey;
 import org.apache.cassandra.utils.Pair;
 
 import com.google.common.collect.AbstractIterator;
@@ -42,8 +40,8 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
     private static Logger logger = Logger.getLogger(CompactionIterator.class);
 
     /**
-     * Total file buffer size for all input SSTables.
-     * TODO: configurable
+     * Shared file buffer size for all input SSTables.
+     * TODO: make configurable
      */
     public static final int TOTAL_FILE_BUFFER_BYTES = 1 << 22;
 
@@ -59,7 +57,7 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
     /**
      * Scanners are kept sorted by the key of the Slice they are positioned at.
      */
-    private final PriorityQueue<ScannerWrapper> scanners;
+    private final PriorityQueue<SSTableScanner> scanners;
 
     /**
      * In each iteration, the head of this buffer is compared to the head of every
@@ -73,7 +71,7 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
     /**
      * TODO: add a range-based filter like #607, but use it to seek() on the Scanners.
      */
-    public CompactionIterator(Iterable<SSTableReader> sstables, int gcBefore, boolean major) throws IOException
+    public CompactionIterator(Collection<SSTableReader> sstables, int gcBefore, boolean major) throws IOException
     {
         super();
         assert !sstables.isEmpty();
@@ -88,7 +86,7 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
 
         // open all scanners
         int bufferPer = TOTAL_FILE_BUFFER_BYTES / sstables.size();
-        this.scanners = new PriorityQueue<ScannerWrapper>(sstables.size());
+        this.scanners = new PriorityQueue<SSTableScanner>(sstables.size());
         for (SSTableReader sstable : sstables)
             this.scanners.add(sstable.getScanner(bufferPer));
         this.mergeBuff = new ArrayDeque<CompactionColumn>();
@@ -101,25 +99,25 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
      *
      * @return A possibly empty list of matching Scanners.
      */
-    public List<ScannerWrapper> removeMinimumScanners()
+    public List<SSTableScanner> removeMinimumScanners()
     {
         ColumnKey minimum;
         if (mergeBuff.isEmpty())
         {
             if (scanners.isEmpty())
                 // the merge buffer and scanner queue are empty. we're done!
-                return Collections.<ScannerWrapper>emptyList();;
-            minimum = scanners.peek().currentKey();
+                return Collections.<SSTableScanner>emptyList();;
+            minimum = scanners.peek().get().currentKey;
         }
         else
         {
-            minimum = mergeBuff.peek().currentKey();
+            minimum = mergeBuff.peek().key;
         }
 
         // select any scanners with keys equal to the minimum
-        List<SSTableScanner> selected = new LinkedList<ScannerWrapper>();
+        List<SSTableScanner> selected = new LinkedList<SSTableScanner>();
         while (!scanners.isEmpty() &&
-                comparator.compare(minimum, scanners.peek().currentKey()))
+               comparator.compare(minimum, scanners.peek().get().currentKey) == 0)
         {
             selected.add(scanners.poll());
         }
@@ -130,7 +128,7 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
     public CompactionColumn computeNext()
     {
         // for each of the minimum slices
-        for (ScannerWrapper scanner : removeMinimumScanners())
+        for (SSTableScanner scanner : removeMinimumScanners())
         {
             // merge the slice to the merge buffer
             merge(scanner.get(), scanner.getColumns());
@@ -237,32 +235,6 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
         public byte[] digest()
         {
             throw new RuntimeException("Not implemented."); // FIXME
-        }
-    }
-
-    /**
-     * Wraps an SSTScanner to implement Comparable using the key of the Slice
-     * the scanner is positioned at.
-     *
-     * TODO: Consider merging this functionality into SSTScanner.
-     */
-    final class ScannerWrapper implements Comparable<ScannerWrapper>
-    {
-        public final SSTableScanner scanner;
-        public ScannerWrapper(SSTableScanner scanner)
-        {
-            this.scanner = scanner;
-        }
-
-        public ColumnKey currentKey()
-        {
-            return scanner.get().currentKey;
-        }
-
-        public int compareTo(ScannerWrapper that)
-        {
-            return comparator.compare(this.currentKey(),
-                                      that.currentKey());
         }
     }
 }
