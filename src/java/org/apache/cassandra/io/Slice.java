@@ -26,13 +26,11 @@ import org.apache.cassandra.utils.Pair;
 
 
 /**
- * An immutable object representing a Slice read from disk: A Slice is a sorted
- * sequence of columns within a SSTable block that share the same parents, and
+ * An abstract, immutable object representing a Slice: a Slice is a sorted sequence
+ * of columns beginning at currentKey (inclusive) that share the same parents, and
  * the same Metadata.
  *
- * A Slice may be empty on disk if it is acting as a 'tombstone'.
- *
- * A Slice contains columns between currentKey, inclusive, and nextKey, exclusive.
+ * TODO: diagram of 'natural' and 'artificial' slice boundaries?
  */
 public class Slice
 {
@@ -40,27 +38,22 @@ public class Slice
     // the key of the first column: all but the last name will be equal for
     // columns in the slice
     public final ColumnKey currentKey;
-    // first key of the next slice on disk (exclusive end to our range)
-    public final ColumnKey nextKey;
 
     /**
-     * @param meta Metadata for the parents of this Slice.
+     * @param meta Metadata for the key range this Slice defines.
      * @param currentKey The key for the first column in the Slice.
-     * @param nextKey The key for the first column of the next Slice, or null if
-     * there are no more slices in this context.
      */
-    Slice(Metadata meta, ColumnKey currentKey, ColumnKey nextKey)
+    Slice(Metadata meta, ColumnKey currentKey)
     {
         assert meta != null && currentKey != null;
         this.meta = meta;
         this.currentKey = currentKey;
-        this.nextKey = nextKey;
     }
 
     public String toString()
     {
         StringBuilder buff = new StringBuilder();
-        buff.append("#<Slice ").append(currentKey).append(" ").append(nextKey).append(">");
+        buff.append("#<Slice ").append(currentKey).append(" ").append(meta).append(">");
         return buff.toString();
     }
 
@@ -111,14 +104,31 @@ public class Slice
         }
 
         /**
+         * Recursively resolves two Metadata lists of equal depth.
+         *
+         * @return A new 'winning' list.
+         */
+        public static Metadata resolve(Metadata lhs, Metadata rhs)
+        {
+            Metadata parent = lhs.parent != null ?
+                resolve(lhs.parent, rhs.parent) : null;
+            long markedForDeleteAt = Math.max(lhs.markedForDeleteAt,
+                                              rhs.markedForDeleteAt);
+            int localDeletionTime =  Math.max(lhs.localDeletionTime,
+                                              rhs.localDeletionTime);
+            return new Metadata(markedForDeleteAt, localDeletionTime, parent);
+        }
+
+        /**
          * @return Metadata for the given depth: asserts that the depth exists.
          */
         public Metadata get(int depth)
         {
-            assert this.depth >= depth;
             if (this.depth == depth)
                 return this;
-            return get(depth++);
+            assert parent != null :
+                "Incorrect metadata depth " + depth + " for column family.";
+            return parent.get(depth);
         }
 
         /**

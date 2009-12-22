@@ -213,6 +213,13 @@ public abstract class SSTable
      * A marker used in the SSTable data file to delineate slices, and store shared
      * metadata about those slices. The status codes in SliceMarks describe the
      * position of the slice in the block.
+     *
+     * Compared to the parent Slice class, a SliceMark adds a nextKey field, which
+     * points to the first key of the next Slice on disk.
+     *
+     * The Metadata in a Slice should affect any columns between currentKey,
+     * inclusive, and nextKey, exclusive. But, if it is acting as a tombstone, a
+     * Slice on disk may not contain any columns at all.
      */
     static class SliceMark extends Slice
     {
@@ -220,6 +227,9 @@ public abstract class SSTable
         public static final byte BLOCK_CONTINUE = (byte)0;
         // this is the last slice in the block
         public static final byte BLOCK_END = (byte)-1;
+
+        // first key of the next slice on disk (exclusive end to our range)
+        public final ColumnKey nextKey;
 
         // uncompressed bytes to next SliceMark
         public final int length;
@@ -230,7 +240,8 @@ public abstract class SSTable
 
         public SliceMark(Slice.Metadata meta, ColumnKey currentKey, ColumnKey nextKey, int length, int numCols, byte status)
         {
-            super(meta, currentKey, nextKey);
+            super(meta, currentKey);
+            this.nextKey = nextKey;
             this.length = length;
             this.numCols = numCols;
             this.status = status;
