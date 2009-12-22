@@ -37,7 +37,7 @@ import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
 
-public class CompactionIterator extends AbstractIterator<CompactionColumn> implements Closeable
+public class CompactionIterator extends AbstractIterator<CompactionSlice> implements Closeable
 {
     private static Logger logger = Logger.getLogger(CompactionIterator.class);
 
@@ -73,12 +73,6 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
      * insertion performance, and allows constant time removal from the head.
      */
     private LinkedList<BufferEntry> mergeBuff;
-    /**
-     * Metadata for the current output slice. Whenever a Metadata entry reaches the
-     * front of the merge buffer, it is stored here, and its deletion info, is evaluated
-     * against all columns leading up to the next Metadata entry.
-     */
-    private Slice.Metadata outmeta;
 
     /**
      * TODO: add a range-based filter like #607, but use it to seek() on the Scanners.
@@ -101,13 +95,13 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
         this.scanners = new PriorityQueue<SSTableScanner>(sstables.size());
         for (SSTableReader sstable : sstables)
             this.scanners.add(sstable.getScanner(bufferPer));
-        this.mergeBuff = new ArrayDeque<CompactionColumn>();
+        this.mergeBuff = new ArrayDeque<CompactionSlice>();
     }
 
     /**
      * Merges the given slice and its columns into the merge buffer: thanks to
-     * LinkedList and ListIterator, merging happens in place. Metadata for the slice will
-     * act as the head of the input list, causing it to apply to the tailing items.
+     * LinkedList and ListIterator, merging happens in place. Metadata for the slice
+     * acts as the head of the input list, causing it to apply to the tailing items.
      */
     void mergeToBuffer(Slice slice, List<Column> rhs)
     {
@@ -152,11 +146,29 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
     /**
      * Resolves two BufferEntries of the same type with equal keys against one another.
      *
-     * @return The resulting BufferEntry, which will never be null because tombstone
-     * garbage collection happens as we pop entries from the merge buffer.
+     * @return The resulting BufferEntry, which will never be null because parent
+     * tombstone garbage collection happens as we pop entries from the merge buffer.
      */
     BufferEntry resolve(BufferEntry lhs, BufferEntry rhs)
     {
+        assert lhs.getClass() == rhs.getClass();
+
+        if (lhs instanceof MetadataEntry)
+        {
+            Slice.Metadata lhsmeta = ((MetadataEntry)lhs).meta;
+            Slice.Metadata rhsmeta = ((MetadataEntry)rhs).meta;
+            // maximum deletion times at each parent level win
+            return new MetadataEntry(lhs.key,
+                                     Slice.Metadata.resolve(lhsmeta, rhsmeta));
+        }
+        // else instanceof ColumnEntry
+
+
+        Column lhscol = ((ColumnEntry)lhs).column;
+        Column rhscol = ((ColumnEntry)rhs).column;
+        // highest priority wins
+        return lhscol.comparePriority(rhscol) <= 0 ? rhs : lhs;
+
         // FIXME
         /*
         assert rows.size() > 0;
@@ -201,7 +213,6 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
                 try
                 {
                     rows.get(0).echoData(buffer);
-                    // FIXME: see the explanation attached to CompactionRow
                     cf = rows.get(0).getColumnFamily();
                 }
                 catch (IOException e)
@@ -216,7 +227,6 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
         }
         return new CompactedRow(key, buffer, cf);
         */
-        throw new RuntimeException("Not implemented");
     }
 
     /**
@@ -227,7 +237,7 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
      *
      * @return False if the merge buffer and all Scanners are empty.
      */
-    boolean populateMergeBuffer()
+    boolean ensureMergeBuffer()
     {
         // select the minimum key
         ColumnKey minimum;
@@ -273,30 +283,45 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
      * merge buffer. Then, while maintaining that guarantee, pops from the head of the
      * merge buffer, and apples tombstones until a valid column is found and returned.
      *
-     * @return The next CompactionColumn for this iterator.
+     * @return The next CompactionSlice for this iterator.
      */
     @Override
-    public CompactionColumn computeNext()
+    public CompactionSlice computeNext()
     {
-        if (mergeBuff.isEmpty())
-            populateMergeBuffer();
-        while (!mergeBuff.isEmpty())
+        /**
+         * Whenever a Metadata entry reaches the
+         * front of the merge buffer, a new output slice is created, which contains all
+         * of the columns leading up to the next Metadata entry, or up to
+         * (FIXME: move value elsewhere) SSTableWriter.TOTAL_MAX_SLICE_BYTES.
+         *
+         * FIXME
+         */
+        CompactionSlice outslice = null;
+        if (ensureMergeBuffer())
+        {
+
+        }
+        while (ensureMergeBuffer())
         {
             BufferEntry entry = mergeBuff.poll();
-            if (entry instanceof MetadataEntry)
+            if (entry instanceof ColumnEntry)
             {
-                // popped a Metadata object: apply to columns that follow
-                outmeta = ((MetadataEntry)entry).meta;
+                ColumnEntry colentry = (ColumnEntry)entry;
+                assert outslice != null : "Slices must always contain metadata.";
 
-                // ensure that the merge buffer still contains the smallest entry
-                populateMergeBuffer();
-                continue;
+                // FIXME: tombstone logic
+
+                return outslice;
             }
-            
-            ColumnEntry colentry = (ColumnEntry)entry;
-            assert outmeta != null;
-            return new CompactionColumn(colentry.key, outmeta, colentry.column);
+
+            // popped a Metadata object: apply to columns that follow
+            Slice.Metadata newmeta = 
+            outmeta = ((MetadataEntry)entry).meta;
+            //
+            continue;
         }
+
+        
 
         // no more columns
         return endOfData();
@@ -309,23 +334,25 @@ public class CompactionIterator extends AbstractIterator<CompactionColumn> imple
     }
 
     /**
-     * Class representing a column after compaction.
+     * Extends Slice to add a list of Columns.
      */
-    public static final class CompactionColumn
+    public static final class CompactionSlice extends Slice
     {
-        public final ColumnKey key;
-        public final Slice.Metadata meta;
-        public final Column column;
+        public final List<Column> columns;
 
-        public CompactionColumn(ColumnKey key, Slice.Metadata meta, Column column)
+        public CompactionSlice(ColumnKey key, Slice.Metadata meta, List<Column> columns)
         {                   
             this.key = key;
             this.meta = meta;
-            this.column = column;
+            this.columns = columns;
         }
 
         /**
-         * Digest the key, metadata and content of this column.
+         * Digest the parent portion of the key, the metadata and the content of each
+         * column sequentially.
+         *
+         * NB: A sequence of columns with the same parents and metadata should always
+         * result in the same digest, no matter how it is split.
          */
         public byte[] digest()
         {
