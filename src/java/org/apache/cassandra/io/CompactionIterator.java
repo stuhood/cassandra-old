@@ -102,7 +102,7 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
         this.scanners = new PriorityQueue<SSTableScanner>(sstables.size());
         for (SSTableReader sstable : sstables)
             this.scanners.add(sstable.getScanner(bufferPer));
-        this.mergeBuff = new ArrayDeque<CompactionSlice>();
+        this.mergeBuff = new LinkedList<BufferEntry>();
     }
 
     /**
@@ -113,7 +113,7 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
     void mergeToBuffer(Slice slice, List<Column> rhs)
     {
         ListIterator<BufferEntry> buffiter = mergeBuff.listIterator();
-        Iterator<Column> rhsiter = columns.iterator();
+        Iterator<Column> rhsiter = rhs.iterator();
 
         BufferEntry buffcur = buffiter.hasNext() ? buffiter.next() : null;
         // Metadata for the slice as header
@@ -124,26 +124,36 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
             int comp = buffcur.compareTo(rhscur);
             if (comp < 0)
                 // merge buffer contains smaller entry
-                buffcur = buffiter.next();
+                buffcur = null;
             else if (comp == 0)
             {
                 // buffcur and rhscur have equal keys: resolve them and replace buffcur
                 buffcur = resolve(buffcur, rhscur);
                 buffiter.set(buffcur);
+                rhscur = null;
             }
             else // buffcur > rhscur
             {
-                // insert smaller entry from rhs at buffcur's position in merge buffer
-                buffiter.set(new ColumnEntry(slice.currentKey.withName(column.name()),
-                                             column));
-                // add the entry we replaced after the smaller entry
+                // insert smaller entry from rhs before buffcur in the merge buffer
+                buffiter.set(rhscur);
                 buffiter.add(buffcur);
+                rhscur = null;
+            }
+
+            if (buffcur == null && buffiter.hasNext())
+                buffcur = buffiter.next();
+            if (rhscur == null && rhsiter.hasNext())
+            {
+                do
+                {
+                    Column column = rhsiter.next();
+                    rhscur = new ColumnEntry(slice.currentKey.withName(column.name()),
+                                             column);
+
+                // add the remainder of rhs to the end of the merge buffer
+                } while(buffcur == null && rhsiter.hasNext());
             }
         }
-        // add the remainder of the rhs to the end of the merge buffer
-        while (rhsiter.hasNext())
-            mergeBuff.add(rhsiter.next());
-        // else, all items have already been merged
         
         logger.trace("Added " + rhs.size() + " items to merge buffer. Contains " +
             mergeBuff.size()); // FIXME
@@ -197,7 +207,7 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
         else
             minimum = mergeBuff.peek().key;
 
-        // select any scanners with keys less than or equal to the minimum
+        // remove any scanners with keys less than or equal to the minimum
         List<SSTableScanner> selected = null;
         while (!scanners.isEmpty() && comparator.compare(scanners.peek().get().currentKey, minimum) <= 0)
         {
@@ -214,11 +224,11 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
         for (SSTableScanner scanner : selected)
         {
             // merge the first slice to the merge buffer
-            mergeToBuff(scanner.get(), scanner.getColumns());
+            mergeToBuffer(scanner.get(), scanner.getColumns());
 
             // skip to the next slice
             if (scanner.next())
-                // has more slices: reprioritize
+                // has more slices: add back to the queue to reprioritize
                 scanners.add(scanner);
         }
         return true;
@@ -239,7 +249,7 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
     {
         while (ensureMergeBuffer())
         {
-            BufferEntry entry = mergeBuffer.poll();
+            BufferEntry entry = mergeBuff.poll();
             if (entry instanceof MetadataEntry)
             {
                 // metadata marks the beginning of a new slice
@@ -256,7 +266,7 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
 
             // else, ColumnEntry to add to the current slice
             ColumnEntry centry = (ColumnEntry)entry;
-            oldslice.columns.add(centry);
+            outslice.columns.add(centry.column);
             // FIXME: need to handle deletion here by skipping adding the column if
             // the slice metadata indicates it should be deleted
             // TODO: need to check TARGET_MAX_SLICE_BYTES here, and artificially
@@ -281,9 +291,8 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
         public final List<Column> columns;
 
         public CompactionSlice(ColumnKey key, Slice.Metadata meta)
-        {                   
-            this.key = key;
-            this.meta = meta;
+        {
+            super(meta, key);
             this.columns = new ArrayList<Column>();
         }
 
@@ -330,7 +339,7 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
         }
     }
 
-    class MetadataEntry extends BufferEntry
+    final class MetadataEntry extends BufferEntry
     {
         public final Slice.Metadata meta;
         public MetadataEntry(ColumnKey key, Slice.Metadata meta)
@@ -340,7 +349,7 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
         }
     }
 
-    class ColumnEntry extends BufferEntry
+    final class ColumnEntry extends BufferEntry
     {
         public final Column column;
         public ColumnEntry(ColumnKey key, Column column)

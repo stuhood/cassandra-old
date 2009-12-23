@@ -183,7 +183,6 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
      */
     public ColumnKey peek()
     {
-        Slice slice = get();
         if (slice == null)
             return null;
         return slice.nextKey;
