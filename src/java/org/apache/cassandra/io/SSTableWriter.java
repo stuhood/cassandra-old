@@ -64,14 +64,6 @@ public class SSTableWriter extends SSTable
      * TODO: tune
      */
     public static final int TARGET_MAX_BLOCK_BYTES = 1 << 16;
-    /**
-     * The target maximum size of a Slice in bytes (between two SliceMarks in a block).
-     * SliceMarks allow skipping columns within a block, but this many bytes will need
-     * to be held in memory while writing or reading the SSTable. Large columns will
-     * stretch this value (because a slice cannot be smaller than a column).
-     * TODO: tune
-     */
-    public static final int TARGET_MAX_SLICE_BYTES = 1 << 14;
 
     // buffer for data contained in the current slice/block
     private BlockContext blockContext;

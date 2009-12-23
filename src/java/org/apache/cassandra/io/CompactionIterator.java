@@ -67,12 +67,19 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
      *
      * NB: This buffer is the source of the majority of memory usage for compactions.
      * Its maximum size in bytes is roughly equal to:
-     * (CompactionManager.maxCompactThreshold * SSTableWriter.TARGET_MAX_SLICE_BYTES)
+     * (CompactionManager.maxCompactThreshold * SSTable.TARGET_MAX_SLICE_BYTES)
      *
      * The LinkedList is a natural fit for merge sort because it provides random
      * insertion performance, and allows constant time removal from the head.
      */
     private LinkedList<BufferEntry> mergeBuff;
+    /**
+     * Whenever a Metadata entry reaches the
+     * front of the merge buffer, a new output slice is created, which contains all
+     * of the columns leading up to the next Metadata entry, or up to
+     * SSTable.TOTAL_MAX_SLICE_BYTES.
+     */
+    private CompactionSlice outslice = null;
 
     /**
      * TODO: add a range-based filter like #607, but use it to seek() on the Scanners.
@@ -127,7 +134,6 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
             else // buffcur > rhscur
             {
                 // insert smaller entry from rhs at buffcur's position in merge buffer
-                // FIXME: need listIterator docs here: call next afterward?
                 buffiter.set(new ColumnEntry(slice.currentKey.withName(column.name()),
                                              column));
                 // add the entry we replaced after the smaller entry
@@ -163,70 +169,10 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
         }
         // else instanceof ColumnEntry
 
-
         Column lhscol = ((ColumnEntry)lhs).column;
         Column rhscol = ((ColumnEntry)rhs).column;
         // highest priority wins
         return lhscol.comparePriority(rhscol) <= 0 ? rhs : lhs;
-
-        // FIXME
-        /*
-        assert rows.size() > 0;
-        DataOutputBuffer buffer = new DataOutputBuffer();
-        DecoratedKey key = rows.get(0).getKey();
-
-        ColumnFamily cf = null;
-        try
-        {
-            if (rows.size() > 1 || major)
-            {
-                for (Pair<DecoratedKey,ColumnFamily> row : rows)
-                {
-                    ColumnFamily thisCF;
-                    try
-                    {
-                        thisCF = row.getColumnFamily();
-                    }
-                    catch (IOException e)
-                    {
-                        logger.error("Skipping row " + key + " in " + row.getPath(), e);
-                        continue;
-                    }
-                    if (cf == null)
-                    {
-                        cf = thisCF;
-                    }
-                    else
-                    {
-                        cf.addAll(thisCF);
-                    }
-                }
-                ColumnFamily cfPurged = major ? ColumnFamilyStore.removeDeleted(cf, gcBefore) : cf;
-                if (cfPurged == null)
-                    return null;
-                ColumnFamily.serializer().serializeWithIndexes(cfPurged, buffer);
-                cf = cfPurged;
-            }
-            else
-            {
-                assert rows.size() == 1;
-                try
-                {
-                    rows.get(0).echoData(buffer);
-                    cf = rows.get(0).getColumnFamily();
-                }
-                catch (IOException e)
-                {
-                    throw new IOError(e);
-                }
-            }
-        }
-        finally
-        {
-            rows.clear();
-        }
-        return new CompactedRow(key, buffer, cf);
-        */
     }
 
     /**
@@ -280,48 +226,42 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
 
     /**
      * First, guarantees that the minimum keys for this iteration are contained in the
-     * merge buffer. Then, while maintaining that guarantee, pops from the head of the
-     * merge buffer, and apples tombstones until a valid column is found and returned.
+     * merge buffer.
+     *
+     * Then, while maintaining that guarantee, pops from the head of the merge
+     * buffer into an output slice, while applying deletion metadata and garbage
+     * collecting tombstones.
      *
      * @return The next CompactionSlice for this iterator.
      */
     @Override
     public CompactionSlice computeNext()
     {
-        /**
-         * Whenever a Metadata entry reaches the
-         * front of the merge buffer, a new output slice is created, which contains all
-         * of the columns leading up to the next Metadata entry, or up to
-         * (FIXME: move value elsewhere) SSTableWriter.TOTAL_MAX_SLICE_BYTES.
-         *
-         * FIXME
-         */
-        CompactionSlice outslice = null;
-        if (ensureMergeBuffer())
-        {
-
-        }
         while (ensureMergeBuffer())
         {
-            BufferEntry entry = mergeBuff.poll();
-            if (entry instanceof ColumnEntry)
+            BufferEntry entry = mergeBuffer.poll();
+            if (entry instanceof MetadataEntry)
             {
-                ColumnEntry colentry = (ColumnEntry)entry;
-                assert outslice != null : "Slices must always contain metadata.";
-
-                // FIXME: tombstone logic
-
-                return outslice;
+                // metadata marks the beginning of a new slice
+                MetadataEntry mentry = (MetadataEntry)entry;
+                CompactionSlice oldslice = outslice;
+                outslice = new CompactionSlice(mentry.key, mentry.meta);
+                if (oldslice != null)
+                    // FIXME: need to handle tombstone gc here by skipping outputting
+                    // empty slices with deletion below gcbefore
+                    // return the last slice
+                    return oldslice;
+                continue;
             }
 
-            // popped a Metadata object: apply to columns that follow
-            Slice.Metadata newmeta = 
-            outmeta = ((MetadataEntry)entry).meta;
-            //
-            continue;
+            // else, ColumnEntry to add to the current slice
+            ColumnEntry centry = (ColumnEntry)entry;
+            oldslice.columns.add(centry);
+            // FIXME: need to handle deletion here by skipping adding the column if
+            // the slice metadata indicates it should be deleted
+            // TODO: need to check TARGET_MAX_SLICE_BYTES here, and artificially
+            // split the slice to prevent it from becoming too large
         }
-
-        
 
         // no more columns
         return endOfData();
@@ -340,11 +280,11 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
     {
         public final List<Column> columns;
 
-        public CompactionSlice(ColumnKey key, Slice.Metadata meta, List<Column> columns)
+        public CompactionSlice(ColumnKey key, Slice.Metadata meta)
         {                   
             this.key = key;
             this.meta = meta;
-            this.columns = columns;
+            this.columns = new ArrayList<Column>();
         }
 
         /**

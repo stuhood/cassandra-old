@@ -66,6 +66,15 @@ public abstract class SSTable
     // required extension for temporary files created during compactions
     public static final String TEMPFILE_MARKER = "tmp";
 
+    /**
+     * The target maximum size of a Slice in bytes.
+     *
+     * SliceMarks allow skipping columns within a block, but this many bytes will need
+     * to be held in memory while writing or reading the SSTable. Large columns will
+     * stretch this value (because a slice cannot be smaller than a column).
+     * TODO: tune
+     */
+    public static final int TARGET_MAX_SLICE_BYTES = 1 << 14;
 
     protected String path;
     protected final IPartitioner partitioner;
