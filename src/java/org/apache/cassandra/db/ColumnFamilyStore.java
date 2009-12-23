@@ -803,7 +803,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         List<SSTableReader> results = new ArrayList<SSTableReader>();
 
         long startTime = System.currentTimeMillis();
-        long totalkeysWritten = 0;
+        long totalColsWritten = 0;
 
         int expectedBloomFilterSize = Math.max(SSTableReader.indexInterval(), (int)(SSTableReader.getApproximateKeyCount(sstables) / 2));
         if (logger_.isDebugEnabled())
@@ -811,19 +811,16 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         SSTableWriter writer = null;
         CompactionIterator ci = new CompactionIterator(sstables, getDefaultGCBefore(), sstables.size() == ssTables_.size());
-        Iterator<CompactionIterator.CompactedRow> nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
 
         try
         {
-            if (!nni.hasNext())
-            {
+            if (!ci.hasNext())
                 return results;
-            }
 
-            while (nni.hasNext())
+            while (ci.hasNext())
             {
-                CompactionIterator.CompactedRow row = nni.next();
-                if (Range.isTokenInRanges(row.key.token, ranges))
+                CompactionIterator.CompactionSlice slice = ci.next();
+                if (Range.isTokenInRanges(slice.currentKey.key.token, ranges))
                 {
                     if (writer == null)
                     {
@@ -831,8 +828,10 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
                         String newFilename = new File(compactionFileLocation, getTempSSTableFileName()).getAbsolutePath();
                         writer = new SSTableWriter(newFilename, expectedBloomFilterSize, StorageService.getPartitioner());
                     }
-                    writer.flatteningAppend(row.key, row.cf);
-                    totalkeysWritten++;
+                    // FIXME: writer needs a Slice append
+                    for (Column column : slice.columns)
+                        writer.append(slice.meta, slice.currentKey, column);
+                    totalColsWritten++;
                 }
             }
         }
@@ -844,9 +843,9 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         if (writer != null)
         {
             results.add(writer.closeAndOpenReader(DatabaseDescriptor.getKeysCachedFraction(table_)));
-            String format = "AntiCompacted to %s.  %d/%d bytes for %d keys.  Time: %dms.";
+            String format = "AntiCompacted to %s.  %d/%d bytes for %d columns.  Time: %dms.";
             long dTime = System.currentTimeMillis() - startTime;
-            logger_.info(String.format(format, writer.getFilename(), getTotalBytes(sstables), results.get(0).length(), totalkeysWritten, dTime));
+            logger_.info(String.format(format, writer.getFilename(), getTotalBytes(sstables), results.get(0).length(), totalColsWritten, dTime));
         }
 
         return results;
@@ -900,12 +899,11 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
           logger_.debug("Expected bloom filter size : " + expectedBloomFilterSize);
 
         SSTableWriter writer;
-        CompactionIterator ci = new CompactionIterator(sstables, gcBefore, major); // retain a handle so we can call close()
-        Iterator<CompactionIterator.CompactedRow> nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
+        CompactionIterator ci = new CompactionIterator(sstables, gcBefore, major);
 
         try
         {
-            if (!nni.hasNext())
+            if (!ci.hasNext())
             {
                 // don't mark compacted in the finally block, since if there _is_ nondeleted data,
                 // we need to sync it (via closeAndOpen) first, so there is no period during which
@@ -920,11 +918,12 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             // validate the CF as we iterate over it
             AntiEntropyService.IValidator validator = AntiEntropyService.instance().getValidator(table_, columnFamily_, null, major);
             validator.prepare();
-            while (nni.hasNext())
+            while (ci.hasNext())
             {
-                CompactionIterator.CompactedRow row = nni.next();
-                writer.flatteningAppend(row.key, row.cf);
-                validator.add(row);
+                CompactionIterator.CompactionSlice slice = ci.next();
+                for (Column column : slice.columns)
+                    writer.append(slice.meta, slice.currentKey, column);
+                validator.add(slice);
                 totalkeysWritten++;
             }
             validator.complete();

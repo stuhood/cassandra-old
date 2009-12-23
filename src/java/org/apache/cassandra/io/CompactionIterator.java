@@ -127,8 +127,9 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
                 buffcur = null;
             else if (comp == 0)
             {
-                // buffcur and rhscur have equal keys: resolve them and replace buffcur
-                buffcur = resolve(buffcur, rhscur);
+                // buffcur and rhscur have equal keys (meaning they have equal types as well):
+                // resolve them and replace buffcur
+                buffcur = resolveEntries(buffcur, rhscur);
                 buffiter.set(buffcur);
                 rhscur = null;
             }
@@ -165,7 +166,7 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
      * @return The resulting BufferEntry, which will never be null because parent
      * tombstone garbage collection happens as we pop entries from the merge buffer.
      */
-    BufferEntry resolve(BufferEntry lhs, BufferEntry rhs)
+    BufferEntry resolveEntries(BufferEntry lhs, BufferEntry rhs)
     {
         assert lhs.getClass() == rhs.getClass();
 
@@ -279,8 +280,21 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
 
     public void close() throws IOException
     {
+        IOException e = null;
         for (SSTableScanner scanner : scanners)
-            scanner.close();
+        {
+            try
+            {
+                scanner.close();
+            }
+            catch (IOException ie)
+            {
+                e = ie;
+            }
+        }
+        // we can only rethrow one exception, but we want to close all scanners
+        if (e != null)
+            throw e;
     }
 
     /**
@@ -317,7 +331,7 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
      * A piece of Metadata with a key equal to the key of a column Column should sort
      * before the Column, in order to apply to it. For example, a piece of Metadata
      * representing a tombstone and beginning at the same key as a Column should apply
-     * to and delete the Column during resolve().
+     * to and delete the Column.
      */
     abstract class BufferEntry implements Comparable<BufferEntry>
     {
