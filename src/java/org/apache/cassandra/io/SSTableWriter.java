@@ -202,7 +202,7 @@ public class SSTableWriter extends SSTable
         
         // a single col is buffered for a new block: write an IndexEntry to mark the new block
         long indexPosition = indexFile.getFilePointer();
-        lastIndexEntry = new IndexEntry(columnKey.key, columnKey.names, indexPosition,
+        lastIndexEntry = new IndexEntry(columnKey.dk, columnKey.names, indexPosition,
                                         blockContext.getCurrentBlockPos());
         lastIndexEntry.serialize(indexFile);
         if (logger.isDebugEnabled())

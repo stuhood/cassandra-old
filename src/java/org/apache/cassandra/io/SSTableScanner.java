@@ -237,7 +237,7 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
             return null;
 
         ColumnKey firstKey = slice.key;
-        DecoratedKey key = firstKey.key;
+        DecoratedKey key = firstKey.dk;
         ColumnFamily cf = ColumnFamily.create(sstable.getTableName(),
                                               sstable.getColumnFamilyName());
         // record deletion info

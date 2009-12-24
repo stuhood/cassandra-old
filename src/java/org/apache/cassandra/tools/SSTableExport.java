@@ -162,7 +162,7 @@ public class SSTableExport
             if (!scanner.seekBefore(dk))
                 // key outside file bounds
                 continue;
-            if (dk.compareTo(scanner.get().currentKey.key) != 0)
+            if (dk.compareTo(scanner.get().key.dk) != 0)
                 // key does not exist
                 continue;
 

@@ -33,14 +33,14 @@ import org.apache.cassandra.service.StorageService;
  */
 public class ColumnKey
 {
-    public final DecoratedKey key;
+    public final DecoratedKey dk;
     // FIXME: more efficient structure? perhaps model after Slice.Metadata?
     public final byte[][] names;
 
-    public ColumnKey(DecoratedKey key, byte[]... names)
+    public ColumnKey(DecoratedKey dk, byte[]... names)
     {
         assert names.length < Byte.MAX_VALUE;
-        this.key = key;
+        this.dk = dk;
         this.names = names;
     }
 
@@ -55,11 +55,11 @@ public class ColumnKey
         // shallow copy of the names
         byte[][] namesClone = Arrays.copyOf(names, names.length);
         namesClone[namesClone.length-1] = name;
-        return new ColumnKey(key, namesClone);
+        return new ColumnKey(dk, namesClone);
     }
 
     /**
-     * @return The name at the given depth: the key is at depth 0, so names
+     * @return The name at the given depth: the dk is at depth 0, so names
      * begin at depth 1.
      */
     public byte[] name(int depth)
@@ -68,7 +68,7 @@ public class ColumnKey
     }
 
     /**
-     * Returns a comparator that compares ColumnKeys by key and then names, using
+     * Returns a comparator that compares ColumnKeys by dk and then names, using
      * the appropriate comparator at each level. The ColumnKeys must contain
      * an equal number of names: for example, a ColumnFamily containing columns
      * of type super, should always have name.length == 2, although tailing null
@@ -88,7 +88,7 @@ public class ColumnKey
         if (!(o instanceof ColumnKey))
             return false;
         ColumnKey that = (ColumnKey)o;
-        if (that.key.compareTo(this.key) != 0)
+        if (that.dk.compareTo(this.dk) != 0)
             return false;
         if (this.names.length != that.names.length)
             return false;
@@ -102,7 +102,7 @@ public class ColumnKey
     public int hashCode()
     {
         int[] components = new int[1+names.length];
-        components[0] = key.hashCode();
+        components[0] = dk.hashCode();
         for (byte i = 0; i < names.length; i++)
             components[i+1] = Arrays.hashCode(names[i]);
         return Arrays.hashCode(components);
@@ -110,7 +110,7 @@ public class ColumnKey
 
     public void serialize(DataOutput dos) throws IOException
     {
-        dos.writeUTF(StorageService.getPartitioner().convertToDiskFormat(key));
+        dos.writeUTF(StorageService.getPartitioner().convertToDiskFormat(dk));
 
         dos.writeByte((byte)names.length);
         for (byte[] name : names)
@@ -119,14 +119,14 @@ public class ColumnKey
 
     public static ColumnKey deserialize(DataInput dis) throws IOException
     {
-        DecoratedKey key =
+        DecoratedKey dk =
             StorageService.getPartitioner().convertFromDiskFormat(dis.readUTF());
 
         byte nameCount = dis.readByte();
         byte[][] names = new byte[nameCount][];
         for (int i = 0; i < nameCount; i++)
             names[i] = ColumnSerializer.readName(dis);
-        return new ColumnKey(key, names);
+        return new ColumnKey(dk, names);
     }
 
     /**
@@ -149,7 +149,7 @@ public class ColumnKey
 
         /**
          * Compares the given column keys to the given depth. Depth 0 will compare
-         * just the key field, depth 1 will compare the key and the first name, etc.
+         * just the dk field, depth 1 will compare the dk and the first name, etc.
          * This can be used to find the boundries of slices of columns.
          *
          * A null name compares as less than a non-null name, meaning that you
@@ -166,9 +166,9 @@ public class ColumnKey
             assert o1.names.length == o2.names.length;
 
             // reference equality of DK
-            if (o1.key != o2.key)
+            if (o1.dk != o2.dk)
             {
-                int comp = o1.key.compareTo(o2.key);
+                int comp = o1.dk.compareTo(o2.dk);
                 if (comp != 0) return comp;
             }
             for (int i = 0; i < depth; i++)
@@ -194,7 +194,7 @@ public class ColumnKey
         public String forBloom(ColumnKey key)
         {
             StringBuilder buff = new StringBuilder();
-            buff.append(StorageService.getPartitioner().convertToDiskFormat(key.key));
+            buff.append(StorageService.getPartitioner().convertToDiskFormat(key.dk));
             for (int i = 0; i < key.names.length; i++)
                 buff.append("\u0000").append(nameComparators[i].getString(key.names[i]));
             return buff.toString();

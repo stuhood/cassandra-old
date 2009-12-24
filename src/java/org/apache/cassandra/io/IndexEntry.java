@@ -72,7 +72,7 @@ public class IndexEntry extends ColumnKey
         long indexOffset = dis.getFilePointer();
         ColumnKey key = ColumnKey.deserialize(dis);
         long dataOffset = dis.readLong();
-        return new IndexEntry(key.key, key.names, indexOffset, dataOffset);
+        return new IndexEntry(key.dk, key.names, indexOffset, dataOffset);
     }
 
     /**

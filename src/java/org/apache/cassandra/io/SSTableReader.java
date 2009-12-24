@@ -126,9 +126,9 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                 continue;
             for (IndexEntry ie : sstable.getIndexEntries())
             {
-                if (dkpred.apply(ie.key))
+                if (dkpred.apply(ie.dk))
                 {
-                    indexedKeys.add(ie.key);
+                    indexedKeys.add(ie.dk);
                 }
             }
         }
