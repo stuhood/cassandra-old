@@ -29,13 +29,10 @@ import java.util.*;
 import org.apache.log4j.Logger;
 
 import org.apache.cassandra.db.Column;
-import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.ColumnKey;
-import org.apache.cassandra.utils.Pair;
 
 import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.Iterators;
-import com.google.common.collect.PeekingIterator;
 
 public class CompactionIterator extends AbstractIterator<CompactionSlice> implements Closeable
 {
@@ -224,13 +221,21 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
         // for each of the minimum slices
         for (SSTableScanner scanner : selected)
         {
-            // merge the first slice to the merge buffer
-            mergeToBuffer(scanner.get(), scanner.getColumns());
+            try
+            {
+                // merge the first slice to the merge buffer
+                mergeToBuffer(scanner.get(), scanner.getColumns());
 
-            // skip to the next slice
-            if (scanner.next())
-                // has more slices: add back to the queue to reprioritize
-                scanners.add(scanner);
+                // skip to the next slice
+                if (scanner.next())
+                    // has more slices: add back to the queue to reprioritize
+                    scanners.add(scanner);
+            }
+            catch (IOException e)
+            {
+                // FIXME: the iterator interface sucks for IO
+                throw new IOError(e);
+            }
         }
         return true;
     }
@@ -295,34 +300,6 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
         // we can only rethrow one exception, but we want to close all scanners
         if (e != null)
             throw e;
-    }
-
-    /**
-     * Extends Slice to add a list of Columns.
-     */
-    public static final class CompactionSlice extends Slice
-    {
-        public final List<Column> columns;
-
-        public CompactionSlice(ColumnKey key, Slice.Metadata meta)
-        {
-            super(meta, key);
-            this.columns = new ArrayList<Column>();
-        }
-
-        /**
-         * Digest the parent portion of the key, the metadata and the content of each
-         * column sequentially.
-         *
-         * NB: A sequence of columns with the same parents and metadata should always
-         * result in the same digest, no matter how it is split.
-         */
-        public byte[] digest()
-        {
-            // MerkleTree uses XOR internally, so we want lots of output bits here
-            // FIXME: byte[] rowhash = FBUtilities.hash("SHA-256", slice.key.key.getBytes(), row.buffer.getData());
-            throw new RuntimeException("Not implemented."); // FIXME
-        }
     }
 
     /**

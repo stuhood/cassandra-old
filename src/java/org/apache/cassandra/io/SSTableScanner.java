@@ -141,7 +141,7 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
      *
      * @return False if no such Slice was found.
      */
-    public boolean seekTo(ColumnKey seekKey)
+    public boolean seekTo(ColumnKey seekKey) throws IOException
     {
         // seek to the first slice greater than or equal to the key
         if (!seekBefore(seekKey))
@@ -158,7 +158,7 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
      * Seeks to the proper block for the given seekKey, and opens the first slice.
      * FIXME: optimize forward seeks within the same block by not resetting the block
      */
-    private boolean seekInternal(ColumnKey seekKey)
+    private boolean seekInternal(ColumnKey seekKey) throws IOException
     {
         long position = sstable.getBlockPosition(seekKey);
         if (position < 0)
@@ -231,7 +231,7 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
      * @return The current ColumnFamily, or null if get() would return null.
      */
     @Deprecated
-    public Pair<DecoratedKey,ColumnFamily> getCF()
+    public Pair<DecoratedKey,ColumnFamily> getCF() throws IOException
     {
         if (slice == null)
             return null;
@@ -280,7 +280,7 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
      * @return True if we are positioned at a valid slice and a call to next() will be
      * successful.
      */
-    public boolean hasNext() throws IOException
+    public boolean hasNext()
     {
         return slice != null && slice.nextKey != null;
     }
@@ -315,6 +315,7 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
         // finally, read the slice
         slice = SliceMark.deserialize(block.stream());
         sliceCols = null;
+        return true;
     }
 
     /**

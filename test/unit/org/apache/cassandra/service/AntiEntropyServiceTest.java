@@ -29,7 +29,7 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.io.CompactionIterator.CompactedRow;
+import org.apache.cassandra.io.CompactionSlice;
 import org.apache.cassandra.io.DataOutputBuffer;
 import org.apache.cassandra.locator.TokenMetadata;
 import static org.apache.cassandra.service.AntiEntropyService.*;
@@ -152,14 +152,14 @@ public class AntiEntropyServiceTest extends CleanupHelper
         validator.prepare();
 
         // add a row with the minimum token
-        validator.add(new CompactedRow(new DecoratedKey(min, "nonsense!"),
-                                       new DataOutputBuffer(),
-                                       null));
+        CompactionSlice slice = new CompactionSlice(new ColumnKey(new DecoratedKey(min, "nonsense!")),
+                                                    null);
+        validator.add(slice);
 
         // and a row after it
-        validator.add(new CompactedRow(new DecoratedKey(mid, "inconceivable!"),
-                                       new DataOutputBuffer(),
-                                       null));
+        slice = new CompactionSlice(new ColumnKey(new DecoratedKey(mid, "inconceivable!")),
+                                    null);
+        validator.add(slice);
         validator.complete();
 
         // confirm that the tree was validated

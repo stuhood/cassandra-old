@@ -382,7 +382,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     /**
      * @return A Scanner for this SSTable with given disk buffer size.
      */
-    public SSTableScanner getScanner(int bufferSize)
+    public SSTableScanner getScanner(int bufferSize) throws IOException
     {
         return new SSTableScanner(this, bufferSize);
     }

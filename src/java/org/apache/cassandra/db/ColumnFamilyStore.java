@@ -819,7 +819,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
             while (ci.hasNext())
             {
-                CompactionIterator.CompactionSlice slice = ci.next();
+                CompactionSlice slice = ci.next();
                 if (Range.isTokenInRanges(slice.key.dk.token, ranges))
                 {
                     if (writer == null)
@@ -920,7 +920,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             validator.prepare();
             while (ci.hasNext())
             {
-                CompactionIterator.CompactionSlice slice = ci.next();
+                CompactionSlice slice = ci.next();
                 for (Column column : slice.columns)
                     writer.append(slice.meta, slice.key, column);
                 validator.add(slice);
@@ -983,7 +983,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             validator.prepare();
             while (ci.hasNext())
             {
-                CompactionIterator.CompactedSlice slice = ci.next();
+                CompactionSlice slice = ci.next();
                 validator.add(slice);
             }
             validator.complete();
@@ -1312,27 +1312,9 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // sstables
         for (SSTableReader sstable : ssTables_)
         {
-            final SSTableScanner scanner = sstable.getScanner();
-            scanner.seekTo(startWithDK);
-            Iterator<DecoratedKey> iter = new CloseableIterator<DecoratedKey>()
-            {
-                public boolean hasNext()
-                {
-                    return scanner.hasNext();
-                }
-                public DecoratedKey next()
-                {
-                    return scanner.next().getKey();
-                }
-                public void remove()
-                {
-                    throw new UnsupportedOperationException();
-                }
-                public void close() throws IOException
-                {
-                    scanner.close();
-                }
-            };
+            final SSTableScanner scanner = sstable.getScanner(1 << 14);
+            scanner.seekBefore(startWithDK);
+            Iterator<DecoratedKey> iter = new DecoratedKeyIterator(scanner);
             assert iter instanceof Closeable; // otherwise we leak FDs
             iterators.add(iter);
         }
@@ -1431,27 +1413,9 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // sstables
         for (SSTableReader sstable : ssTables_)
         {
-            final SSTableScanner scanner = sstable.getScanner();
-            scanner.seekTo(startWith);
-            Iterator<DecoratedKey> iter = new CloseableIterator<DecoratedKey>()
-            {
-                public boolean hasNext()
-                {
-                    return scanner.hasNext();
-                }
-                public DecoratedKey next()
-                {
-                    return scanner.next().getKey();
-                }
-                public void remove()
-                {
-                    throw new UnsupportedOperationException();
-                }
-                public void close() throws IOException
-                {
-                    scanner.close();
-                }
-            };
+            final SSTableScanner scanner = sstable.getScanner(1 << 14);
+            scanner.seekBefore(startWith);
+            Iterator<DecoratedKey> iter = new DecoratedKeyIterator(scanner);
             assert iter instanceof Closeable; // otherwise we leak FDs
             iterators.add(iter);
         }
@@ -1594,4 +1558,38 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         ssTables_.clearUnsafe();
     }
 
+    /**
+     * Iterates over decorated keys in the given scanner. Will return keys once per
+     * slice.
+     */
+    public class DecoratedKeyIterator implements CloseableIterator<DecoratedKey>
+    {
+        private DecoratedKey key = null;
+        private SSTableScanner scanner;
+        public DecoratedKeyIterator(SSTableScanner scanner)
+        {
+            this.scanner = scanner;
+        }
+
+        public boolean hasNext()
+        {
+            if (key == null)
+                return scanner.hasNext();
+            return true;
+        }
+        public DecoratedKey next()
+        {
+            DecoratedKey oldKey = key;
+            key = scanner.get().key.dk;
+            return oldKey;
+        }
+        public void remove()
+        {
+            throw new UnsupportedOperationException();
+        }
+        public void close() throws IOException
+        {
+            scanner.close();
+        }
+    }
 }
