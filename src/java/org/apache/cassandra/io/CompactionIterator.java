@@ -117,7 +117,7 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
 
         BufferEntry buffcur = buffiter.hasNext() ? buffiter.next() : null;
         // Metadata for the slice as header
-        BufferEntry rhscur = new MetadataEntry(slice.currentKey, slice.meta);
+        BufferEntry rhscur = new MetadataEntry(slice.key, slice.meta);
         while (buffcur != null && rhscur != null)
         {
             // compare the heads
@@ -148,7 +148,7 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
                 do
                 {
                     Column column = rhsiter.next();
-                    rhscur = new ColumnEntry(slice.currentKey.withName(column.name()),
+                    rhscur = new ColumnEntry(slice.key.withName(column.name()),
                                              column);
 
                 // add the remainder of rhs to the end of the merge buffer
@@ -203,14 +203,14 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
             if (scanners.isEmpty())
                 // the merge buffer and scanner queue are empty. we're done!
                 return false;
-            minimum = scanners.peek().get().currentKey;
+            minimum = scanners.peek().get().key;
         }
         else
             minimum = mergeBuff.peek().key;
 
         // remove any scanners with keys less than or equal to the minimum
         List<SSTableScanner> selected = null;
-        while (!scanners.isEmpty() && comparator.compare(scanners.peek().get().currentKey, minimum) <= 0)
+        while (!scanners.isEmpty() && comparator.compare(scanners.peek().get().key, minimum) <= 0)
         {
             if (selected == null)
                 // lazily create list of scanners

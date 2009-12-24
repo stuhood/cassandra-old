@@ -820,7 +820,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             while (ci.hasNext())
             {
                 CompactionIterator.CompactionSlice slice = ci.next();
-                if (Range.isTokenInRanges(slice.currentKey.key.token, ranges))
+                if (Range.isTokenInRanges(slice.key.key.token, ranges))
                 {
                     if (writer == null)
                     {
@@ -830,7 +830,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
                     }
                     // FIXME: writer needs a Slice append
                     for (Column column : slice.columns)
-                        writer.append(slice.meta, slice.currentKey, column);
+                        writer.append(slice.meta, slice.key, column);
                     totalColsWritten++;
                 }
             }
@@ -922,7 +922,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             {
                 CompactionIterator.CompactionSlice slice = ci.next();
                 for (Column column : slice.columns)
-                    writer.append(slice.meta, slice.currentKey, column);
+                    writer.append(slice.meta, slice.key, column);
                 validator.add(slice);
                 totalkeysWritten++;
             }

@@ -226,7 +226,7 @@ public abstract class SSTable
      * Compared to the parent Slice class, a SliceMark adds a nextKey field, which
      * points to the first key of the next Slice on disk.
      *
-     * The Metadata in a Slice should affect any columns between currentKey,
+     * The Metadata in a Slice should affect any columns between key,
      * inclusive, and nextKey, exclusive. But, if it is acting as a tombstone, a
      * Slice on disk may not contain any columns at all.
      */
@@ -247,9 +247,9 @@ public abstract class SSTable
         // status of this slice in the current block
         public final byte status;
 
-        public SliceMark(Slice.Metadata meta, ColumnKey currentKey, ColumnKey nextKey, int length, int numCols, byte status)
+        public SliceMark(Slice.Metadata meta, ColumnKey key, ColumnKey nextKey, int length, int numCols, byte status)
         {
-            super(meta, currentKey);
+            super(meta, key);
             this.nextKey = nextKey;
             this.length = length;
             this.numCols = numCols;
@@ -258,7 +258,7 @@ public abstract class SSTable
 
         public void serialize(DataOutput dos) throws IOException
         {
-            currentKey.serialize(dos);
+            key.serialize(dos);
             // nextKey is nullable, indicating the end of the file
             dos.writeBoolean(nextKey != null);
             if (nextKey != null)
@@ -272,21 +272,21 @@ public abstract class SSTable
 
         public static SliceMark deserialize(DataInput dis) throws IOException
         {
-            ColumnKey currentKey = ColumnKey.deserialize(dis);
+            ColumnKey key = ColumnKey.deserialize(dis);
             ColumnKey nextKey = dis.readBoolean() ? ColumnKey.deserialize(dis) : null;
             Slice.Metadata meta = Slice.Metadata.deserialize(dis);
 
             int length = dis.readInt();
             int numCols = dis.readInt();
             byte status = dis.readByte();
-            return new SliceMark(meta, currentKey, nextKey,
+            return new SliceMark(meta, key, nextKey,
                                  length, numCols, status);
         }
 
         public String toString()
         {
             StringBuilder buff = new StringBuilder();
-            buff.append("#<SliceMark ").append(currentKey).append(" (");
+            buff.append("#<SliceMark ").append(key).append(" (");
             buff.append(numCols).append(") ").append(nextKey).append(">");
             return buff.toString();
         }

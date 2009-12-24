@@ -26,34 +26,32 @@ import org.apache.cassandra.utils.Pair;
 
 
 /**
- * An abstract, immutable object representing a Slice: a Slice is a sorted sequence
- * of columns beginning at currentKey (inclusive) that share the same parents, and
+ * An immutable object representing a Slice: a Slice is a sorted sequence
+ * of columns beginning at key (inclusive) that share the same parents, and
  * the same Metadata.
- *
- * TODO: diagram of 'natural' and 'artificial' slice boundaries?
  */
 public class Slice
 {
     public final Metadata meta;
     // the key of the first column: all but the last name will be equal for
     // columns in the slice
-    public final ColumnKey currentKey;
+    public final ColumnKey key;
 
     /**
      * @param meta Metadata for the key range this Slice defines.
-     * @param currentKey The key for the first column in the Slice.
+     * @param key The key for the first column in the Slice.
      */
-    Slice(Metadata meta, ColumnKey currentKey)
+    Slice(Metadata meta, ColumnKey key)
     {
-        assert meta != null && currentKey != null;
+        assert meta != null && key != null;
         this.meta = meta;
-        this.currentKey = currentKey;
+        this.key = key;
     }
 
     public String toString()
     {
         StringBuilder buff = new StringBuilder();
-        buff.append("#<Slice ").append(currentKey).append(" ").append(meta).append(">");
+        buff.append("#<Slice ").append(key).append(" ").append(meta).append(">");
         return buff.toString();
     }
 

@@ -39,7 +39,7 @@ import org.apache.log4j.Logger;
  * A Scanner is an abstraction for reading slices from an SSTable. In this
  * implementation, slices are read in forward order.
  *
- * Implements Comparable by comparing the currentKey of the current slice: this means
+ * Implements Comparable by comparing the key of the current slice: this means
  * that repositioning the scanner changes its comparison value.
  *
  * TODO: extract an SSTableScanner interface that will be shared between forward
@@ -121,7 +121,7 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
             return false;
 
         // seek forward within the block to the slice
-        while (comparator.compare(seekKey, slice.currentKey) > 0)
+        while (comparator.compare(seekKey, slice.key) > 0)
             if (!next())
                 // TODO: assert that this loop never seeks outside of a block
                 // reached the end of the file without finding a match
@@ -236,7 +236,7 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
         if (slice == null)
             return null;
 
-        ColumnKey firstKey = slice.currentKey;
+        ColumnKey firstKey = slice.key;
         DecoratedKey key = firstKey.key;
         ColumnFamily cf = ColumnFamily.create(sstable.getTableName(),
                                               sstable.getColumnFamilyName());
@@ -246,7 +246,7 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
 
         AbstractType subtype = cf.getSubComparator();
         boolean eof = false;
-        while (!eof && comparator.compare(firstKey, slice.currentKey, 0) == 0)
+        while (!eof && comparator.compare(firstKey, slice.key, 0) == 0)
         {
             if (!cf.isSuper())
             {
@@ -259,10 +259,10 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
             }
 
             // else: super: additional layer of metadata and names
-            SuperColumn supcol = new SuperColumn(slice.currentKey.name(1), subtype);
+            SuperColumn supcol = new SuperColumn(slice.key.name(1), subtype);
             supcol.markForDeleteAt(slice.meta.get(1).localDeletionTime,
                                    slice.meta.get(1).markedForDeleteAt);
-            while (!eof && comparator.compare(firstKey, slice.currentKey, 1) == 0)
+            while (!eof && comparator.compare(firstKey, slice.key, 1) == 0)
             {
                 for (Column column : getColumns())
                     supcol.addColumn(column);
@@ -318,11 +318,11 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
     }
 
     /**
-     * Inconsistent with equals: compares the currentKey of the current slice.
+     * Inconsistent with equals: compares the key of the current slice.
      * NB: The SSTableScanners must be at a valid position.
      */
     public int compareTo(SSTableScanner that)
     {
-        return comparator.compare(this.get().currentKey, that.get().currentKey);
+        return comparator.compare(this.get().key, that.get().key);
     }
 }
