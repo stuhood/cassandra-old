@@ -35,19 +35,22 @@ import com.google.common.base.Predicates;
 
 public class SSTableTest extends CleanupHelper
 {
+    public static final ColumnKey.Comparator COMPARATOR =
+        ColumnKey.getComparator(SSTableUtils.TABLENAME, SSTableUtils.CFNAME);
+
     @Test
     public void testSingleWrite() throws IOException {
         // write test data
-        String key = Integer.toString(1);
+        String strkey = Integer.toString(1);
+        byte[] name = "1".getBytes();
         byte[] byteval = new byte[1024];
         new Random().nextBytes(byteval);
-        Column col = new Column("1".getBytes(), byteval, System.currentTimeMillis());
+        ColumnKey key = new ColumnKey(StorageService.getPartitioner().decorateKey(strkey),
+                                      name);
+        Column col = new Column(name, byteval, System.currentTimeMillis());
 
-        TreeMap<ColumnKey, Column> map =
-            new TreeMap<ColumnKey, Column>(ColumnKey.getComparator(SSTableUtils.TABLENAME, SSTableUtils.CFNAME));
-        map.put(new ColumnKey(StorageService.getPartitioner().decorateKey(key),
-                              key.getBytes()),
-                col);
+        TreeMap<ColumnKey, Column> map = new TreeMap<ColumnKey, Column>(COMPARATOR);
+        map.put(key, col);
         SSTableReader ssTable = SSTableUtils.writeRawSSTable(SSTableUtils.TABLENAME, SSTableUtils.CFNAME, map);
 
         // verify
@@ -56,20 +59,54 @@ public class SSTableTest extends CleanupHelper
         verifySingle(ssTable, byteval, key);
     }
 
-    private void verifySingle(SSTableReader sstable, byte[] bytes, String key) throws IOException
+    private void verifySingle(SSTableReader sstable, byte[] value, ColumnKey key) throws IOException
     {
-        throw new RuntimeException("Not implemented"); // FIXME
+        BufferedRandomAccessFile file = new BufferedRandomAccessFile(sstable.getFilename(),
+                                                                     "r", 1 << 8);
+        try
+        {
+            // single block
+            SSTableReader.Block block = sstable.getBlock(file, 0);
+            assert block.stream().available() > 0 :
+                "Only " + block.stream().available() + " bytes available in block.";
+            SSTable.SliceMark slice = SSTable.SliceMark.deserialize(block.stream());
+
+            // single slice
+            assert slice.length > 0;
+            assert slice.numCols == 1;
+            assert slice.status == SSTable.SliceMark.BLOCK_END;
+            assert COMPARATOR.compare(slice.key, key, 0) == 0 :
+                "Natural slice boundary should have equal key";
+            assert COMPARATOR.compare(slice.key, key, 1) == 0 :
+                "Natural slice boundary should not have equal name";
+            assert slice.nextKey == null;
+
+            // single column
+            Column column = Column.serializer().deserialize(block.stream());
+            assert Arrays.equals(key.name(1), column.name());
+            assert Arrays.equals(value, column.value());
+
+            // nothing more in the block 
+            assert block.stream().available() == 0;
+        }
+        finally
+        {
+            file.close();
+        }
     }
 
+    /**
+     * Many slices, possibly in more than one block.
+     */
     @Test
     public void testManyWrites() throws IOException {
-        TreeMap<ColumnKey, Column> map =
-            new TreeMap<ColumnKey, Column>(ColumnKey.getComparator(SSTableUtils.TABLENAME, SSTableUtils.CFNAME));
+        TreeMap<ColumnKey, Column> map = new TreeMap<ColumnKey, Column>(COMPARATOR);
         for ( int i = 100; i < 1000; ++i )
         {
+            byte[] name = Integer.toString(i).getBytes();
             ColumnKey key = new ColumnKey(StorageService.getPartitioner().decorateKey(Integer.toString(i)),
-                                          Integer.toString(i).getBytes());
-            map.put(key, new Column((i + "").getBytes(),
+                                          name);
+            map.put(key, new Column(name,
                                     ("Avinash Lakshman is a good man: " + i).getBytes(),
                                     System.currentTimeMillis()));
         }
@@ -85,7 +122,38 @@ public class SSTableTest extends CleanupHelper
 
     private void verifyMany(SSTableReader sstable, TreeMap<ColumnKey, Column> map) throws IOException
     {
-        throw new RuntimeException("Not implemented"); // FIXME
+        BufferedRandomAccessFile file = new BufferedRandomAccessFile(sstable.getFilename(),
+                                                                     "r", 1 << 12);
+        try
+        {
+            Iterator<Map.Entry<ColumnKey, Column>> columns = map.entrySet().iterator();
+            SSTableReader.Block block = sstable.getBlock(file, 0);
+            SSTable.SliceMark slice = null;
+
+            while (true)
+            {
+                slice = SSTable.SliceMark.deserialize(block.stream());
+
+                for (int i = 0; i < slice.numCols; i++)
+                {
+                    Column column = Column.serializer().deserialize(block.stream());
+                    Map.Entry<ColumnKey,Column> colentry = columns.next();
+                    assert Arrays.equals(colentry.getKey().name(1), column.name());
+                    assert Arrays.equals(colentry.getValue().value(), column.value());
+                }
+                
+                if (slice.nextKey == null)
+                    break;
+                if (slice.status == SSTable.SliceMark.BLOCK_END)
+                    block = sstable.getBlock(file, file.getFilePointer());
+            }
+
+            assert !columns.hasNext();
+        }
+        finally
+        {
+            file.close();
+        }
     }
 
     @Test
@@ -97,8 +165,7 @@ public class SSTableTest extends CleanupHelper
         int columnBytes = 0;
         final String magic = "MAGIC!";
 
-        TreeMap<ColumnKey, Column> map =
-            new TreeMap<ColumnKey, Column>(ColumnKey.getComparator(SSTableUtils.TABLENAME, SSTableUtils.CFNAME));
+        TreeMap<ColumnKey, Column> map = new TreeMap<ColumnKey, Column>(COMPARATOR);
         for (int i = 0; i < numkeys; i++)
         {
             String stringKey = magic + Integer.toString(i);

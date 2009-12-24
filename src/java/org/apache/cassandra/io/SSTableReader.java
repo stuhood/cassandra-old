@@ -457,6 +457,10 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
          * beginning of the block. Calling stream() additional times will return the
          * same stream object until reset() is called.
          *
+         * TODO: This stream is unbounded, so for an uncompressed block, a bad caller
+         * could read past a BLOCK_END slicemark into the next block. For a compressed
+         * stream, the compression format will prevent this.
+         *
          * @return An InputStream appropriate for reading the content of this block
          * from disk.
          */
