@@ -93,12 +93,6 @@ public class ColumnFamilySerializer implements ICompactSerializer2<ColumnFamily>
         }
     }
 
-    public void serializeWithIndexes(ColumnFamily columnFamily, DataOutput dos)
-    {
-        ColumnIndexer.serialize(columnFamily, dos);
-        serializeForSSTable(columnFamily, dos);
-    }
-
     public ColumnFamily deserialize(DataInput dis) throws IOException
     {
         String cfName = dis.readUTF();

@@ -33,6 +33,9 @@ import org.apache.cassandra.service.StorageService;
  */
 public class ColumnKey
 {
+    // singleton empty name
+    private final byte[] EMPTY_NAME = new byte[0];
+
     public final DecoratedKey dk;
     // FIXME: more efficient structure? perhaps model after Slice.Metadata?
     public final byte[][] names;
@@ -50,12 +53,20 @@ public class ColumnKey
      */
     public ColumnKey withName(byte[] name)
     {
-        assert names.length > 0;
+        assert names.length > 0 && name != null;
 
         // shallow copy of the names
         byte[][] namesClone = Arrays.copyOf(names, names.length);
         namesClone[namesClone.length-1] = name;
         return new ColumnKey(dk, namesClone);
+    }
+
+    /**
+     * @return A clone of this ColumnKey, with the least significant name cleared.
+     */
+    public ColumnKey parent()
+    {
+        return withName(EMPTY_NAME);
     }
 
     /**
@@ -71,7 +82,7 @@ public class ColumnKey
      * Returns a comparator that compares ColumnKeys by dk and then names, using
      * the appropriate comparator at each level. The ColumnKeys must contain
      * an equal number of names: for example, a ColumnFamily containing columns
-     * of type super, should always have name.length == 2, although tailing null
+     * of type super, should always have name.length == 2, although tailing empty
      * names can be used to match the beginning of a subrange for instance.
      */
     public static ColumnKey.Comparator getComparator(String table, String cf)

@@ -136,7 +136,7 @@ public class SSTableWriter extends SSTable
         if (blockContext.getApproxSliceLength() > TARGET_MAX_SLICE_BYTES)
             // max slice length reached: artificial boundary
             return columnKey;
-        if (!blockContext.getMeta().equals(meta))
+        if (!meta.equals(blockContext.getMeta()))
             // metadata changed: artificial boundary
             return columnKey;
 
@@ -145,7 +145,7 @@ public class SSTableWriter extends SSTable
             lastWrittenKey + " Current key : " + columnKey + " Writing to " + path;
         if (comparison < 0)
             // name changed at sliceDepth: natural boundary
-            return columnKey.withName(null);
+            return columnKey.parent();
         return null;
     }
 
@@ -162,7 +162,7 @@ public class SSTableWriter extends SSTable
         if (lastWrittenKey == null)
         {
             // we're beginning the first slice: natural boundary
-            blockContext.resetSlice(meta, columnKey.withName(null));
+            blockContext.resetSlice(meta, columnKey.parent());
             return true;
         }
 

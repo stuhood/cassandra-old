@@ -47,11 +47,7 @@ public class ColumnSerializer implements ICompactSerializer2<IColumn>
 
     public static byte[] readName(DataInput in) throws IOException
     {
-        int length = 0;
-        length |= (in.readByte() & 0xFF) << 8;
-        length |= in.readByte() & 0xFF;
-        if (!(0 <= length && length <= IColumn.MAX_NAME_LENGTH))
-            throw new IOException("Corrupt name length " + length);
+        short length = in.readShort();
         byte[] bytes = new byte[length];
         in.readFully(bytes);
         return bytes;

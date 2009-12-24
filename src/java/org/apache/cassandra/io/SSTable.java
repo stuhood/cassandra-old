@@ -279,8 +279,7 @@ public abstract class SSTable
             int length = dis.readInt();
             int numCols = dis.readInt();
             byte status = dis.readByte();
-            return new SliceMark(meta, key, nextKey,
-                                 length, numCols, status);
+            return new SliceMark(meta, key, nextKey, length, numCols, status);
         }
 
         public String toString()

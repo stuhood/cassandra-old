@@ -384,7 +384,14 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
      */
     public SSTableScanner getScanner(int bufferSize) throws IOException
     {
-        return new SSTableScanner(this, bufferSize);
+        try
+        {
+            return new SSTableScanner(this, bufferSize);
+        }
+        catch (IOException e)
+        {
+            throw new IOException("Could not open scanner for " + path, e);
+        }
     }
 
     /**

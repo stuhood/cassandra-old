@@ -71,7 +71,7 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
 
         file = new BufferedRandomAccessFile(sstable.getFilename(), "r",
                                             bufferSize);
-        if (file.length() > 0)
+        if (file.length() < 1)
             throw new IOException("Cannot scan empty file!");
 
         // an sstable must contain at least one block and slice

@@ -113,9 +113,10 @@ public class SSTableUtils
         File f = tempSSTableFile(tablename, cfname);
         SSTableWriter writer = new SSTableWriter(f.getAbsolutePath(), entries.size(), StorageService.getPartitioner());
 
+        Slice.Metadata meta = new Slice.Metadata();
         for (Map.Entry<ColumnKey, Column> entry : entries.entrySet())
         {
-            writer.append(null, entry.getKey(), entry.getValue());
+            writer.append(meta, entry.getKey(), entry.getValue());
         }
         new File(writer.indexFilename()).deleteOnExit();
         new File(writer.filterFilename()).deleteOnExit();
