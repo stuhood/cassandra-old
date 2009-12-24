@@ -18,10 +18,7 @@
 
 package org.apache.cassandra.io;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.RandomAccessFile;
+import java.io.*;
 import java.util.Arrays;
 
 /**
@@ -267,7 +264,17 @@ public final class BufferedRandomAccessFile extends RandomAccessFile
         }
         this.curr_ = pos;
     }
-    
+
+    /**
+     * @return An input stream that utilizes the buffer of the random access file,
+     * positioned at the current position of the file. Reading from the stream will
+     * move the file pointer, but closing the stream will have no effect.
+     */
+    public InputStream inputStream()
+    {
+        return new BRAFInputStream(this);
+    }
+
     public long getFilePointer()
     {
         return this.curr_;
@@ -396,5 +403,74 @@ public final class BufferedRandomAccessFile extends RandomAccessFile
         System.arraycopy(b, off, this.buff_, buffOff, len);
         this.curr_ += len;
         return len;
+    }
+
+    /**
+     * An input stream which utilizes the buffer of the BRAF.
+     */
+    public static class BRAFInputStream extends InputStream
+    {
+        private final BufferedRandomAccessFile file;
+        BRAFInputStream(BufferedRandomAccessFile file)
+        {
+            this.file = file;
+        }
+
+        @Override
+        public int available() throws IOException
+        {
+            // amount remaining in the buffer
+            return (int)Math.min(file.hi_ - file.curr_, Integer.MAX_VALUE);
+        }
+        
+        @Override
+        public void close() throws IOException
+        {
+            // pass
+        }
+
+        @Override
+        public long skip(long n) throws IOException
+        {
+            long skip = Math.min(file.length() - file.curr_, n);
+            file.seek(file.curr_ + skip);
+            return skip;
+        }
+
+        @Override
+        public int read() throws IOException
+        {
+            return file.read();
+        }
+
+        @Override
+        public int read(byte[] b) throws IOException
+        {
+            return file.read(b);
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException
+        {
+            return file.read(b, off, len);
+        }
+
+        @Override
+        public boolean markSupported()
+        {
+            return false;
+        }
+
+        @Override
+        public void mark(int readlimit)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void reset()
+        {
+            throw new UnsupportedOperationException();
+        }
     }
 }
