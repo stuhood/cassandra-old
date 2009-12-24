@@ -93,7 +93,7 @@ public abstract class SSTable
         this.indexEntries = new ArrayList<IndexEntry>();
         this.comparator = ColumnKey.getComparator(getTableName(), getColumnFamilyName());
 
-        columnDepth = "Super".equals(DatabaseDescriptor.getColumnFamilyType(getTableName(), getColumnFamilyName())) ? 1 : 0;
+        columnDepth = "Super".equals(DatabaseDescriptor.getColumnFamilyType(getTableName(), getColumnFamilyName())) ? 2 : 1;
     }
 
     /**

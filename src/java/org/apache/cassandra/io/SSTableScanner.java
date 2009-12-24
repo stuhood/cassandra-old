@@ -104,7 +104,7 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
     {
         // a ColumnKey with null names compares less than any slice with
         // this DecoratedKey
-        return seekBefore(new ColumnKey(seekKey, new byte[sstable.getColumnDepth()][]));
+        return seekBefore(new ColumnKey(seekKey, sstable.getColumnDepth()));
     }
 
     /**

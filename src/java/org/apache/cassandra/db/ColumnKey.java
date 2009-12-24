@@ -40,6 +40,19 @@ public class ColumnKey
     // FIXME: more efficient structure? perhaps model after Slice.Metadata?
     public final byte[][] names;
 
+    /**
+     * Creates a column key wrapping a DecoratedKey, but with empty names to the
+     * given depth.
+     */
+    public ColumnKey(DecoratedKey dk, int depth)
+    {
+        assert 0 < depth && depth < Byte.MAX_VALUE;
+        this.dk = dk;
+        this.names = new byte[depth][];
+        for (int i = 0; i < names.length; i++)
+            this.names[i] = EMPTY_NAME;
+    }
+
     public ColumnKey(DecoratedKey dk, byte[]... names)
     {
         assert names.length < Byte.MAX_VALUE;

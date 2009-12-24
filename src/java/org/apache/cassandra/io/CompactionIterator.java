@@ -48,11 +48,9 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
     private final boolean major;
 
     /**
-     * The comparator and columnDepth, which should be the same for all SSTables we
-     * are compacting.
+     * The comparator for all SSTables we are compacting.
      */
     private final ColumnKey.Comparator comparator;
-    private final int columnDepth;
     /**
      * Scanners are kept sorted by the key of the Slice they are positioned at.
      */
@@ -92,7 +90,6 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
         // fields shared for all sstables
         SSTableReader head = sstables.iterator().next();
         this.comparator = head.getComparator();
-        this.columnDepth = head.getColumnDepth();
 
         // open all scanners
         int bufferPer = TOTAL_FILE_BUFFER_BYTES / sstables.size();
