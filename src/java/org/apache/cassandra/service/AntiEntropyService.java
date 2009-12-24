@@ -32,7 +32,7 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Table;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.io.CompactionIterator.CompactedRow;
+import org.apache.cassandra.io.CompactionIterator.CompactionSlice;
 import org.apache.cassandra.io.DataInputBuffer;
 import org.apache.cassandra.io.ICompactSerializer;
 import org.apache.cassandra.io.SSTable;
@@ -72,8 +72,8 @@ import com.google.common.base.Predicates;
  * 2. The compaction process validates the column family by:
  *   * Calling getValidator(), which can return a NoopValidator if validation should not be performed,
  *   * Calling IValidator.prepare(), which samples the column family to determine key distribution,
- *   * Calling IValidator.add() in order for every row in the column family,
- *   * Calling IValidator.complete() to indicate that all rows have been added.
+ *   * Calling IValidator.add() in order for every column in the column family,
+ *   * Calling IValidator.complete() to indicate that all columns have been added.
  *     * If getValidator decided that the column family should be validated, calling complete()
  *       indicates that a valid MerkleTree has been created for the column family.
  *     * The valid tree is broadcast to neighboring nodes via TreeResponse, and stored locally.
@@ -336,7 +336,7 @@ public class AntiEntropyService
     public static interface IValidator
     {
         public void prepare();
-        public void add(CompactedRow row);
+        public void add(CompactionSlice slice);
         public void complete();
     }
 
@@ -413,8 +413,8 @@ public class AntiEntropyService
         }
 
         /**
-         * Called (in order) for every row present in the CF.
-         * Hashes the row, and adds it to the tree being built.
+         * Called (in order) for every column present in the CF.
+         * Hashes a batch of columns, and adds them to the tree being built.
          *
          * There are four possible cases:
          *  1. Token is greater than range.right (we haven't generated a range for it yet),
@@ -428,19 +428,19 @@ public class AntiEntropyService
          * Additionally, there is a special case for the minimum token, because
          * although it sorts first, it is contained in the last possible range.
          *
-         * @param row The row.
+         * @param slice A batch of columns.
          */
-        public void add(CompactedRow row)
+        public void add(CompactionSlice slice)
         {
             if (mintoken != null)
             {
                 assert ranges != null : "Validator was not prepared()";
 
                 // check for the minimum token special case
-                if (row.key.token.compareTo(mintoken) == 0)
+                if (slice.key.dk.token.compareTo(mintoken) == 0)
                 {
                     // and store it to be appended when we complete
-                    minrows.add(rowHash(row));
+                    minrows.add(rowHash(slice));
                     return;
                 }
                 mintoken = null;
@@ -450,23 +450,21 @@ public class AntiEntropyService
                 range = ranges.next();
 
             // generate new ranges as long as case 1 is true
-            while (!range.contains(row.key.token))
+            while (!range.contains(slice.key.dk.token))
             {
                 // add the empty hash, and move to the next range
                 range.addHash(EMPTY_ROW);
                 range = ranges.next();
             }
 
-            // case 3 must be true: mix in the hashed row
-            range.addHash(rowHash(row));
+            // case 3 must be true: mix in the hashed slice
+            range.addHash(rowHash(slice));
         }
 
-        private MerkleTree.RowHash rowHash(CompactedRow row)
+        private MerkleTree.RowHash rowHash(CompactionSlice slice)
         {
             validated++;
-            // MerkleTree uses XOR internally, so we want lots of output bits here
-            byte[] rowhash = FBUtilities.hash("SHA-256", row.key.key.getBytes(), row.buffer.getData());
-            return new MerkleTree.RowHash(row.key.token, rowhash);
+            return new MerkleTree.RowHash(slice.key.dk.token, slice.digest());
         }
 
         /**
@@ -489,7 +487,7 @@ public class AntiEntropyService
                     range.addHash(minrow);
 
             StageManager.getStage(AE_SERVICE_STAGE).execute(this);
-            logger.debug("Validated " + validated + " rows into AEService tree for " + cf);
+            logger.debug("Validated " + validated + " slices into AEService tree for " + cf);
         }
         
         /**
@@ -531,7 +529,7 @@ public class AntiEntropyService
         /**
          * Does nothing.
          */
-        public void add(CompactedRow row)
+        public void add(CompactionSlice row)
         {
             // noop
         }

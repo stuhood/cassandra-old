@@ -319,6 +319,8 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
          */
         public byte[] digest()
         {
+            // MerkleTree uses XOR internally, so we want lots of output bits here
+            // FIXME: byte[] rowhash = FBUtilities.hash("SHA-256", slice.key.key.getBytes(), row.buffer.getData());
             throw new RuntimeException("Not implemented."); // FIXME
         }
     }

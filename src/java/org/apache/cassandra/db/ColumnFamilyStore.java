@@ -820,7 +820,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             while (ci.hasNext())
             {
                 CompactionIterator.CompactionSlice slice = ci.next();
-                if (Range.isTokenInRanges(slice.key.key.token, ranges))
+                if (Range.isTokenInRanges(slice.key.dk.token, ranges))
                 {
                     if (writer == null)
                     {
@@ -970,7 +970,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     /**
      * Performs a readonly "compaction" of all sstables in order to validate complete rows,
-     * but without writing the merge result
+     * but without writing the merge result.
      */
     void doReadonlyCompaction(InetAddress initiator) throws IOException
     {
@@ -978,15 +978,13 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         CompactionIterator ci = new CompactionIterator(sstables, getDefaultGCBefore(), true);
         try
         {
-            Iterator<CompactionIterator.CompactedRow> nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
-
             // validate the CF as we iterate over it
             AntiEntropyService.IValidator validator = AntiEntropyService.instance().getValidator(table_, columnFamily_, initiator, true);
             validator.prepare();
-            while (nni.hasNext())
+            while (ci.hasNext())
             {
-                CompactionIterator.CompactedRow row = nni.next();
-                validator.add(row);
+                CompactionIterator.CompactedSlice slice = ci.next();
+                validator.add(slice);
             }
             validator.complete();
         }
