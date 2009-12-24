@@ -73,11 +73,11 @@ public class SSTableTest extends CleanupHelper
 
             // single slice
             assert slice.length > 0;
-            assert slice.numCols == 1;
+            assertEquals(1, slice.numCols);
             assert slice.status == SSTable.SliceMark.BLOCK_END;
             assert COMPARATOR.compare(slice.key, key, 0) == 0 :
                 "Natural slice boundary should have equal key";
-            assert COMPARATOR.compare(slice.key, key, 1) == 0 :
+            assert COMPARATOR.compare(slice.key, key, 1) != 0 :
                 "Natural slice boundary should not have equal name";
             assert slice.nextKey == null;
 
@@ -87,7 +87,7 @@ public class SSTableTest extends CleanupHelper
             assert Arrays.equals(value, column.value());
 
             // nothing more in the block 
-            assert block.stream().available() == 0;
+            assertEquals(block.stream().available(), 0);
         }
         finally
         {

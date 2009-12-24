@@ -150,14 +150,14 @@ public class Slice
          */
         public static Metadata deserialize(DataInput dis) throws IOException
         {
-            byte depth = dis.readByte();
-            return deserialize(dis, depth);
+            byte remaining = dis.readByte();
+            return deserialize(dis, remaining);
         }
 
-        private static Metadata deserialize(DataInput dis, byte depth) throws IOException
+        private static Metadata deserialize(DataInput dis, byte remaining) throws IOException
         {
             return new Metadata(dis.readLong(), dis.readInt(),
-                                (depth == 0 ? null : deserialize(dis, --depth)));
+                                --remaining == 0 ? null : deserialize(dis, remaining));
         }
     }
 }
