@@ -18,9 +18,7 @@
 
 package org.apache.cassandra.db;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.Closeable;
+import java.io.*;
 import java.lang.management.ManagementFactory;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
@@ -58,6 +56,7 @@ import org.apache.commons.collections.iterators.FilterIterator;
 import org.cliffc.high_scale_lib.NonBlockingHashMap;
 
 import com.google.common.base.Predicate;
+import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.Iterators;
 
 public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
@@ -1559,34 +1558,36 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
     }
 
     /**
-     * Iterates over decorated keys in the given scanner. Will return keys once per
-     * slice.
+     * Iterates over decorated keys in the given scanner. May return individual keys
+     * more than once, since it returns them for each slice.
      */
-    public class DecoratedKeyIterator implements CloseableIterator<DecoratedKey>
+    public class DecoratedKeyIterator extends AbstractIterator<DecoratedKey> implements CloseableIterator<DecoratedKey>
     {
-        private DecoratedKey key = null;
         private SSTableScanner scanner;
         public DecoratedKeyIterator(SSTableScanner scanner)
         {
+            super();
             this.scanner = scanner;
         }
 
-        public boolean hasNext()
+        @Override
+        public DecoratedKey computeNext()
         {
-            if (key == null)
-                return scanner.hasNext();
-            return true;
+            try
+            {
+                if (scanner.get() == null && !scanner.next())
+                    return endOfData();
+                DecoratedKey key = scanner.get().key.dk;
+                scanner.next();
+                return key;
+            }
+            catch (IOException e)
+            {
+                // TODO: iterator is a terrible interface for io
+                throw new IOError(e);
+            }
         }
-        public DecoratedKey next()
-        {
-            DecoratedKey oldKey = key;
-            key = scanner.get().key.dk;
-            return oldKey;
-        }
-        public void remove()
-        {
-            throw new UnsupportedOperationException();
-        }
+
         public void close() throws IOException
         {
             scanner.close();

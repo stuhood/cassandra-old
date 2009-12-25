@@ -121,8 +121,7 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
                 buffcur = null;
             else if (comp == 0)
             {
-                // buffcur and rhscur have equal keys (meaning they have equal types as well):
-                // resolve them and replace buffcur
+                // buffcur and rhscur have equal keys and types: resolve and replace buffcur
                 buffcur = resolveEntries(buffcur, rhscur);
                 buffiter.set(buffcur);
                 rhscur = null;
@@ -132,6 +131,7 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
                 // insert smaller entry from rhs before buffcur in the merge buffer
                 buffiter.set(rhscur);
                 buffiter.add(buffcur);
+                buffiter.previous();
                 rhscur = null;
             }
 
@@ -139,18 +139,23 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
                 buffcur = buffiter.next();
             if (rhscur == null && rhsiter.hasNext())
             {
-                do
-                {
-                    Column column = rhsiter.next();
-                    rhscur = new ColumnEntry(slice.key.withName(column.name()),
-                                             column);
-
-                // add the remainder of rhs to the end of the merge buffer
-                } while(buffcur == null && rhsiter.hasNext());
+                Column column = rhsiter.next();
+                rhscur = new ColumnEntry(slice.key.withName(column.name()),
+                                         column);
             }
         }
+
+        // add the remainder of rhs to the end of the merge buffer
+        if (rhscur != null)
+            mergeBuff.add(rhscur);
+        while(rhsiter.hasNext())
+        {
+            Column column = rhsiter.next();
+            mergeBuff.add(new ColumnEntry(slice.key.withName(column.name()),
+                                          column));
+        }
         
-        logger.trace("Added " + rhs.size() + " items to merge buffer. Contains " +
+        logger.trace("Added " + (rhs.size()+1) + " items to merge buffer. Contains " +
             mergeBuff.size()); // FIXME
     }
 
