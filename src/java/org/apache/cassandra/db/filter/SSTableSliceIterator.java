@@ -22,239 +22,125 @@ package org.apache.cassandra.db.filter;
 
 
 import java.util.*;
+import java.io.IOError;
 import java.io.IOException;
 
-import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.IColumn;
-import org.apache.cassandra.db.ColumnFamily;
-import org.apache.cassandra.db.ColumnKey;
-import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.*;
 import org.apache.cassandra.io.*;
-import org.apache.cassandra.utils.Pair;
-
+import org.apache.cassandra.config.DatabaseDescriptor;
 import com.google.common.collect.AbstractIterator;
-import com.google.common.collect.Iterators;
-import com.google.common.collect.PeekingIterator;
 
 /**
- * A Column Iterator over a user defined slice of columns in a key.
- *
- * FIXME: This class is basically stubbed at the moment.
+ * An Iterator over the first layer of IColumns in an SSTable.
  */
 class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIterator
 {
     private final boolean reversed;
-    private final byte[] startColumn;
-    private final byte[] finishColumn;
-    private final AbstractType comparator;
-    private ColumnGroupReader reader;
+    private final ColumnKey startKey;
+    private final ColumnKey finishKey;
+   
+    private final SSTableScanner scanner;
+    private final ColumnKey.Comparator comparator;
+
+    // unreturned columns from the previous slice
+    private final Deque<IColumn> buffer = new ArrayDeque<IColumn>();
+
+    private ColumnFamily cf;
 
     public SSTableSliceIterator(SSTableReader ssTable, String key, byte[] startColumn, byte[] finishColumn, boolean reversed)
     throws IOException
     {
         this.reversed = reversed;
+        assert !reversed : "Not implemented"; // FIXME: need reverse scanner here
 
-        // FIXME: to do this correctly, we need to implement a reverse scanner class,
-        // preferably with the same interface, so that it can be used transparently
-        assert !reversed : "Not implemented.";
-
-        /* Morph key into actual key based on the partition type. */
-        DecoratedKey decoratedKey = ssTable.getPartitioner().decorateKey(key);
-        // FIXME long position = ssTable.getPosition(decoratedKey);
-        long position = 0;
-        this.comparator = ssTable.getColumnComparator();
-        this.startColumn = startColumn;
-        this.finishColumn = finishColumn;
-        if (position >= 0)
-            reader = new ColumnGroupReader(ssTable, decoratedKey, position);
-    }
-
-    private boolean isColumnNeeded(IColumn column)
-    {
-        if (startColumn.length == 0 && finishColumn.length == 0)
-            return true;
-        else if (startColumn.length == 0 && !reversed)
-            return comparator.compare(column.name(), finishColumn) <= 0;
-        else if (startColumn.length == 0 && reversed)
-            return comparator.compare(column.name(), finishColumn) >= 0;
-        else if (finishColumn.length == 0 && !reversed)
-            return comparator.compare(column.name(), startColumn) >= 0;
-        else if (finishColumn.length == 0 && reversed)
-            return comparator.compare(column.name(), startColumn) <= 0;
-        else if (!reversed)
-            return comparator.compare(column.name(), startColumn) >= 0 && comparator.compare(column.name(), finishColumn) <= 0;
-        else // if reversed
-            return comparator.compare(column.name(), startColumn) <= 0 && comparator.compare(column.name(), finishColumn) >= 0;
+        // morph string and columns into keys based on the partition type and depth
+        DecoratedKey dk = ssTable.getPartitioner().decorateKey(key);
+        startKey = new ColumnKey(dk, ssTable.getColumnDepth(), startColumn);
+        // NB: this interface uses the empty name for an unbounded match, but
+        // ColumnKey uses NAME_END
+        finishKey = new ColumnKey(dk, ssTable.getColumnDepth(),
+                                  finishColumn.length == 0 ? ColumnKey.NAME_END : finishColumn);
+        
+        // seek to the slice which might contain the first column
+        scanner = ssTable.getScanner(DatabaseDescriptor.getSlicedReadBufferSizeInKB() * 1024);
+        scanner.seekTo(startKey);
+        comparator = scanner.comparator();
     }
 
     public ColumnFamily getColumnFamily()
     {
-        return reader.getEmptyColumnFamily();
+        return cf;
     }
 
+    /**
+     * Calculates the next (complex) column at depth 1 by iterating over slices
+     * with our decorated key, and buffering Columns a slice at a time.
+     */
+    @Override
     protected IColumn computeNext()
     {
-        if (reader == null)
-            return endOfData();
-
-        while (true)
+        try
         {
-            IColumn column = reader.pollColumn();
-            if (column == null)
-                return endOfData();
-            if (isColumnNeeded(column))
-                return column;
+            return computeNextUnsafe();
         }
+        catch (IOException e)
+        {
+            throw new IOError(e);
+        }
+    }
+
+    private IColumn computeNextUnsafe() throws IOException
+    {
+        while (buffer.isEmpty() && scanner.get() != null)
+        {
+            if (comparator.compare(startKey, scanner.get().key, 0) > 0 &&
+                comparator.compare(scanner.get().key, finishKey, 0) > 0)
+                // our decorated key doesn't match this slice
+                break;
+            
+            if (cf == null)
+            {
+                // build an empty column family using the root metadata of this slice
+                cf = scanner.sstable().makeColumnFamily();
+                Slice.Metadata meta = scanner.get().meta.get(0);
+                cf.delete(meta.localDeletionTime, meta.markedForDeleteAt);
+            }
+
+            // TODO: be optimistic, and peek() on the scanner to see if the whole
+            // slice can be buffered without more comparisons
+
+            // buffer any interesting columns in this slice
+            if (scanner.sstable().getColumnDepth() == 1)
+            {
+                // standard CF: buffer columns from the slice
+                for (Column col : scanner.getColumns())
+                {
+                    if (comparator.compareAt(col.name(), startKey.name(1), 1) < 0)
+                        // column name less than starting key
+                        continue;
+                    if (comparator.compareAt(finishKey.name(1), col.name(), 1) < 0)
+                        // column name greater than finishing key
+                        break; // inner loop
+
+                    buffer.add(col);
+                }
+            }
+            else
+            {
+                // super CF: multiple slices may go into each returned super column
+                throw new RuntimeException("Not implemented"); // FIXME
+            }
+
+            // move to next slice
+            scanner.next();
+        }
+
+        // return a buffered column
+        return buffer.isEmpty() ? endOfData() : buffer.poll();
     }
 
     public void close() throws IOException
     {
-        if (reader != null)
-            reader.close();
-    }
-
-    /**
-     *  This is a reader that finds the block for a starting column and returns
-     *  blocks before/after it for each next call. This function assumes that
-     *  the CF is sorted by name and exploits the name index.
-     *
-     *  TODO: convert into google collections AbstractIterator
-     */
-    class ColumnGroupReader
-    {
-        private final ColumnFamily emptyColumnFamily;
-
-        private final BufferedRandomAccessFile file;
-        // buffer of collected columns
-        private final Deque<IColumn> blockColumns = new ArrayDeque<IColumn>();
-        // an iterator over index entries for this range in the proper order
-        private final PeekingIterator<IndexEntry> blocksToScan;
-
-        private final byte[] leftColumn;
-        private final byte[] rightColumn;
-
-        /**
-         * @param indexEntries A subset of the SSTable index covering the relevant
-         * range. If the range is unbounded, the first and last entries are guaranteed
-         * to point to the first and last columns for the given key.
-         */
-        public ColumnGroupReader(SSTableReader ssTable, DecoratedKey key, long position) throws IOException
-        {
-            this.file = new BufferedRandomAccessFile(ssTable.getFilename(), "r", DatabaseDescriptor.getSlicedReadBufferSizeInKB() * 1024);
-
-            file.seek(position);
-            DecoratedKey keyInDisk = ssTable.getPartitioner().convertFromDiskFormat(file.readUTF());
-            assert keyInDisk.equals(key);
-
-            // FIXME
-            emptyColumnFamily = ColumnFamily.create(ssTable.getTableName(), ssTable.getColumnFamilyName());
-            // FIXME
-            blocksToScan = Iterators.peekingIterator(Collections.<IndexEntry>emptyList().iterator());
-
-            // within a block on disk, we always read columns from left to right, so
-            // redefine startColumn and finishColumn in those terms
-            leftColumn = reversed ? finishColumn : startColumn;
-            rightColumn = reversed ? startColumn : finishColumn;
-        }
-
-        public ColumnFamily getEmptyColumnFamily()
-        {
-            return emptyColumnFamily;
-        }
-
-        public IColumn pollColumn()
-        {
-            IColumn column = blockColumns.poll();
-            if (column == null)
-            {
-                try
-                {
-                    if (getNextBlock())
-                        column = blockColumns.poll();
-                }
-                catch (IOException e)
-                {
-                    throw new RuntimeException(e);
-                }
-            }
-            return column;
-        }
-
-        public boolean getNextBlock() throws IOException
-        {
-            if (!blocksToScan.hasNext())
-                return false;
-
-            boolean found = false;
-            IColumn column = null;
-            Pair<IndexEntry,IndexEntry> block = nextBlock();
-
-            // start from block.left, and read until we see the first column we want
-            file.seek(block.left.dataOffset);
-            while (blocksToScan.hasNext())
-            {
-                column = emptyColumnFamily.getColumnSerializer().deserialize(file);
-                if (leftColumn.length == 0 || comparator.compare(leftColumn, column.name()) <= 0)
-                {
-                    // this column is the first in the block to fall into the range!
-                    found = true;
-                    break;
-                }
-
-                if (file.getFilePointer() > block.right.dataOffset)
-                    // this block is exhausted. generate the next
-                    block = nextBlock();
-            }
-
-            if (!found)
-                // no more blocks intersecting the range, and no initial column
-                return false;
-            bufferColumn(column);
-
-            // read from the block until it is exhausted
-            while (file.getFilePointer() <= block.right.dataOffset)
-            {
-                column = emptyColumnFamily.getColumnSerializer().deserialize(file);
-
-                if (rightColumn.length != 0 && comparator.compare(rightColumn, column.name()) < 0)
-                    // column is outside the range
-                    break;
-
-                // found one: continue buffering until the end of the range or block
-                bufferColumn(column);
-            }
-            return true;
-        }
-
-        /**
-         * Calls blocksToScan.next() once, and then peeks at the next entry.
-         * In a reversed query for example, the iterator is reversed, so the
-         * first block returned will be the last block in the range.
-         *
-         * @return The positions of the first and last columns in the block.
-         */
-        private Pair<IndexEntry, IndexEntry> nextBlock()
-        {
-            IndexEntry first = blocksToScan.next();
-            IndexEntry second = blocksToScan.peek();
-            return reversed ? new Pair(second, first) : new Pair(first, second);
-        }
-
-        /**
-         * Buffers the given column for return by pollColumn
-         */
-        private void bufferColumn(IColumn column)
-        {
-            if (reversed)
-                blockColumns.addFirst(column);
-            else
-                blockColumns.addLast(column);
-        }
-
-        public void close() throws IOException
-        {
-            file.close();
-        }
+        scanner.close();
     }
 }

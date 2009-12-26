@@ -33,24 +33,38 @@ import org.apache.cassandra.service.StorageService;
  */
 public class ColumnKey
 {
-    // singleton empty name
-    private final byte[] EMPTY_NAME = new byte[0];
+    // singleton names representing the beginning and end of a subrange
+    public static final byte[] NAME_BEGIN = new byte[0];
+    public static final byte[] NAME_END = null;
 
     public final DecoratedKey dk;
     // FIXME: more efficient structure? perhaps model after Slice.Metadata?
     public final byte[][] names;
 
     /**
-     * Creates a column key wrapping a DecoratedKey, but with empty names to the
-     * given depth.
+     * Creates a column key of the given depth, and the given names. Any names
+     * not specified will be NAME_BEGIN.
      */
-    public ColumnKey(DecoratedKey dk, int depth)
+    public ColumnKey(DecoratedKey dk, int depth, byte[]... names)
     {
         assert 0 < depth && depth < Byte.MAX_VALUE;
         this.dk = dk;
-        this.names = new byte[depth][];
-        for (int i = 0; i < names.length; i++)
-            this.names[i] = EMPTY_NAME;
+        if (names == null || names.length != depth)
+        {
+            this.names = new byte[depth][];
+            for (int i = 0; i < names.length; i++)
+                this.names[i] = NAME_BEGIN;
+
+            if (names != null)
+            {
+                assert this.names.length > names.length;
+                System.arraycopy(names, 0, this.names, 0, names.length);
+            }
+        }
+        else
+        {
+            this.names = names;
+        }
     }
 
     public ColumnKey(DecoratedKey dk, byte[]... names)
@@ -75,14 +89,6 @@ public class ColumnKey
     }
 
     /**
-     * @return A clone of this ColumnKey, with the least significant name cleared.
-     */
-    public ColumnKey parent()
-    {
-        return withName(EMPTY_NAME);
-    }
-
-    /**
      * @return The name at the given depth: the dk is at depth 0, so names
      * begin at depth 1.
      */
@@ -95,8 +101,10 @@ public class ColumnKey
      * Returns a comparator that compares ColumnKeys by dk and then names, using
      * the appropriate comparator at each level. The ColumnKeys must contain
      * an equal number of names: for example, a ColumnFamily containing columns
-     * of type super, should always have name.length == 2, although tailing empty
-     * names can be used to match the beginning of a subrange for instance.
+     * of type super, should always have name.length == 2.
+     *
+     * Tailing NAME_BEGIN names can be used to match the beginning of a subrange,
+     * while tailing NAME_END names will match the end of a subrange.
      */
     public static ColumnKey.Comparator getComparator(String table, String cf)
     {
@@ -109,6 +117,8 @@ public class ColumnKey
     @Override
     public boolean equals(Object o)
     {
+        if (this == o)
+            return true;
         if (!(o instanceof ColumnKey))
             return false;
         ColumnKey that = (ColumnKey)o;
@@ -166,6 +176,27 @@ public class ColumnKey
             this.nameComparators = nameComparators;
         }
 
+        /**
+         * Compares the given names as if they were at the given depth. Depths begin at 1.
+         *
+         * NB: Should replace direct usage of AbstractType, since it adds null checking.
+         */
+        public int compareAt(byte[] o1, byte[] o2, int depth)
+        {
+            // reference equality of Name
+            if (o1 == o2) return 0;
+            
+            // nulls compare greater than non-nulls
+            if (o1 == null) return 1;
+            if (o2 == null) return -1;
+
+            // type based comparison
+            return nameComparators[depth-1].compare(o1, o2);
+        }
+
+        /**
+         * Implement Comparator.compare() by comparing at the maximum depth.
+         */
         public int compare(ColumnKey o1, ColumnKey o2)
         {
             return compare(o1, o2, o1.names.length);
@@ -176,9 +207,9 @@ public class ColumnKey
          * just the dk field, depth 1 will compare the dk and the first name, etc.
          * This can be used to find the boundries of slices of columns.
          *
-         * A null name compares as less than a non-null name, meaning that you
-         * can match the beginning of a slice with a ColumnKey with tailing null
-         * names.
+         * An NAME_BEGIN name compares as less than a non-empty name, meaning that you
+         * can match the beginning of a slice with a ColumnKey with tailing NAME_BEGIN
+         * names. Likewise, NAME_END names match the end of a slice.
          */
         public int compare(ColumnKey o1, ColumnKey o2, int depth)
         {
@@ -197,15 +228,7 @@ public class ColumnKey
             }
             for (int i = 0; i < depth; i++)
             {
-                // reference equality of Name
-                if (o1.names[i] == o2.names[i]) continue;
-                
-                // nulls compare less than non-nulls
-                if (o1.names[i] == null) return -1;
-                if (o2.names[i] == null) return 1;
-
-                // type based comparison
-                int comp = nameComparators[i].compare(o1.names[i], o2.names[i]);
+                int comp = compareAt(o1.names[i], o2.names[i], i);
                 if (comp != 0) return comp;
             }
             return 0;
@@ -220,7 +243,12 @@ public class ColumnKey
             StringBuilder buff = new StringBuilder();
             buff.append(StorageService.getPartitioner().convertToDiskFormat(key.dk));
             for (int i = 0; i < key.names.length; i++)
+            {
+                if (key.names[i] == null || key.names[i].length < 1)
+                    // beginning of trailing null names
+                    break;
                 buff.append("\u0000").append(nameComparators[i].getString(key.names[i]));
+            }
             return buff.toString();
         }
     }

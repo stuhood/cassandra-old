@@ -145,7 +145,7 @@ public class SSTableWriter extends SSTable
             lastWrittenKey + " Current key : " + columnKey + " Writing to " + path;
         if (comparison < 0)
             // name changed at sliceDepth: natural boundary
-            return columnKey.parent();
+            return columnKey.withName(ColumnKey.NAME_BEGIN);
         return null;
     }
 
@@ -162,7 +162,7 @@ public class SSTableWriter extends SSTable
         if (lastWrittenKey == null)
         {
             // we're beginning the first slice: natural boundary
-            blockContext.resetSlice(meta, columnKey.parent());
+            blockContext.resetSlice(meta, columnKey.withName(ColumnKey.NAME_BEGIN));
             return true;
         }
 

@@ -80,6 +80,14 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
     }
 
     /**
+     * @return The underlying SSTableReader.
+     */
+    public SSTableReader sstable()
+    {
+        return sstable;
+    }
+
+    /**
      * @return The column comparator of the underlying SSTable.
      */
     public ColumnKey.Comparator comparator()
@@ -102,7 +110,7 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
      */
     public boolean seekBefore(DecoratedKey seekKey) throws IOException
     {
-        // a ColumnKey with null names compares less than any slice with
+        // a ColumnKey with empty names compares less than any slice with
         // this DecoratedKey
         return seekBefore(new ColumnKey(seekKey, sstable.getColumnDepth()));
     }
@@ -320,7 +328,7 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
 
     /**
      * Inconsistent with equals: compares the key of the current slice.
-     * NB: The SSTableScanners must be at a valid position.
+     * NB: The SSTableScanners must be at valid positions.
      */
     public int compareTo(SSTableScanner that)
     {

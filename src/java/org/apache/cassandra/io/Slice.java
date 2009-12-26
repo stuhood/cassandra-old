@@ -63,7 +63,7 @@ public class Slice
      * children to parents: to determine if a Column has been deleted, you can
      * iterate from the head of a Metadata list to the tail, comparing deletion info.
      */
-    static final class Metadata
+    public static final class Metadata
     {
         // TODO: document the actual meaning of these fields
         public final long markedForDeleteAt;
