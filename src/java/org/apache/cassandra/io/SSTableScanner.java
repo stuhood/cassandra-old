@@ -304,8 +304,11 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
             // position is invalid
             return false;
         if (slice.nextKey == null)
+        {
             // end of file: no more slices
+            slice = null;
             return false;
+        }
 
         // skip the remainder of the current slice
         SliceMark oldSlice = slice; // heh
