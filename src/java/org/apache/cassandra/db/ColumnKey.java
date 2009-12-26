@@ -228,7 +228,7 @@ public class ColumnKey
             }
             for (int i = 0; i < depth; i++)
             {
-                int comp = compareAt(o1.names[i], o2.names[i], i);
+                int comp = compareAt(o1.names[i], o2.names[i], i+1);
                 if (comp != 0) return comp;
             }
             return 0;
