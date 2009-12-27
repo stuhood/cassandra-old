@@ -318,7 +318,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                         keyCache.put(indexEntry, indexEntry);
                     return indexEntry.dataOffset;
                 }
-                else if (v > 0)
+                else if (v < 0)
                 {
                     // last entry was the closest we'll get
                     return previous != null ? previous.dataOffset : -1;
