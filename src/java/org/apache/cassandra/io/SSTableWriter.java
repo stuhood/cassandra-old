@@ -334,7 +334,6 @@ public class SSTableWriter extends SSTable
         private int numCols = 0;
 
         private int slicesInBlock = 0;
-        private int blockLen = 0;
         private long currentBlockPos = 0;
 
         /**
@@ -385,7 +384,7 @@ public class SSTableWriter extends SSTable
          */
         public int getApproxBlockLength()
         {
-            return blockLen + getApproxSliceLength();
+            return (blockStream != null ? blockStream.size() : 0) + getApproxSliceLength();
         }
 
         public int getApproxSliceLength()
@@ -399,16 +398,15 @@ public class SSTableWriter extends SSTable
          */
         private void closeBlock(RandomAccessFile file) throws IOException
         {
-            assert blockLen > 0 :
-                "Should not write empty blocks: " + blockLen;
+            assert blockStream != null && blockStream.size() > 0 :
+                "Should not write empty blocks.";
 
-            // flush close the block (without actually closing the file)
+            // flush block content (without actually closing the file)
             blockStream.flush();
             blockStream.close();
 
             // reset for the next block
             blockStream = null;
-            blockLen = 0;
             slicesInBlock = 0;
             currentBlockPos = file.getFilePointer();
         }
@@ -446,7 +444,6 @@ public class SSTableWriter extends SSTable
             blockStream.write(sliceBuffer.getData(), 0, sliceLen);
 
             // update block counts
-            blockLen = (int)(file.getFilePointer() - currentBlockPos);
             slicesInBlock++;
 
             if (closeBlock)
