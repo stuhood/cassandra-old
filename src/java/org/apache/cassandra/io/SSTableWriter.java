@@ -330,6 +330,7 @@ public class SSTableWriter extends SSTable
         private Slice.Metadata meta = null;
         private ColumnKey headKey = null;
         private DataOutputBuffer sliceBuffer = new DataOutputBuffer();
+        private DataOutputStream blockStream = null;
         private int numCols = 0;
 
         private int slicesInBlock = 0;
@@ -401,7 +402,12 @@ public class SSTableWriter extends SSTable
             assert blockLen > 0 :
                 "Should not write empty blocks: " + blockLen;
 
+            // flush close the block (without actually closing the file)
+            blockStream.flush();
+            blockStream.close();
+
             // reset for the next block
+            blockStream = null;
             blockLen = 0;
             slicesInBlock = 0;
             currentBlockPos = file.getFilePointer();
@@ -423,17 +429,21 @@ public class SSTableWriter extends SSTable
          * then flush the buffered data to the given output.
          * @param closeBlock True if this should be the last slice in the block.
          */
-        public void flushSlice(RandomAccessFile file, ColumnKey nextKey, boolean closeBlock) throws IOException
+        public void flushSlice(BufferedRandomAccessFile file, ColumnKey nextKey, boolean closeBlock) throws IOException
         {
             if (slicesInBlock == 0)
-                // first slice in block: prepend BlockHeader
+            {
+                // first slice in block: prepend BlockHeader, and open stream
                 new BlockHeader("FIXME").serialize(file);
+                assert blockStream == null;
+                blockStream = new DataOutputStream(file.outputStream());
+            }
 
             int sliceLen = sliceBuffer.getLength();
             byte status = closeBlock ? SliceMark.BLOCK_END : SliceMark.BLOCK_CONTINUE;
             new SliceMark(meta, headKey, nextKey,
-                          sliceLen, numCols, status).serialize(file);
-            file.write(sliceBuffer.getData(), 0, sliceLen);
+                          sliceLen, numCols, status).serialize(blockStream);
+            blockStream.write(sliceBuffer.getData(), 0, sliceLen);
 
             // update block counts
             blockLen = (int)(file.getFilePointer() - currentBlockPos);
