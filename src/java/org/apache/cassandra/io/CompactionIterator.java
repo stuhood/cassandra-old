@@ -281,6 +281,14 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
             // split the slice to prevent it from becoming too large
         }
 
+        if (outslice != null)
+        {
+            // return the final slice
+            CompactionSlice oldslice = outslice;
+            outslice = null;
+            return oldslice;
+        }
+
         // no more columns
         return endOfData();
     }
@@ -331,6 +339,11 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
                 return 0;
             // sort Metadata first
             return this instanceof MetadataEntry ? -1 : 1;
+        }
+    
+        public String toString()
+        {
+            return "<" + this.getClass().getName() + " " + key.dk + ">";
         }
     }
 
