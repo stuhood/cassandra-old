@@ -298,6 +298,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(path), "r");
         input.seek(indexEntry.indexOffset);
         int i = 0;
+        IndexEntry previous = null;
         try
         {
             do
@@ -317,16 +318,20 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                         keyCache.put(indexEntry, indexEntry);
                     return indexEntry.dataOffset;
                 }
-                // FIXME: keys will not always exist in the index now, so we need to
-                // return the position pointed to by the last entry
-                throw new RuntimeException("FIXME: Not implemented.");
+                else if (v > 0)
+                {
+                    // last entry was the closest we'll get
+                    return previous != null ? previous.dataOffset : -1;
+                }
+                // else, continue
+                previous = indexEntry;
             } while  (++i < INDEX_INTERVAL);
         }
         finally
         {
             input.close();
         }
-        //return -1;
+        return -1;
     }
 
     /**
