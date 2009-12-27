@@ -207,7 +207,7 @@ public class ColumnKey
          * just the dk field, depth 1 will compare the dk and the first name, etc.
          * This can be used to find the boundries of slices of columns.
          *
-         * An NAME_BEGIN name compares as less than a non-empty name, meaning that you
+         * A NAME_BEGIN name compares as less than a non-empty name, meaning that you
          * can match the beginning of a slice with a ColumnKey with tailing NAME_BEGIN
          * names. Likewise, NAME_END names match the end of a slice.
          */
