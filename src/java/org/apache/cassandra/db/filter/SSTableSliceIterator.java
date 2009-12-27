@@ -1,4 +1,3 @@
-package org.apache.cassandra.db.filter;
 /*
  * 
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -20,6 +19,7 @@ package org.apache.cassandra.db.filter;
  * 
  */
 
+package org.apache.cassandra.db.filter;
 
 import java.util.*;
 import java.io.IOError;
@@ -28,6 +28,7 @@ import java.io.IOException;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.io.*;
 import org.apache.cassandra.config.DatabaseDescriptor;
+
 import com.google.common.collect.AbstractIterator;
 
 /**
@@ -106,12 +107,12 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
                 cf.delete(meta.localDeletionTime, meta.markedForDeleteAt);
             }
 
-            // TODO: be optimistic, and peek() on the scanner to see if the whole
-            // slice can be buffered without more comparisons
-
             // buffer any interesting columns in this slice
             if (scanner.sstable().getColumnDepth() == 1)
             {
+                // TODO: be optimistic, and peek() on the scanner to see if the whole
+                // slice can be buffered without more comparisons
+
                 // standard CF: buffer columns from the slice
                 for (Column col : scanner.getColumns())
                 {

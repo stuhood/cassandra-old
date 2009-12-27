@@ -66,7 +66,10 @@ public class NamesQueryFilter extends QueryFilter
 
     public ColumnIterator getSSTableColumnIterator(SSTableReader sstable) throws IOException
     {
-        return new SSTableNamesIterator(sstable, key, columns);
+        SortedSet<ColumnKey> keys = new TreeSet<ColumnKey>(sstable.getComparator());
+        for (byte[] name : columns)
+            keys.add(new ColumnKey(dk, sstable.getColumnDepth(), name));
+        return new SSTableNamesIterator(sstable, keys);
     }
 
     public SuperColumn filterSuperColumn(SuperColumn superColumn, int gcBefore)

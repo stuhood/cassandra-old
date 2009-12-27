@@ -143,9 +143,8 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
      * Seeks to the slice which would contain the given key. If such a slice does not
      * exist, the next calls to get*() will have undefined results.
      *
-     * A seekKey with a depth less than the columnDepth of this SSTable will never
-     * match using this method, because the seekKey will fall between two slices. If
-     * you need to match a slice at a higher level, use seekBefore().
+     * seekKeys with trailing NAME_BEGIN or NAME_END names will properly match
+     * the slices that they begin or end when used with this method.
      *
      * @return False if no such Slice was found.
      */

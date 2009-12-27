@@ -1,4 +1,3 @@
-package org.apache.cassandra.db.filter;
 /*
  * 
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -20,102 +19,36 @@ package org.apache.cassandra.db.filter;
  * 
  */
 
+package org.apache.cassandra.db.filter;
 
+import java.io.IOError;
 import java.io.IOException;
 import java.util.*;
 
-import org.apache.cassandra.db.ColumnFamily;
-import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.IColumn;
-import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.*;
 import org.apache.cassandra.io.*;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.utils.BloomFilter;
 
-public class SSTableNamesIterator extends SimpleAbstractColumnIterator
+import com.google.common.collect.AbstractIterator;
+
+public class SSTableNamesIterator extends AbstractIterator<IColumn> implements ColumnIterator
 {
     private ColumnFamily cf;
-    private Iterator<IColumn> iter;
-    public final SortedSet<byte[]> columns;
+    private final SSTableScanner scanner;
+    private final ColumnKey.Comparator comparator;
 
-    public SSTableNamesIterator(SSTableReader ssTable, String key, SortedSet<byte[]> columnNames) throws IOException
+    private final Iterator<ColumnKey> keys;
+    private final Queue<IColumn> buffer;
+
+    public SSTableNamesIterator(SSTableReader ssTable, SortedSet<ColumnKey> keys) throws IOException
     {
-        assert columnNames != null;
-        this.columns = columnNames;
+        assert keys != null && !keys.isEmpty();
 
-        DecoratedKey decoratedKey = ssTable.getPartitioner().decorateKey(key);
-        // FIXME: long position = ssTable.getPosition(decoratedKey);
-        long position = 0;
-        if (position < 0)
-            return;
+        this.keys = keys.iterator();
+        buffer = new ArrayDeque<IColumn>();
 
-        BufferedRandomAccessFile file = new BufferedRandomAccessFile(ssTable.getFilename(), "r", DatabaseDescriptor.getIndexedReadBufferSizeInKB() * 1024);
-        try
-        {
-            file.seek(position);
-
-            DecoratedKey keyInDisk = ssTable.getPartitioner().convertFromDiskFormat(file.readUTF());
-            assert keyInDisk.equals(decoratedKey) : keyInDisk;
-            file.readInt(); // data size
-
-            /* Read the bloom filter summarizing the columns */
-            BloomFilter bf = IndexHelper.defreezeBloomFilter(file);
-            List<byte[]> filteredColumnNames = new ArrayList<byte[]>(columnNames.size());
-            for (byte[] name : columnNames)
-            {
-                if (bf.isPresent(name))
-                {
-                    filteredColumnNames.add(name);
-                }
-            }
-            if (filteredColumnNames.isEmpty())
-            {
-                return;
-            }
-
-            List<IndexHelper.IndexInfo> indexList = IndexHelper.deserializeIndex(file);
-
-            cf = ColumnFamily.serializer().deserializeFromSSTableNoColumns(ssTable.makeColumnFamily(), file);
-            file.readInt(); // column count
-
-            /* get the various column ranges we have to read */
-            AbstractType comparator = ssTable.getColumnComparator();
-            SortedSet<IndexHelper.IndexInfo> ranges = new TreeSet<IndexHelper.IndexInfo>(IndexHelper.getComparator(comparator));
-            for (byte[] name : filteredColumnNames)
-            {
-                int index = IndexHelper.indexFor(name, indexList, comparator, false);
-                if (index == indexList.size())
-                    continue;
-                IndexHelper.IndexInfo indexInfo = indexList.get(index);
-                if (comparator.compare(name, indexInfo.firstName) < 0)
-                   continue;
-                ranges.add(indexInfo);
-            }
-
-            /* seek to the correct offset to the data */
-            long columnBegin = file.getFilePointer();
-            /* now read all the columns from the ranges */
-            for (IndexHelper.IndexInfo indexInfo : ranges)
-            {
-                file.seek(columnBegin + indexInfo.offset);
-                // TODO only completely deserialize columns we are interested in
-                while (file.getFilePointer() < columnBegin + indexInfo.offset + indexInfo.width)
-                {
-                    final IColumn column = cf.getColumnSerializer().deserialize(file);
-                    // we check vs the original Set, not the filtered List, for efficiency
-                    if (columnNames.contains(column.name()))
-                    {
-                        cf.addColumn(column);
-                    }
-                }
-            }
-        }
-        finally
-        {
-            file.close();
-        }
-
-        iter = cf.getSortedColumns().iterator();
+        scanner = ssTable.getScanner(DatabaseDescriptor.getIndexedReadBufferSizeInKB() * 1024);
+        comparator = scanner.comparator();
     }
 
     public ColumnFamily getColumnFamily()
@@ -123,10 +56,75 @@ public class SSTableNamesIterator extends SimpleAbstractColumnIterator
         return cf;
     }
 
+    /**
+     * Seeks to slices that might contain keys we're looking for, and iterates
+     * through them collecting matching keys.
+     */
+    @Override
     protected IColumn computeNext()
     {
-        if (iter == null || !iter.hasNext())
-            return endOfData();
-        return iter.next();
+        try
+        {
+            return computeNextUnsafe();
+        }
+        catch (IOException e)
+        {
+            throw new IOError(e);
+        }
+    }
+
+    private IColumn computeNextUnsafe() throws IOException
+    {
+        while (buffer.isEmpty() && keys.hasNext())
+        {
+            ColumnKey key = keys.next();
+            if (!scanner.seekTo(key))
+                // filter or index determined that this key is not in this sstable
+                continue;
+
+            if (cf == null)
+            {
+                // build an empty column family using the root metadata of this slice
+                cf = scanner.sstable().makeColumnFamily();
+                Slice.Metadata meta = scanner.get().meta.get(0);
+                cf.delete(meta.localDeletionTime, meta.markedForDeleteAt);
+            }
+
+            // positioned at slice that might contain some of our keys
+            if (scanner.sstable().getColumnDepth() == 1)
+            {
+                // standard CF
+                Slice slice = scanner.get();
+                for (Column col : scanner.getColumns())
+                {
+                    int comp = comparator.compareAt(key.name(1), col.name(), 1);
+                    if (comp > 0)
+                        // haven't reached current key
+                        continue;
+                    if (comp == 0)
+                        // found current key
+                        buffer.add(col);
+                    // else: passed current key
+
+                    // start looking for next key
+                    if (!keys.hasNext())
+                        break;
+                    key = keys.next();
+                }
+            }
+            else
+            {
+                // super CF: multiple slices may go into each returned super column
+                throw new RuntimeException("Not implemented"); // FIXME
+            }
+        }
+        
+        return buffer.isEmpty() ? endOfData() : buffer.poll();
+    }
+
+    @Override
+    public void close() throws IOException
+    {
+        scanner.close();
     }
 }

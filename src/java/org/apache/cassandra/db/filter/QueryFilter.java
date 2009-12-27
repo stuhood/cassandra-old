@@ -26,18 +26,21 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Arrays;
 
-import org.apache.cassandra.io.SSTableReader;
-import org.apache.cassandra.utils.ReducingIterator;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.io.SSTableReader;
+import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.utils.ReducingIterator;
 
 public abstract class QueryFilter
 {
+    public final DecoratedKey dk;
     public final String key;
     public final QueryPath path;
 
     protected QueryFilter(String key, QueryPath path)
     {
+        this.dk = StorageService.getPartitioner().decorateKey(key);
         this.key = key;
         this.path = path;
     }
