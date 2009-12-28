@@ -30,6 +30,8 @@ import org.apache.cassandra.io.*;
 import org.apache.cassandra.config.DatabaseDescriptor;
 
 import com.google.common.collect.AbstractIterator;
+import com.google.common.collect.Iterators;
+import com.google.common.collect.PeekingIterator;
 
 public class SSTableNamesIterator extends AbstractIterator<IColumn> implements ColumnIterator
 {
@@ -37,14 +39,14 @@ public class SSTableNamesIterator extends AbstractIterator<IColumn> implements C
     private final SSTableScanner scanner;
     private final ColumnKey.Comparator comparator;
 
-    private final Iterator<ColumnKey> keys;
+    private final PeekingIterator<ColumnKey> keys;
     private final Queue<IColumn> buffer;
 
     public SSTableNamesIterator(SSTableReader ssTable, SortedSet<ColumnKey> keys) throws IOException
     {
         assert keys != null && !keys.isEmpty();
 
-        this.keys = keys.iterator();
+        this.keys = Iterators.peekingIterator(keys.iterator());
         buffer = new ArrayDeque<IColumn>();
 
         scanner = ssTable.getScanner(DatabaseDescriptor.getIndexedReadBufferSizeInKB() * 1024);
@@ -77,8 +79,7 @@ public class SSTableNamesIterator extends AbstractIterator<IColumn> implements C
     {
         while (buffer.isEmpty() && keys.hasNext())
         {
-            ColumnKey key = keys.next();
-            System.out.println("Seeking to " + key.dk + "|" + new String(key.name(1)));
+            ColumnKey key = keys.peek();
             if (!scanner.seekTo(key))
             {
                 System.out.println("Skipping key " + new String(key.name(1)));
@@ -99,10 +100,8 @@ public class SSTableNamesIterator extends AbstractIterator<IColumn> implements C
             {
                 // standard CF
                 Slice slice = scanner.get();
-                System.out.println("In slice " + slice.key.dk + "|" + new String(slice.key.name(1)));
                 for (Column col : scanner.getColumns())
                 {
-                    System.out.println("\tAt col " + new String(col.name()));
                     int comp = comparator.compareAt(key.name(1), col.name(), 1);
                     if (comp > 0)
                         // haven't reached current key
@@ -113,9 +112,10 @@ public class SSTableNamesIterator extends AbstractIterator<IColumn> implements C
                     // else: passed current key
 
                     // start looking for next key
+                    keys.next();
                     if (!keys.hasNext())
                         break;
-                    key = keys.next();
+                    key = keys.peek();
                 }
             }
             else

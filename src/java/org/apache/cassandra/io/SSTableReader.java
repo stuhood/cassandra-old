@@ -298,7 +298,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(path), "r");
         input.seek(indexEntry.indexOffset);
         int i = 0;
-        IndexEntry previous = null;
         try
         {
             do
@@ -311,21 +310,14 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                 {
                     return -1;
                 }
-                System.out.println("FIXME: for key " + new String(target.name(1)) + ", at " + new String(indexEntry.name(1))); // FIXME
                 int v = comparator.compare(indexEntry, target);
-                if (v == 0)
+                if (v <= 0)
                 {
                     if (keyCache != null)
                         keyCache.put(indexEntry, indexEntry);
                     return indexEntry.dataOffset;
                 }
-                else if (v < 0)
-                {
-                    // last entry was the closest we'll get
-                    return previous != null ? previous.dataOffset : -1;
-                }
                 // else, continue
-                previous = indexEntry;
             } while  (++i < INDEX_INTERVAL);
         }
         finally
