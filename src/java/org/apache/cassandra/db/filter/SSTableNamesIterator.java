@@ -42,6 +42,11 @@ public class SSTableNamesIterator extends AbstractIterator<IColumn> implements C
     private final PeekingIterator<ColumnKey> keys;
     private final Queue<IColumn> buffer;
 
+    /**
+     * TODO: Despite the fact that this interface takes ColumnKeys, the columns it
+     * returns are not labeled with the row key, so it would be unwise to use it
+     * to collect names from more than one row.
+     */
     public SSTableNamesIterator(SSTableReader ssTable, SortedSet<ColumnKey> keys) throws IOException
     {
         assert keys != null && !keys.isEmpty();

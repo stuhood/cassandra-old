@@ -48,19 +48,26 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
 
     private ColumnFamily cf;
 
+    /**
+     * An empty or null start/finish column will cause unbounded matching in
+     * that direction.
+     */
     public SSTableSliceIterator(SSTableReader ssTable, String key, byte[] startColumn, byte[] finishColumn, boolean reversed)
     throws IOException
     {
         this.reversed = reversed;
         assert !reversed : "Not implemented"; // FIXME: need reverse scanner here
 
+        // convert to ColumnKey unbounded column constants
+        if (startColumn == null || startColumn.length == 0)
+            startColumn = ColumnKey.NAME_BEGIN;
+        if (finishColumn == null || finishColumn.length == 0)
+            finishColumn = ColumnKey.NAME_END;
+
         // morph string and columns into keys based on the partition type and depth
         DecoratedKey dk = ssTable.getPartitioner().decorateKey(key);
         startKey = new ColumnKey(dk, ssTable.getColumnDepth(), startColumn);
-        // NB: this interface uses the empty name for an unbounded match, but
-        // ColumnKey uses NAME_END
-        finishKey = new ColumnKey(dk, ssTable.getColumnDepth(),
-                                  finishColumn.length == 0 ? ColumnKey.NAME_END : finishColumn);
+        finishKey = new ColumnKey(dk, ssTable.getColumnDepth(), finishColumn);
         
         // seek to the slice which might contain the first column
         scanner = ssTable.getScanner(DatabaseDescriptor.getSlicedReadBufferSizeInKB() * 1024);

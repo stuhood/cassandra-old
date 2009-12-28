@@ -68,6 +68,7 @@ public class ColumnFamilyStoreTest extends CleanupHelper
         Table table = Table.open("Keyspace1");
         List<SSTableReader> ssTables = table.getAllSSTablesOnDisk();
         assertEquals(1, ssTables.size());
+        // force a disk check, and query for a different key
         ssTables.get(0).forceBloomFilterFailures();
         ColumnFamily cf = store.getColumnFamily(new IdentityQueryFilter("key2", new QueryPath("Standard1", null, "Column1".getBytes())));
         assert null == cf : cf;
