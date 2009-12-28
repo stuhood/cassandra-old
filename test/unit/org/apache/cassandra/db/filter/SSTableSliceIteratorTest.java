@@ -79,7 +79,7 @@ public class SSTableSliceIteratorTest
     }
 
     @Test
-    public void testIterateReverse() throws Exception
+    public void testIterateReversed() throws Exception
     {
         assert false : "FIXME: Not implemented"; // FIXME
     }

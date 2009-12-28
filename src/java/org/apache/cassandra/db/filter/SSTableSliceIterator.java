@@ -101,8 +101,7 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
     {
         while (buffer.isEmpty() && scanner.get() != null)
         {
-            if (comparator.compare(startKey, scanner.get().key, 0) > 0 &&
-                comparator.compare(scanner.get().key, finishKey, 0) > 0)
+            if (comparator.compare(startKey, scanner.get().key, 0) != 0)
                 // our decorated key doesn't match this slice
                 break;
             
