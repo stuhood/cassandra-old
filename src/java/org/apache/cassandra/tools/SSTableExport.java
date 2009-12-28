@@ -158,8 +158,8 @@ public class SSTableExport
         for (String key : keys)
         {
             DecoratedKey<?> dk = partitioner.decorateKey(key);
-            // seek immediately before the key
-            if (!scanner.seekBefore(dk))
+            // seek to the key
+            if (!scanner.seekTo(dk))
                 // key outside file bounds
                 continue;
             if (dk.compareTo(scanner.get().key.dk) != 0)

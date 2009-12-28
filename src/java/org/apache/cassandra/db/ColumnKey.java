@@ -135,11 +135,7 @@ public class ColumnKey
     @Override
     public int hashCode()
     {
-        int[] components = new int[1+names.length];
-        components[0] = dk.hashCode();
-        for (byte i = 0; i < names.length; i++)
-            components[i+1] = Arrays.hashCode(names[i]);
-        return Arrays.hashCode(components);
+        return Arrays.hashCode(new int[]{dk.hashCode(), Arrays.hashCode(names)});
     }
 
     public void serialize(DataOutput dos) throws IOException

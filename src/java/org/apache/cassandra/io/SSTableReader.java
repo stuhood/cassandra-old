@@ -311,6 +311,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                 {
                     return -1;
                 }
+                System.out.println("FIXME: for key " + new String(target.name(1)) + ", at " + new String(indexEntry.name(1))); // FIXME
                 int v = comparator.compare(indexEntry, target);
                 if (v == 0)
                 {

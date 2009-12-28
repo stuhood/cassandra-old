@@ -84,9 +84,6 @@ public class CompactionIteratorTest extends CleanupHelper
         assert !eiter.hasNext() : "Iterator contained : " + toString(eiter);
     }
 
-    /**
-     * FIXME
-     */
     String toString(Iterator<?> i)
     {
         StringBuilder buff = new StringBuilder();

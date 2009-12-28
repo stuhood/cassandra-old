@@ -106,37 +106,13 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
     }
 
     /**
-     * See the contract for seekBefore(CK).
+     * See the contract for seekTo(CK).
      */
-    public boolean seekBefore(DecoratedKey seekKey) throws IOException
+    public boolean seekTo(DecoratedKey seekKey) throws IOException
     {
-        // a ColumnKey with empty names compares less than any slice with
+        // a ColumnKey with empty names matches the beginning of the first slice with
         // this DecoratedKey
-        return seekBefore(new ColumnKey(seekKey, sstable.getColumnDepth()));
-    }
-
-    /**
-     * Seeks to the first slice with a key greater than or equal to the given key. If
-     * such a slice does not exist, the next calls to get*() will have undefined
-     * results.
-     *
-     * @return False if no such Slice was found.
-     */
-    public boolean seekBefore(ColumnKey seekKey) throws IOException
-    {
-        // seek to the correct block
-        if (!seekInternal(seekKey))
-            return false;
-
-        // seek forward within the block to the slice
-        while (comparator.compare(seekKey, slice.key) > 0)
-            if (!next())
-                // TODO: assert that this loop never seeks outside of a block
-                // reached the end of the file without finding a match
-                return false;
-
-        // current slice matches
-        return true;
+        return seekTo(new ColumnKey(seekKey, sstable.getColumnDepth()));
     }
 
     /**
@@ -150,15 +126,21 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
      */
     public boolean seekTo(ColumnKey seekKey) throws IOException
     {
-        // seek to the first slice greater than or equal to the key
-        if (!seekBefore(seekKey))
+        // seek to the correct block
+        if (!seekInternal(seekKey))
             return false;
 
-        // confirm that the slice might contain the key
-        if (slice.nextKey == null)
-            // last slice in file
-            return true;
-        return comparator.compare(seekKey, slice.nextKey) < 0;
+        // seek forward while the key is greater than the beginning of the next slice
+        while (slice.nextKey != null && comparator.compare(seekKey, slice.nextKey) > 0)
+        {
+            if (!next())
+                // TODO: assert that this loop never seeks outside of a block
+                // reached the end of the file without finding a match
+                return false;
+        }
+
+        // positioned at the correct slice
+        return true;
     }
 
     /**

@@ -78,9 +78,13 @@ public class SSTableNamesIterator extends AbstractIterator<IColumn> implements C
         while (buffer.isEmpty() && keys.hasNext())
         {
             ColumnKey key = keys.next();
+            System.out.println("Seeking to " + key.dk + "|" + new String(key.name(1)));
             if (!scanner.seekTo(key))
+            {
+                System.out.println("Skipping key " + new String(key.name(1)));
                 // filter or index determined that this key is not in this sstable
                 continue;
+            }
 
             if (cf == null)
             {
@@ -95,8 +99,10 @@ public class SSTableNamesIterator extends AbstractIterator<IColumn> implements C
             {
                 // standard CF
                 Slice slice = scanner.get();
+                System.out.println("In slice " + slice.key.dk + "|" + new String(slice.key.name(1)));
                 for (Column col : scanner.getColumns())
                 {
+                    System.out.println("\tAt col " + new String(col.name()));
                     int comp = comparator.compareAt(key.name(1), col.name(), 1);
                     if (comp > 0)
                         // haven't reached current key

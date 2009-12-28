@@ -1312,7 +1312,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         for (SSTableReader sstable : ssTables_)
         {
             final SSTableScanner scanner = sstable.getScanner(1 << 14);
-            scanner.seekBefore(startWithDK);
+            scanner.seekTo(startWithDK);
             Iterator<DecoratedKey> iter = new DecoratedKeyIterator(scanner);
             assert iter instanceof Closeable; // otherwise we leak FDs
             iterators.add(iter);
@@ -1413,7 +1413,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         for (SSTableReader sstable : ssTables_)
         {
             final SSTableScanner scanner = sstable.getScanner(1 << 14);
-            scanner.seekBefore(startWith);
+            scanner.seekTo(startWith);
             Iterator<DecoratedKey> iter = new DecoratedKeyIterator(scanner);
             assert iter instanceof Closeable; // otherwise we leak FDs
             iterators.add(iter);
