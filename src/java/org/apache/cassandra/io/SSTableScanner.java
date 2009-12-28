@@ -130,14 +130,12 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
         if (!seekInternal(seekKey))
             return false;
 
-        // seek forward while the key is greater than the beginning of the next slice
-        while (slice.nextKey != null && comparator.compare(seekKey, slice.nextKey) > 0)
-        {
+        // seek forward while the key is >= the beginning of the next slice
+        while (slice.nextKey != null && comparator.compare(seekKey, slice.nextKey) >= 0)
             if (!next())
                 // TODO: assert that this loop never seeks outside of a block
-                // reached the end of the file without finding a match
-                return false;
-        }
+                // reached the end of the file
+                break;
 
         // positioned at the correct slice
         return true;

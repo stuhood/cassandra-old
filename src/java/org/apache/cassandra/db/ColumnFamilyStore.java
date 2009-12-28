@@ -1291,6 +1291,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         // we iterate through memtables with a priority queue to avoid more sorting than necessary.
         // this predicate throws out the keys before the start of our range.
+        // TODO: this is horribly inefficent
         Predicate<DecoratedKey> p = new Predicate<DecoratedKey>()
         {
             public boolean apply(DecoratedKey key)
@@ -1313,9 +1314,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         {
             final SSTableScanner scanner = sstable.getScanner(1 << 14);
             scanner.seekTo(startWithDK);
-            Iterator<DecoratedKey> iter = new DecoratedKeyIterator(scanner);
-            assert iter instanceof Closeable; // otherwise we leak FDs
-            iterators.add(iter);
+            iterators.add(new DecoratedKeyIterator(scanner));
         }
 
         Iterator<DecoratedKey> collated = IteratorUtils.collatedIterator(DecoratedKey.comparator, iterators);
@@ -1347,7 +1346,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
                     break;
                 }
                 // make sure there is actually non-tombstone content associated w/ this key
-                // TODO record the key source(s) somehow and only check that source (e.g., memtable or sstable)
+                // TODO record the metadata for the keys as we're initially collecting them
                 QueryFilter filter = new SliceQueryFilter(current.key, new QueryPath(columnFamily_), ArrayUtils.EMPTY_BYTE_ARRAY, ArrayUtils.EMPTY_BYTE_ARRAY, false, 1);
                 if (getColumnFamily(filter, Integer.MAX_VALUE) != null)
                 {

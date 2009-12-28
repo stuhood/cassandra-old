@@ -22,10 +22,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.ArrayList;
-import java.util.Set;
-import java.util.HashSet;
-import java.util.Collection;
+import java.util.*;
 
 import org.junit.Test;
 
@@ -60,7 +57,8 @@ public class CompactionsTest extends CleanupHelper
                 inserted.add(key);
             }
             store.forceBlockingFlush();
-            assertEquals(inserted.size(), table.getColumnFamilyStore("Standard1").getKeyRange("", "", 10000).keys.size());
+            List<String> actual = table.getColumnFamilyStore("Standard1").getKeyRange("", "", 10000).keys;
+            assertEquals(inserted + " != " + actual, inserted.size(), actual.size());
         }
         while (true)
         {
