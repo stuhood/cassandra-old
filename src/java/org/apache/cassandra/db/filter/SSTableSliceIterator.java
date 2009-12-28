@@ -101,9 +101,14 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
     {
         while (buffer.isEmpty() && scanner.get() != null)
         {
+            System.out.println("Next slice starts with " + (scanner.peek() != null ? new String(scanner.peek().name(1)): "null")); // FIXME
+
             if (comparator.compare(startKey, scanner.get().key, 0) != 0)
+            {
+                System.out.println("Reached non-matching slice for " + startKey.dk + ": != " + scanner.get().key.dk); // FIXME
                 // our decorated key doesn't match this slice
                 break;
+            }
             
             if (cf == null)
             {

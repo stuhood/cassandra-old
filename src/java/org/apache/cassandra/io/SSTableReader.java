@@ -281,6 +281,8 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
      */
     long getBlockPosition(ColumnKey target) throws IOException
     {
+        // FIXME: bloomfilter contains columnkeys, but should also contain
+        // parent keys, and should be much larger
         if (!bf.isPresent(comparator.forBloom(target)))
             return -1;
         if (keyCache != null)
@@ -299,6 +301,8 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         input.seek(indexEntry.indexOffset);
         int i = 0;
         IndexEntry previous = null;
+        System.out.println("\tLooking for block for " +
+            target.dk + "|" + new String(target.name(1))); // FIXME
         try
         {
             do
@@ -307,15 +311,24 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                 // the block containing the key is the last block less than or
                 // equal to the key
                 int v = comparator.compare(indexEntry, target);
+                System.out.println("\t" + v + " For key " +
+                    indexEntry.dk + "|" + new String(indexEntry.name(1)) + "  comp? "+
+                    target.dk + "|" + new String(target.name(1))); // FIXME
                 if (v == 0)
                 {
                     if (keyCache != null)
-                        keyCache.put(indexEntry, indexEntry);
+                        keyCache.put(target, indexEntry);
                     return indexEntry.dataOffset;
                 }
-                else if (v < 0)
+                else if (v > 0)
+                {
                     // previous block was the last less than the key
-                    return previous != null ? previous.dataOffset : -1;
+                    if (previous == null)
+                        return -1;
+                    if (keyCache != null)
+                        keyCache.put(target, previous);
+                    return previous.dataOffset;
+                }
                 // else, continue
                 previous = indexEntry;
             } while  (++i < INDEX_INTERVAL);

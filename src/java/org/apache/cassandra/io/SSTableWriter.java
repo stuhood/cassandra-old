@@ -154,16 +154,19 @@ public class SSTableWriter extends SSTable
      *
      * @param meta @see append.
      * @param columnKey The key that is about to be appended.
-     * @return True if the given columnKey will be the first in a new block.
+     * @return The columnKey for a new block if one has been started.
      */
-    private boolean beforeAppend(Slice.Metadata meta, ColumnKey columnKey) throws IOException
+    private ColumnKey beforeAppend(Slice.Metadata meta, ColumnKey columnKey) throws IOException
     {
         assert columnKey != null : "Keys must not be null.";
+
+        ColumnKey newSliceKey = null;
         if (lastWrittenKey == null)
         {
             // we're beginning the first slice: natural boundary
-            blockContext.resetSlice(meta, columnKey.withName(ColumnKey.NAME_BEGIN));
-            return true;
+            newSliceKey = columnKey.withName(ColumnKey.NAME_BEGIN);
+            blockContext.resetSlice(meta, newSliceKey);
+            return newSliceKey;
         }
 
         // true if the current block has reached its target length
@@ -171,14 +174,14 @@ public class SSTableWriter extends SSTable
 
         // determine if we need to flush the current slice
         boolean flushed = false;
-        ColumnKey newSliceKey = shouldFlushSlice(meta, columnKey);
+        newSliceKey = shouldFlushSlice(meta, columnKey);
         if (newSliceKey != null)
         {
             // flush the previous slice to the data file
             flushed = flushSlice(meta, newSliceKey, filled);
             assert flushed : "Failed to flush non-empty slice!";
         }
-        return flushed && filled;
+        return flushed && filled ? newSliceKey : null;
     }
 
     /**
@@ -186,23 +189,24 @@ public class SSTableWriter extends SSTable
      * written the given ColumnKey to the data file.
      *
      * @param columnKey The key for the appended column.
-     * @param newBlock True if the given key is the first in a new block.
+     * @param newBlock The key for the first slice of a newly created block, if the
+     * given columnKey is the first in a new block.
      */
-    private void afterAppend(ColumnKey columnKey, boolean newBlock) throws IOException
+    private void afterAppend(ColumnKey columnKey, ColumnKey newBlock) throws IOException
     {
         // update the filter and index files
         bf.add(comparator.forBloom(columnKey));
         lastWrittenKey = columnKey;
         columnsWritten++;
 
-        if (lastIndexEntry != null && !newBlock)
+        if (lastIndexEntry != null && newBlock == null)
             // this append fell into the last block: don't need a new IndexEntry
             return;
         // else: the previous block was closed, or this is the first block in the file
         
         // a single col is buffered for a new block: write an IndexEntry to mark the new block
         long indexPosition = indexFile.getFilePointer();
-        lastIndexEntry = new IndexEntry(columnKey.dk, columnKey.names, indexPosition,
+        lastIndexEntry = new IndexEntry(newBlock.dk, newBlock.names, indexPosition,
                                         blockContext.getCurrentBlockPos());
         lastIndexEntry.serialize(indexFile);
         if (logger.isDebugEnabled())
@@ -226,7 +230,7 @@ public class SSTableWriter extends SSTable
     public void append(Slice.Metadata meta, ColumnKey columnKey, Column column) throws IOException
     {
         assert column != null;
-        boolean newBlock = beforeAppend(meta, columnKey);
+        ColumnKey newBlock = beforeAppend(meta, columnKey);
         blockContext.bufferColumn(column);
         afterAppend(columnKey, newBlock);
     }
