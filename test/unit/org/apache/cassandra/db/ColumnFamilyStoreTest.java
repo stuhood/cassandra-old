@@ -70,7 +70,7 @@ public class ColumnFamilyStoreTest extends CleanupHelper
         assertEquals(1, ssTables.size());
         ssTables.get(0).forceBloomFilterFailures();
         ColumnFamily cf = store.getColumnFamily(new IdentityQueryFilter("key2", new QueryPath("Standard1", null, "Column1".getBytes())));
-        assertNull(cf);
+        assert null == cf : cf;
     }
 
     @Test
