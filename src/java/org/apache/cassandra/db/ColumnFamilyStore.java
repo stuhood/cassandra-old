@@ -797,7 +797,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         if (target != null)
         {
             // compacting for streaming: send to subdirectory
-            compactionFileLocation = compactionFileLocation + File.separator + DatabaseDescriptor.STREAMING_SUBDIR;
+            compactionFileLocation = compactionFileLocation + File.separator + DatabaseDescriptor.STREAMING_SUBDIR + File.separator + table_;
         }
         List<SSTableReader> results = new ArrayList<SSTableReader>();
 
