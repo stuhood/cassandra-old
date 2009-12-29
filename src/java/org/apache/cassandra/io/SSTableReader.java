@@ -249,6 +249,15 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         }
     }
 
+    private long cacheAndReturn(ColumnKey key, IndexEntry entry)
+    {
+        if (entry == null)
+            return -1;
+        if (keyCache != null)
+            keyCache.put(key, entry);
+        return entry.dataOffset;
+    }
+
     /**
      * @return The last cached index entry less than or equal to the given target.
      * The entry contains the position to begin scanning the index file or the
@@ -305,24 +314,11 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                 // the block containing the key is the last block less than or
                 // equal to the key
                 int v = comparator.compare(indexEntry, target);
-                System.out.println("\t" + v + " For key " +
-                    indexEntry.dk + "|" + new String(indexEntry.name(1)) + "  comp? "+
-                    target.dk + "|" + new String(target.name(1))); // FIXME
                 if (v == 0)
-                {
-                    if (keyCache != null)
-                        keyCache.put(target, indexEntry);
-                    return indexEntry.dataOffset;
-                }
+                    return cacheAndReturn(target, indexEntry);
                 else if (v > 0)
-                {
                     // previous block was the last less than the key
-                    if (previous == null)
-                        return -1;
-                    if (keyCache != null)
-                        keyCache.put(target, previous);
-                    return previous.dataOffset;
-                }
+                    return cacheAndReturn(target, previous);
                 // else, continue
                 previous = indexEntry;
             } while  (++i < INDEX_INTERVAL);
@@ -335,7 +331,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         {
             input.close();
         }
-        return -1;
+        return cacheAndReturn(target, previous);
     }
 
     /**

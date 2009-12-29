@@ -49,7 +49,7 @@ public class SSTableSliceIteratorTest
         ColumnKey midish = null;
         final int numkeys = 10;
         final int colsperkey = 1000;
-        Set<DecoratedKey> dks = new HashSet<DecoratedKey>();
+        Set<DecoratedKey> dks = new TreeSet<DecoratedKey>();
         for (int i = 0; i < numkeys; i++)
         {
             values.clear();
@@ -77,13 +77,13 @@ public class SSTableSliceIteratorTest
         SSTableSliceIterator ni;
         for (DecoratedKey dk : dks)
         {
-            // collect right unbounded
+            // right unbounded
             ni = new SSTableSliceIterator(reader, dk.key,
                                           midish.name(1), ColumnKey.NAME_END, false);
             expected = values.tailSet(midish, true);
             assertMatch(dk, expected, ni);
 
-            // collect left unbounded
+            // left unbounded
             ni = new SSTableSliceIterator(reader, dk.key,
                                           ColumnKey.NAME_BEGIN, midish.name(1), false);
             expected = values.headSet(midish, true);
