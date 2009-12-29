@@ -90,6 +90,8 @@ public class DecoratedKey<T extends Token> implements Comparable<DecoratedKey>
 
     public int compareTo(DecoratedKey other)
     {
+        if (this == other)
+            return 0;
         return token.compareTo(other.token);
     }
 
