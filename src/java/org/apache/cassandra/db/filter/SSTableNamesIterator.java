@@ -87,8 +87,8 @@ public class SSTableNamesIterator extends AbstractIterator<IColumn> implements C
             ColumnKey key = keys.peek();
             if (!scanner.seekTo(key))
             {
-                System.out.println("Skipping key " + new String(key.name(1)));
                 // filter or index determined that this key is not in this sstable
+                keys.next();
                 continue;
             }
 
