@@ -118,6 +118,16 @@ public class Slice
         }
 
         /**
+         * @return The max markedForDeleteAt value contained in this Metadata list.
+         */
+        public long getMarkedForDeleteAt()
+        {
+            return parent != null ?
+                Math.max(parent.getMarkedForDeleteAt(), markedForDeleteAt) :
+                markedForDeleteAt;
+        }
+
+        /**
          * @return Metadata for the given depth: asserts that the depth exists.
          */
         public Metadata get(int depth)

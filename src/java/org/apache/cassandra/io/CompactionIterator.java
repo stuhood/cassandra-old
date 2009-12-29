@@ -276,9 +276,10 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
 
             // else, ColumnEntry to add to the current slice
             ColumnEntry centry = (ColumnEntry)entry;
-            outslice.columns.add(centry.column);
-            // FIXME: need to handle deletion here by skipping adding the column if
-            // the slice metadata indicates it should be deleted
+            if (!centry.column.isDeleted(outslice.meta, gcBefore))
+                // add if metadata does not indicate that it should be removed
+                outslice.columns.add(centry.column);
+
             // TODO: need to check TARGET_MAX_SLICE_BYTES here, and artificially
             // split the slice to prevent it from becoming too large
         }

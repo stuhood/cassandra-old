@@ -28,6 +28,7 @@ import org.apache.commons.lang.ArrayUtils;
 
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.io.DataOutputBuffer;
+import org.apache.cassandra.io.Slice;
 
 
 /**
@@ -116,6 +117,23 @@ public final class Column implements IColumn
     public long timestamp(byte[] key)
     {
         throw new UnsupportedOperationException("This operation is unsupported on simple columns.");
+    }
+
+    /**
+     * Given the metadata for the parents of this column, determine if the column
+     * should be deleted.
+     *
+     * TODO: based on ColumnFamilyStore.removeDeleted: incorporate
+     */
+    public boolean isDeleted(Slice.Metadata meta, int gcBefore)
+    {
+        if (isMarkedForDelete() && getLocalDeletionTime() <= gcBefore)
+            // the column has been deleted, and has acted as a tombstone long enough
+            return true;
+        if (timestamp() <= meta.getMarkedForDeleteAt())
+            // our timestamp is <= the maximum markedForDeleteAt time of our parents
+            return true;
+        return false;
     }
 
     public boolean isMarkedForDelete()

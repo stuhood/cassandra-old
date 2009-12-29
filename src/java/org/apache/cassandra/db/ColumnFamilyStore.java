@@ -527,6 +527,10 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return cf;
     }
 
+    /**
+     * TODO: Duplicates Column.isDeleted: remove
+     */
+    @Deprecated
     private static void removeDeletedStandard(ColumnFamily cf, int gcBefore)
     {
         for (byte[] cname : cf.getColumnNames())
@@ -540,6 +544,10 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         }
     }
 
+    /**
+     * TODO: Duplicates Column.isDeleted: remove
+     */
+    @Deprecated
     private static void removeDeletedSuper(ColumnFamily cf, int gcBefore)
     {
         // TODO assume deletion means "most are deleted?" and add to clone, instead of remove from original?
