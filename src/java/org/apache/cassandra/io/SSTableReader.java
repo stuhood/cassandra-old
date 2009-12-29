@@ -281,9 +281,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
      */
     long getBlockPosition(ColumnKey target) throws IOException
     {
-        // FIXME: bloomfilter contains columnkeys, but should also contain
-        // parent keys, and should be much larger
-        if (!bf.isPresent(comparator.forBloom(target)))
+        if (!target.isPresentInBloom(bf))
             return -1;
         if (keyCache != null)
         {
@@ -293,16 +291,12 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         }
         IndexEntry indexEntry = getIndexScanPosition(target);
         if (indexEntry == null)
-        {
             return -1;
-        }
 
         BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(path), "r");
         input.seek(indexEntry.indexOffset);
         int i = 0;
         IndexEntry previous = null;
-        System.out.println("\tLooking for block for " +
-            target.dk + "|" + new String(target.name(1))); // FIXME
         try
         {
             do

@@ -97,11 +97,11 @@ public class DataOutputBuffer extends DataOutputStream
     }
     
     /**
-     * Allow direct access to the expandable stream backing this buffer.
+     * @return A copy of the valid portion of the buffer.
      */
-    public ByteArrayOutputStream getBuffer()
+    public byte[] toByteArray()
     {
-        return buffer;
+        return buffer.toByteArray();
     }
 
     /** Returns the length of the valid data currently in the buffer. */

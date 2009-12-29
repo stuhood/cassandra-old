@@ -41,7 +41,8 @@ import org.apache.cassandra.utils.Pair;
  * A separate index file is maintained, containing the offsets of SSTable blocks.
  * Every 1/indexInterval index entry is read into memory when the SSTable is opened.
  *
- * Finally, a bloom filter file is also kept for the keys in each SSTable.
+ * Finally, a bloom filter file is kept that contains entries for every key and
+ * sliuce boundary.
  */
 public abstract class SSTable
 {

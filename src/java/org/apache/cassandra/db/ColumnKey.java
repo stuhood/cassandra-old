@@ -25,8 +25,9 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnSerializer;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.io.DataOutputBuffer;
 import org.apache.cassandra.service.StorageService;
-
+import org.apache.cassandra.utils.BloomFilter;
 
 /**
  * The full path to a column in a column family.
@@ -99,9 +100,9 @@ public class ColumnKey
 
     /**
      * Returns a comparator that compares ColumnKeys by dk and then names, using
-     * the appropriate comparator at each level. The ColumnKeys must contain
+     * the appropriate type comparator at each level. The ColumnKeys must contain
      * an equal number of names: for example, a ColumnFamily containing columns
-     * of type super, should always have name.length == 2.
+     * of type super should always have name.length == 2.
      *
      * Tailing NAME_BEGIN names can be used to match the beginning of a subrange,
      * while tailing NAME_END names will match the end of a subrange.
@@ -112,6 +113,55 @@ public class ColumnKey
             return new Comparator(DatabaseDescriptor.getComparator(table, cf),
                                   DatabaseDescriptor.getSubComparator(table, cf));
         return new Comparator(DatabaseDescriptor.getComparator(table, cf));
+    }
+
+    /**
+     * @return The components of this key that are stored in a bloom filter.
+     */
+    List<byte[]> getBloomComponents()
+    {
+        List<byte[]> components = new ArrayList<byte[]>(1+names.length);
+        // key only
+        DataOutputBuffer buff = new DataOutputBuffer();
+        try
+        {
+            buff.writeUTF(dk.key);
+            components.add(buff.toByteArray());
+            for (int i = 0; i < names.length; i++)
+            {
+                if (names[i] == null || names[i].length < 1)
+                    // beginning of trailing null names
+                    break;
+                buff.write(names[i]);
+                // with name at depth i+1 appended
+                components.add(buff.toByteArray());
+            }
+        }
+        catch (IOException e)
+        {
+            throw new AssertionError(e);
+        }
+        return components;
+    }
+
+    /**
+     * Adds all components of this column key to the bloom filter.
+     */
+    public void addToBloom(BloomFilter bf)
+    {
+        for (byte[] component : getBloomComponents())
+            bf.add(component);
+    }
+
+    /**
+     * Checks that all components of this column key are contained in the bloom filter.
+     */
+    public boolean isPresentInBloom(BloomFilter bf)
+    {
+        for (byte[] component : getBloomComponents())
+            if (!bf.isPresent(component))
+                return false;
+        return true;
     }
 
     @Override
@@ -228,24 +278,6 @@ public class ColumnKey
                 if (comp != 0) return comp;
             }
             return 0;
-        }
-
-        /**
-         * FIXME: We can definitely find a better way to store the CK in a bloom,
-         * and we should before release.
-         */
-        public String forBloom(ColumnKey key)
-        {
-            StringBuilder buff = new StringBuilder();
-            buff.append(StorageService.getPartitioner().convertToDiskFormat(key.dk));
-            for (int i = 0; i < key.names.length; i++)
-            {
-                if (key.names[i] == null || key.names[i].length < 1)
-                    // beginning of trailing null names
-                    break;
-                buff.append("\u0000").append(nameComparators[i].getString(key.names[i]));
-            }
-            return buff.toString();
         }
     }
 }

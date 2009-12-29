@@ -1,4 +1,3 @@
-package org.apache.cassandra.io;
 /*
  * 
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -20,6 +19,7 @@ package org.apache.cassandra.io;
  * 
  */
 
+package org.apache.cassandra.io;
 
 import java.io.*;
 import java.util.*;
@@ -75,7 +75,6 @@ public class SSTableWriter extends SSTable
     private BufferedRandomAccessFile dataFile;
     private BufferedRandomAccessFile indexFile;
 
-    private BloomFilter bf;
     private ColumnKey lastWrittenKey;
     private IndexEntry lastIndexEntry;
 
@@ -92,7 +91,9 @@ public class SSTableWriter extends SSTable
         columnsWritten = 0;
         slicesWritten = 0;
         blocksWritten = 0;
-        bf = new BloomFilter((int)keyCount, 15); // TODO fix long -> int cast
+        // TODO: assumes ~10 columns per key
+        // TODO: fix long -> int cast
+        bf = new BloomFilter((int)(keyCount*11), 15); 
         lastWrittenKey = null;
         lastIndexEntry = null;
     }
@@ -195,7 +196,7 @@ public class SSTableWriter extends SSTable
     private void afterAppend(ColumnKey columnKey, ColumnKey newBlock) throws IOException
     {
         // update the filter and index files
-        bf.add(comparator.forBloom(columnKey));
+        columnKey.addToBloom(bf);
         lastWrittenKey = columnKey;
         columnsWritten++;
 
