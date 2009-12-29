@@ -129,24 +129,26 @@ public class SSTableWriter extends SSTable
      * which rounds the beginning of the slice down to the beginning of the subrange,
      * and causes the Metadata to cover all of the subrange.
      *
+     * NB: Ordering is important here: natural boundaries must always be created
+     * when the parent changes, otherwise, slice keys may be out of order on disk.
+     *
      * @return The first ColumnKey for a new slice, or null if the current slice
      * should continue.
      */
     private ColumnKey shouldFlushSlice(Slice.Metadata meta, ColumnKey columnKey)
     {
-        if (blockContext.getApproxSliceLength() > TARGET_MAX_SLICE_BYTES)
-            // max slice length reached: artificial boundary
-            return columnKey;
-        if (!meta.equals(blockContext.getMeta()))
-            // metadata changed: artificial boundary
-            return columnKey;
-
         int comparison = comparator.compare(lastWrittenKey, columnKey, columnDepth-1);
         assert comparison <= 0 : "Keys written out of order! Last written key : " +
             lastWrittenKey + " Current key : " + columnKey + " Writing to " + path;
         if (comparison < 0)
             // name changed at sliceDepth: natural boundary
             return columnKey.withName(ColumnKey.NAME_BEGIN);
+        if (blockContext.getApproxSliceLength() > TARGET_MAX_SLICE_BYTES)
+            // max slice length reached: artificial boundary
+            return columnKey;
+        if (!meta.equals(blockContext.getMeta()))
+            // metadata changed: artificial boundary
+            return columnKey;
         return null;
     }
 

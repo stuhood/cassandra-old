@@ -1349,9 +1349,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 // TODO record the metadata for the keys as we're initially collecting them
                 QueryFilter filter = new SliceQueryFilter(current.key, new QueryPath(columnFamily_), ArrayUtils.EMPTY_BYTE_ARRAY, ArrayUtils.EMPTY_BYTE_ARRAY, false, 1);
                 if (getColumnFamily(filter, Integer.MAX_VALUE) != null)
-                {
                     keys.add(current.key);
-                }
                 if (keys.size() >= maxResults)
                 {
                     rangeCompletedLocally = true;
