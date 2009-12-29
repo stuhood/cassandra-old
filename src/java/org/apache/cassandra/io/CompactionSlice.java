@@ -39,6 +39,26 @@ public class CompactionSlice extends Slice
     }
 
     /**
+     * Calculates whether the Metadata representing this Slice as a tombstone should
+     * be removed.
+     *
+     * @return True if the Slice is empty, and it was marked deleted long enough ago.
+     */
+    public boolean isDeleted(boolean major, int gcBefore)
+    {
+        if (!major)
+            // tombstones cannot be removed without a major compaction
+            return false;
+        if (!columns.isEmpty())
+            // this Slice is not a tombstone, so it can't be removed
+            return false;
+        if (meta.getLocalDeletionTime() > gcBefore)
+            // a component of our metadata is too young to be gc'd
+            return false;
+        return true;
+    }
+
+    /**
      * Digest the parent portion of the key, the metadata and the content of each
      * column sequentially.
      *

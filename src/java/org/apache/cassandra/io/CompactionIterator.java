@@ -266,17 +266,15 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
                 MetadataEntry mentry = (MetadataEntry)entry;
                 CompactionSlice oldslice = outslice;
                 outslice = new CompactionSlice(mentry.key, mentry.meta);
-                if (oldslice != null)
-                    // FIXME: need to handle tombstone gc here by skipping outputting
-                    // empty slices with deletion below gcbefore
-                    // return the last slice
+                if (oldslice != null && !oldslice.isDeleted(major, gcBefore))
+                    // return the finished slice
                     return oldslice;
                 continue;
             }
 
             // else, ColumnEntry to add to the current slice
             ColumnEntry centry = (ColumnEntry)entry;
-            if (!centry.column.isDeleted(outslice.meta, gcBefore))
+            if (!centry.column.isDeleted(outslice.meta, major, gcBefore))
                 // add if metadata does not indicate that it should be removed
                 outslice.columns.add(centry.column);
 
@@ -284,7 +282,7 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
             // split the slice to prevent it from becoming too large
         }
 
-        if (outslice != null)
+        if (outslice != null && !outslice.isDeleted(major, gcBefore))
         {
             // return the final slice
             CompactionSlice oldslice = outslice;

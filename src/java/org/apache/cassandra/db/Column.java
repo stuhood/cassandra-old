@@ -125,8 +125,11 @@ public final class Column implements IColumn
      *
      * TODO: based on ColumnFamilyStore.removeDeleted: incorporate
      */
-    public boolean isDeleted(Slice.Metadata meta, int gcBefore)
+    public boolean isDeleted(Slice.Metadata meta, boolean major, int gcBefore)
     {
+        if (!major)
+            // tombstones cannot be removed without a major compaction
+            return false;
         if (isMarkedForDelete() && getLocalDeletionTime() <= gcBefore)
             // the column has been deleted, and has acted as a tombstone long enough
             return true;

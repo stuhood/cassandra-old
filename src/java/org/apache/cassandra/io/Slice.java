@@ -60,8 +60,7 @@ public class Slice
      * info.
      *
      * Implemented as an immutable singly linked list of Metadata objects from
-     * children to parents: to determine if a Column has been deleted, you can
-     * iterate from the head of a Metadata list to the tail, comparing deletion info.
+     * children to parents.
      */
     public static final class Metadata
     {
@@ -125,6 +124,16 @@ public class Slice
             return parent != null ?
                 Math.max(parent.getMarkedForDeleteAt(), markedForDeleteAt) :
                 markedForDeleteAt;
+        }
+
+        /**
+         * @return The max localDeletionTime value contained in this Metadata list.
+         */
+        public long getLocalDeletionTime()
+        {
+            return parent != null ?
+                Math.max(parent.getLocalDeletionTime(), localDeletionTime) :
+                localDeletionTime;
         }
 
         /**
