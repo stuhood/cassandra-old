@@ -232,6 +232,8 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
                 if (scanner.next())
                     // has more slices: add back to the queue to reprioritize
                     scanners.add(scanner);
+                else
+                    scanner.close();
             }
             catch (IOException e)
             {

@@ -65,6 +65,7 @@ public class CompactionIteratorTest extends CleanupHelper
         }
 
         // compact the tables, and confirm that the output matches the last table
+        long start = System.nanoTime();
         CompactionIterator ci = new CompactionIterator(readers, 0, true);
         Iterator<Map.Entry<ColumnKey, Column>> eiter = map.entrySet().iterator();
         while (ci.hasNext())
@@ -80,6 +81,8 @@ public class CompactionIteratorTest extends CleanupHelper
                     "Column names should match.";
             }
         }
+        System.out.println((System.nanoTime() - start) + "ns to compact " + readers);
+        ci.close();
 
         assert !eiter.hasNext() : "Iterator contained : " + toString(eiter);
     }
