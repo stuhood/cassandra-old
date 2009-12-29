@@ -20,7 +20,6 @@ package org.apache.cassandra.io;
 
 import java.io.*;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnKey;
@@ -62,8 +61,6 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
     private SliceMark slice;
     private List<Column> sliceCols;
 
-    private AtomicLong desertime = new AtomicLong(0);
-
     /**
      * To acquire a Scanner over an SSTable, call SSTReader.getScanner().
      */
@@ -103,7 +100,6 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
      */
     public void close() throws IOException
     {
-        System.out.println("Scanner " + this + " spent " + desertime + "ns on column deserialization.");
         if (file != null);
             file.close();
         file = null;
@@ -202,14 +198,12 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
             return null;
         if (sliceCols == null)
         {
-            long start = System.nanoTime();
             // lazily deserialize the columns
             Column[] cols = new Column[slice.numCols];
             DataInputStream stream = block.stream();
             for (int i = 0; i < cols.length; i++)
                 cols[i] = (Column)Column.serializer().deserialize(stream);
             sliceCols = Arrays.asList(cols);
-            desertime.addAndGet(System.nanoTime() - start);
         }
         return sliceCols;
     }
