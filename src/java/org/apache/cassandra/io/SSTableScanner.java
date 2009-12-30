@@ -59,7 +59,7 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
      */
     private Block block;
     private SliceMark slice;
-    private List<Column> sliceCols;
+    private SliceBuffer sliceCols;
 
     /**
      * To acquire a Scanner over an SSTable, call SSTReader.getScanner().
@@ -185,10 +185,11 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
     }
 
     /**
-     * The list of columns in this slice. A slice may be a tombstone, which only exists
-     * to pass along deletion Metadata, in which case this column list will be empty.
+     * A list of columns contained in this slice. A slice may be a tombstone,
+     * which only exists to pass along deletion Metadata, in which case the list
+     * will be empty.
      *
-     * @return The sorted columns for the Slice at our current position, or null if
+     * @return A column list for the slice at our current position, or null if
      * the last call to seekTo failed, or we're at EOF.
      */
     public List<Column> getColumns() throws IOException
@@ -198,12 +199,35 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
             return null;
         if (sliceCols == null)
         {
-            // lazily deserialize the columns
             Column[] cols = new Column[slice.numCols];
             DataInputStream stream = block.stream();
             for (int i = 0; i < cols.length; i++)
                 cols[i] = (Column)Column.serializer().deserialize(stream);
-            sliceCols = Arrays.asList(cols);
+            sliceCols = new SliceBuffer(slice.meta, slice.key, slice.nextKey,
+                                        Arrays.asList(cols));
+        }
+        return sliceCols.realized();
+    }
+
+    /**
+     * A buffer containing the columns in this slice. A slice may be a tombstone,
+     * which only exists to pass along deletion Metadata, in which case the buffer
+     * will be empty.
+     *
+     * @return A SliceBuffer for the slice at our current position, or null if
+     * the last call to seekTo failed, or we're at EOF.
+     */
+    public SliceBuffer getBuffer() throws IOException
+    {
+        if (slice == null)
+            // not positioned at a slice
+            return null;
+        if (sliceCols == null)
+        {
+            DataOutputBuffer buff = new DataOutputBuffer(slice.length);
+            buff.write(block.stream(), slice.length);
+            sliceCols = new SliceBuffer(slice.meta, slice.key, slice.nextKey,
+                                        slice.numCols, buff);
         }
         return sliceCols;
     }

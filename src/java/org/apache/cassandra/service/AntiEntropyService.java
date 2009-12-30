@@ -32,7 +32,7 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Table;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.io.CompactionSlice;
+import org.apache.cassandra.io.SliceBuffer;
 import org.apache.cassandra.io.DataInputBuffer;
 import org.apache.cassandra.io.ICompactSerializer;
 import org.apache.cassandra.io.SSTable;
@@ -336,7 +336,7 @@ public class AntiEntropyService
     public static interface IValidator
     {
         public void prepare();
-        public void add(CompactionSlice slice);
+        public void add(SliceBuffer slice);
         public void complete();
     }
 
@@ -430,7 +430,7 @@ public class AntiEntropyService
          *
          * @param slice A batch of columns.
          */
-        public void add(CompactionSlice slice)
+        public void add(SliceBuffer slice)
         {
             if (mintoken != null)
             {
@@ -461,11 +461,11 @@ public class AntiEntropyService
             range.addHash(rowHash(slice));
         }
 
-        private MerkleTree.RowHash rowHash(CompactionSlice slice)
+        private MerkleTree.RowHash rowHash(SliceBuffer slice)
         {
             validated++;
             // FIXME: since multiple slices make up a single 'row' now, they need to be hashed
-            //        sequentially using CompactionSlice.updateDigest()
+            //        sequentially using SliceBuffer.updateDigest()
             // return new MerkleTree.RowHash(slice.key.dk.token, slice.digest());
             throw new RuntimeException("FIXME: Not implemented");
         }
@@ -532,7 +532,7 @@ public class AntiEntropyService
         /**
          * Does nothing.
          */
-        public void add(CompactionSlice row)
+        public void add(SliceBuffer row)
         {
             // noop
         }

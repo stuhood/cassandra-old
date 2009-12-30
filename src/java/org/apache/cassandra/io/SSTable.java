@@ -224,9 +224,6 @@ public abstract class SSTable
      * metadata about those slices. The status codes in SliceMarks describe the
      * position of the slice in the block.
      *
-     * Compared to the parent Slice class, a SliceMark adds a nextKey field, which
-     * points to the first key of the next Slice on disk.
-     *
      * The Metadata in a Slice should affect any columns between key,
      * inclusive, and nextKey, exclusive. But, if it is acting as a tombstone, a
      * Slice on disk may not contain any columns at all.
@@ -238,22 +235,15 @@ public abstract class SSTable
         // this is the last slice in the block
         public static final byte BLOCK_END = (byte)-1;
 
-        // first key of the next slice on disk (exclusive end to our range)
-        public final ColumnKey nextKey;
-
         // uncompressed bytes to next SliceMark
         public final int length;
-        // number of columns in the slice
-        public final int numCols;
         // status of this slice in the current block
         public final byte status;
 
         public SliceMark(Slice.Metadata meta, ColumnKey key, ColumnKey nextKey, int length, int numCols, byte status)
         {
-            super(meta, key);
-            this.nextKey = nextKey;
+            super(meta, key, nextKey, numCols);
             this.length = length;
-            this.numCols = numCols;
             this.status = status;
         }
 
@@ -267,7 +257,9 @@ public abstract class SSTable
             meta.serialize(dos);
 
             dos.writeInt(length);
-            dos.writeInt(numCols);
+            if (length > 0)
+                // save a few bytes for tombstones
+                dos.writeInt(numCols);
             dos.writeByte(status);
         }
 
@@ -278,17 +270,9 @@ public abstract class SSTable
             Slice.Metadata meta = Slice.Metadata.deserialize(dis);
 
             int length = dis.readInt();
-            int numCols = dis.readInt();
+            int numCols = length > 0 ? dis.readInt() : 0;
             byte status = dis.readByte();
             return new SliceMark(meta, key, nextKey, length, numCols, status);
-        }
-
-        public String toString()
-        {
-            StringBuilder buff = new StringBuilder();
-            buff.append("#<SliceMark ").append(key).append(" (");
-            buff.append(numCols).append(") ").append(nextKey).append(">");
-            return buff.toString();
         }
     }
 

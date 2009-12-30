@@ -826,7 +826,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
             while (ci.hasNext())
             {
-                CompactionSlice slice = ci.next();
+                SliceBuffer slice = ci.next();
                 if (Range.isTokenInRanges(slice.key.dk.token, ranges))
                 {
                     if (writer == null)
@@ -835,8 +835,8 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
                         String newFilename = new File(compactionFileLocation, getTempSSTableFileName()).getAbsolutePath();
                         writer = new SSTableWriter(newFilename, expectedBloomFilterSize, StorageService.getPartitioner());
                     }
-                    // FIXME: writer needs a Slice append
-                    for (Column column : slice.columns)
+                    // FIXME: writer needs a Slice append that can use the serialized() method
+                    for (Column column : slice.realized())
                         writer.append(slice.meta, slice.key, column);
                     totalColsWritten++;
                 }
@@ -927,8 +927,9 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             validator.prepare();
             while (ci.hasNext())
             {
-                CompactionSlice slice = ci.next();
-                for (Column column : slice.columns)
+                SliceBuffer slice = ci.next();
+                // FIXME: writer needs a Slice append that can use the serialized() method
+                for (Column column : slice.realized())
                     writer.append(slice.meta, slice.key, column);
                 validator.add(slice);
                 totalkeysWritten++;
@@ -990,7 +991,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             validator.prepare();
             while (ci.hasNext())
             {
-                CompactionSlice slice = ci.next();
+                SliceBuffer slice = ci.next();
                 validator.add(slice);
             }
             validator.complete();

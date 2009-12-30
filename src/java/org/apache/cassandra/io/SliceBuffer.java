@@ -20,6 +20,8 @@ package org.apache.cassandra.io;
  * 
  */
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.*;
 import java.security.MessageDigest;
@@ -28,16 +30,63 @@ import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnKey;
 
 /**
- * Extends Slice to add a list of Columns.
+ * Extends Slice to add serialized or realized columns. At least 1 of the 2 will be set
+ * at a given time: if the realized columns are modified, the buffer is cleared, and
+ * lazily recreated. Likewise, if the buffer is modified, the realized columns will be
+ * lazily deserialized.
  */
-public class CompactionSlice extends Slice
+public class SliceBuffer extends Slice
 {
-    public final List<Column> columns;
+    private DataOutputBuffer serialized;
+    private List<Column> realized;
 
-    public CompactionSlice(ColumnKey key, Slice.Metadata meta)
+    SliceBuffer(Slice.Metadata meta, ColumnKey key, ColumnKey nextKey, List<Column> realized)
     {
-        super(meta, key);
-        this.columns = new ArrayList<Column>();
+        super(meta, key, nextKey, realized.size());
+        assert this.realized != null;
+        this.realized = realized;
+    }
+
+    SliceBuffer(Slice.Metadata meta, ColumnKey key, ColumnKey nextKey, int numCols, DataOutputBuffer serialized)
+    {
+        super(meta, key, nextKey, numCols);
+        assert this.serialized != null;
+        this.serialized = serialized;
+    }
+
+    public DataOutputBuffer serialized()
+    {
+        if (serialized != null)
+            return serialized;
+        
+        // serialize the columns
+        serialized = new DataOutputBuffer(numCols * 10);
+        for (Column col : realized)
+            Column.serializer().serialize(col, serialized);
+        return serialized;
+    }
+
+    public List<Column> realized()
+    {
+        if (realized != null)
+            return realized;
+
+        // realize the columns from the buffer
+        Column[] cols = new Column[numCols];
+        DataInputStream stream = new DataInputStream(new ByteArrayInputStream(serialized.getData(),
+                                                                              0, serialized.getLength()));
+        try
+        {
+            for (int i = 0; i < cols.length; i++)
+                cols[i] = (Column)Column.serializer().deserialize(stream);
+            realized = Arrays.asList(cols);
+        }
+        catch (IOException e)
+        {
+            throw new AssertionError(e);
+        }
+
+        return realized;
     }
 
     /**
@@ -51,7 +100,7 @@ public class CompactionSlice extends Slice
         if (!major)
             // tombstones cannot be removed without a major compaction
             return false;
-        if (!columns.isEmpty())
+        if (numCols > 0)
             // this Slice is not a tombstone, so it can't be removed
             return false;
         if (meta.getLocalDeletionTime() > gcBefore)
@@ -81,9 +130,10 @@ public class CompactionSlice extends Slice
             throw new AssertionError(e);
         }
 
-        if (columns.isEmpty())
+        if (numCols == 0)
+            // for tombstones, only metadata is digested
             digest.update(shared.getData(), 0, shared.getLength());
-        for (Column col : columns)
+        for (Column col : realized())
         {
             digest.update(shared.getData(), 0, shared.getLength());
             col.updateDigest(digest);

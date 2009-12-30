@@ -34,7 +34,7 @@ import org.apache.cassandra.db.ColumnKey;
 import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.Iterators;
 
-public class CompactionIterator extends AbstractIterator<CompactionSlice> implements Closeable
+public class CompactionIterator extends AbstractIterator<SliceBuffer> implements Closeable
 {
     private static Logger logger = Logger.getLogger(CompactionIterator.class);
 
@@ -74,7 +74,7 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
      * of the columns leading up to the next Metadata entry, or up to
      * SSTable.TOTAL_MAX_SLICE_BYTES.
      */
-    private CompactionSlice outslice = null;
+    private SliceBuffer outslice = null;
 
     /**
      * TODO: add a range-based filter like #607, but use it to seek() on the Scanners.
@@ -226,7 +226,7 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
             try
             {
                 // merge the first slice to the merge buffer
-                mergeToBuffer(scanner.get(), scanner.getColumns());
+                mergeToBuffer(scanner.get(), scanner.getBuffer());
 
                 // skip to the next slice
                 if (scanner.next())
@@ -252,10 +252,10 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
      * buffer into an output slice, while applying deletion metadata and garbage
      * collecting tombstones.
      *
-     * @return The next CompactionSlice for this iterator.
+     * @return The next SliceBuffer for this iterator.
      */
     @Override
-    public CompactionSlice computeNext()
+    public SliceBuffer computeNext()
     {
         while (ensureMergeBuffer())
         {
@@ -264,8 +264,8 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
             {
                 // metadata marks the beginning of a new slice
                 MetadataEntry mentry = (MetadataEntry)entry;
-                CompactionSlice oldslice = outslice;
-                outslice = new CompactionSlice(mentry.key, mentry.meta);
+                SliceBuffer oldslice = outslice;
+                outslice = new SliceBuffer(mentry.key, mentry.meta);
                 if (oldslice != null && !oldslice.isDeleted(major, gcBefore))
                     // return the finished slice
                     return oldslice;
@@ -285,7 +285,7 @@ public class CompactionIterator extends AbstractIterator<CompactionSlice> implem
         if (outslice != null && !outslice.isDeleted(major, gcBefore))
         {
             // return the final slice
-            CompactionSlice oldslice = outslice;
+            SliceBuffer oldslice = outslice;
             outslice = null;
             return oldslice;
         }
