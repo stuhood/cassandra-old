@@ -222,6 +222,11 @@ public class ColumnKey
             this.nameComparators = nameComparators;
         }
 
+        public int columnDepth()
+        {
+            return nameComparators.length;
+        }
+
         /**
          * Compares the given names as if they were at the given depth. Depths begin at 1.
          *

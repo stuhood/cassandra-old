@@ -61,16 +61,17 @@ public abstract class SSTable
      * to start looking for the IndexEntry on disk with less seeking. The index
      * contains one IndexEntry per block.
      *
-     * FIXME: make configurable
+     * FIXME: make configurable, or remove entirely: the entire index should fit in
+     * memory now
      */
     public static final int INDEX_INTERVAL = 16;
     // required extension for temporary files created during compactions
     public static final String TEMPFILE_MARKER = "tmp";
 
     /**
-     * The target maximum size of a Slice in bytes.
+     * The target maximum serialized size of a Slice in bytes.
      *
-     * SliceMarks allow skipping columns within a block, but this many bytes will need
+     * Slices define the granularity for skipping columns within a block, and the data
      * to be held in memory while writing or reading the SSTable. Large columns will
      * stretch this value (because a slice cannot be smaller than a column).
      * TODO: tune

@@ -155,6 +155,24 @@ public class Slice
             return parent.get(depth);
         }
 
+        @Override
+        public boolean equals(Object o)
+        {
+            if (this == o)
+                return true;
+            if (!(o instanceof Metadata))
+                return false;
+
+            Metadata that = (Metadata)o;
+            if (this.markedForDeleteAt != that.markedForDeleteAt)
+                return false;
+            if (this.localDeletionTime != that.localDeletionTime)
+                return false;
+            if ((this.parent == null) != (that.parent == null))
+                return false;
+            return this.parent == null ? true : this.parent.equals(that.parent);
+        }
+
         /**
          * Serialize this Metadata list.
          */

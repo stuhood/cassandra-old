@@ -85,8 +85,74 @@ public class SliceBuffer extends Slice
         {
             throw new AssertionError(e);
         }
-
         return realized;
+    }
+
+    public void realized(List<Column> realized)
+    {
+        this.realized = realized;
+        serialized = null;
+    }
+
+    /**
+     * Merges the given intersecting buffers, where left has a key less than or equal
+     * to right: either of the input buffers may be modified. The output will be 1 or
+     * more slice buffers (depending on size/key/metadata) in sorted order by key,
+     * which may or may not be equal to the input Slices.
+     *
+     * This method can only be used when the Slices intersect/overlap one another,
+     * meaning that they have the same parents (otherwise, the output would be
+     * exactly the same as the input).
+     *
+     * @return One or more SliceBuffers resulting from the merge.
+     */
+    public static List<SliceBuffer> merge(ColumnKey.Comparator comparator, SliceBuffer left, SliceBuffer right)
+    {
+        final int cdepth = comparator.columnDepth();
+
+
+        final List<SliceBuffer> output = new LinkedList<SliceBuffer>();
+        final Metadata overlapmeta = Metadata.resolve(left.meta, right.meta);
+
+
+        List<Column> leftover;
+        if (comparator.compare(left.key, right.key) < 0)
+        {
+            // find the beginning of the overlap in the left buffer
+            // TODO: could use binary search here
+            int idx = 0;
+            List<Columns> lcols = left.realized();
+            for (; idx < lcols.size(); idx++)
+                if (comparator.compareAt(lcols.get(idx).name(),
+                                         right.key.name(cdepth)) > 0)
+                    break;
+            
+            // add a truncated copy of the left buffer to the output
+            output.add(new SliceBuffer(left.meta, left.key, right.key,
+                                       lcols.subList(0, idx));
+            leftover = lcols.subList(idx, lcols.size());
+        }
+        else
+            // overlap begins at the beginning of the left buffer
+            leftover = left.realized();
+
+        
+        final int next = comparator.compare(left.nextKey, right.nextKey);
+        if (next == 0)
+        {
+            // merge all columns in right with leftover
+            // FIXME
+        }
+        else if (next < 0)
+            // overlap ends in the middle of the right buffer
+            // FIXME
+        else
+            // overlap ends after the right buffer
+            // FIXME
+
+
+        // TODO: split any output slices larger than TARGET_MAX_SLICE_BYTES
+        return output;
     }
 
     /**

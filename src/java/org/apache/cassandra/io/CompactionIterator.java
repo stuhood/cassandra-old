@@ -48,17 +48,17 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
     private final boolean major;
 
     /**
-     * The comparator for all SSTables we are compacting.
+     * The comparators for all SSTables we are compacting.
      */
     private final ColumnKey.Comparator comparator;
+    private final SliceComparator scomparator;
     /**
      * Scanners are kept sorted by the key of the Slice they are positioned at.
      */
     private final PriorityQueue<SSTableScanner> scanners;
 
     /**
-     * List of Metadata and Column entries. Metadata entries apply to all columns up
-     * to the next Metadata entry. See BufferEntry.
+     * List of Slices which are being prepared for return.
      *
      * NB: This buffer is the source of the majority of memory usage for compactions.
      * Its maximum size in bytes is roughly equal to:
@@ -67,14 +67,7 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
      * The LinkedList is a natural fit for merge sort because it provides random
      * insertion performance, and allows constant time removal from the head.
      */
-    private LinkedList<BufferEntry> mergeBuff;
-    /**
-     * Whenever a Metadata entry reaches the
-     * front of the merge buffer, a new output slice is created, which contains all
-     * of the columns leading up to the next Metadata entry, or up to
-     * SSTable.TOTAL_MAX_SLICE_BYTES.
-     */
-    private SliceBuffer outslice = null;
+    private LinkedList<SliceBuffer> mergeBuff;
 
     /**
      * TODO: add a range-based filter like #607, but use it to seek() on the Scanners.
@@ -89,24 +82,26 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
 
         // fields shared for all sstables
         SSTableReader head = sstables.iterator().next();
-        this.comparator = head.getComparator();
+        comparator = head.getComparator();
+        scomparator = new SliceComparator(comparator);
 
         // open all scanners
         int bufferPer = TOTAL_FILE_BUFFER_BYTES / sstables.size();
         this.scanners = new PriorityQueue<SSTableScanner>(sstables.size());
         for (SSTableReader sstable : sstables)
             this.scanners.add(sstable.getScanner(bufferPer));
-        this.mergeBuff = new LinkedList<BufferEntry>();
+        this.mergeBuff = new LinkedList<SliceBuffer>();
     }
 
     /**
-     * Merges the given slice and its columns into the merge buffer: thanks to
-     * LinkedList and ListIterator, merging happens in place. Metadata for the slice
-     * acts as the head of the input list, causing it to apply to the tailing items.
+     * Merges the given SliceBuffer into the merge buffer.
+     *
+     * If two Slices intersect, they are merged on a metadata and column-by-column
+     * basis, resulting in 1 or more output slices (depending on size and metadata).
      */
-    void mergeToBuffer(Slice slice, List<Column> rhs)
+    void mergeToBuffer(SliceBuffer slice)
     {
-        ListIterator<BufferEntry> buffiter = mergeBuff.listIterator();
+        ListIterator<SliceBuffer> buffiter = mergeBuff.listIterator();
         Iterator<Column> rhsiter = rhs.iterator();
 
         BufferEntry buffcur = buffiter.hasNext() ? buffiter.next() : null;
@@ -314,57 +309,20 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
     }
 
     /**
-     * Represents a tuple of (ColumnKey, (Metadata or Column)). Metadata entries in
-     * the merge buffer play a similar role to the one they play on disk: they apply
-     * metadata to all columns up to the next Metadata entry.
-     *
-     * A piece of Metadata with a key equal to the key of a column Column should sort
-     * before the Column, in order to apply to it. For example, a piece of Metadata
-     * representing a tombstone and beginning at the same key as a Column should apply
-     * to and delete the Column.
+     * Compares Slices using their key.
      */
-    abstract class BufferEntry implements Comparable<BufferEntry>
+    final class SliceComparator implements Comparator<Slice>
     {
-        public final ColumnKey key;
-        protected BufferEntry(ColumnKey key)
+        private final ColumnKey.Comparator keycomp;
+        public SliceComparator(ColumnKey.Comparator keycomp)
         {
-            this.key = key;
+            this.keycomp = keycomp;
+            throw new RuntimeException("Should compare for intersection!"); // FIXME
         }
-            
-        public int compareTo(BufferEntry that)
+        
+        public int compare(Slice s1, Slice s2)
         {
-            int comparison = comparator.compare(this.key, that.key);
-            if (comparison != 0)
-                return comparison;
-            if (this.getClass().equals(that.getClass()))
-                return 0;
-            // sort Metadata first
-            return this instanceof MetadataEntry ? -1 : 1;
-        }
-    
-        public String toString()
-        {
-            return "<" + this.getClass().getName() + " " + key.dk + ">";
-        }
-    }
-
-    final class MetadataEntry extends BufferEntry
-    {
-        public final Slice.Metadata meta;
-        public MetadataEntry(ColumnKey key, Slice.Metadata meta)
-        {
-            super(key);
-            this.meta = meta;
-        }
-    }
-
-    final class ColumnEntry extends BufferEntry
-    {
-        public final Column column;
-        public ColumnEntry(ColumnKey key, Column column)
-        {
-            super(key);
-            this.column = column;
+            return keycomp.compare(s1.key, s2.key);
         }
     }
 }
