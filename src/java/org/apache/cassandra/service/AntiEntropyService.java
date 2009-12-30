@@ -464,7 +464,10 @@ public class AntiEntropyService
         private MerkleTree.RowHash rowHash(CompactionSlice slice)
         {
             validated++;
-            return new MerkleTree.RowHash(slice.key.dk.token, slice.digest());
+            // FIXME: since multiple slices make up a single 'row' now, they need to be hashed
+            //        sequentially using CompactionSlice.updateDigest()
+            // return new MerkleTree.RowHash(slice.key.dk.token, slice.digest());
+            throw new RuntimeException("FIXME: Not implemented");
         }
 
         /**
