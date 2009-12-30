@@ -20,7 +20,9 @@ package org.apache.cassandra.io;
  * 
  */
 
+import java.io.IOException;
 import java.util.*;
+import java.security.MessageDigest;
 
 import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnKey;
@@ -59,16 +61,32 @@ public class CompactionSlice extends Slice
     }
 
     /**
-     * Digest the parent portion of the key, the metadata and the content of each
-     * column sequentially.
+     * For each column, adds the parent portion of the key, the metadata and the
+     * content of the column to the given digest.
      *
-     * NB: A sequence of columns with the same parents and metadata should always
-     * result in the same digest, no matter how it is split.
+     * An empty slice (acting only as a tombstone), will digest only the key and
+     * metadata.
      */
-    public byte[] digest()
+    public void updateDigest(MessageDigest digest)
     {
-        // MerkleTree uses XOR internally, so we want lots of output bits here
-        // FIXME: byte[] rowhash = FBUtilities.hash("SHA-256", slice.key.key.getBytes(), row.buffer.getData());
-        throw new RuntimeException("Not implemented."); // FIXME
+        // parent data that is shared for these columns
+        DataOutputBuffer shared = new DataOutputBuffer();
+        try
+        {
+            meta.serialize(shared);
+            key.withName(ColumnKey.NAME_BEGIN).serialize(shared);
+        }
+        catch (IOException e)
+        {
+            throw new AssertionError(e);
+        }
+
+        if (columns.isEmpty())
+            digest.update(shared.getData(), 0, shared.getLength());
+        for (Column col : columns)
+        {
+            digest.update(shared.getData(), 0, shared.getLength());
+            col.updateDigest(digest);
+        }
     }
 }
