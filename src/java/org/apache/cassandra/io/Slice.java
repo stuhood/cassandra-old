@@ -27,30 +27,34 @@ import org.apache.cassandra.utils.Pair;
 
 /**
  * An immutable object representing a Slice: a Slice is a sorted sequence
- * of columns beginning at key (inclusive) and ending at nextKey (exclusive) that
+ * of columns beginning at key (inclusive) and ending at end (exclusive) that
  * share the same parents, and the same Metadata.
+ *
+ * The Metadata in a Slice affects any columns between key, inclusive, and end,
+ * exclusive. But if it is acting as a tombstone, a Slice may not contain any columns.
  */
 public class Slice
 {
     public final Metadata meta;
-    // the key of the first column: all but the last name will be equal for
+    // inclusive beginning of our range: all but the last name will be equal for
     // columns in the slice
     public final ColumnKey key;
-    // key for the next slice (exclusive end to our range): may be null
-    public final ColumnKey nextKey;
+    // exclusive end to our range
+    public final ColumnKey end;
     // number of columns in the slice
     public final int numCols;
 
     /**
      * @param meta Metadata for the key range this Slice defines.
      * @param key The key for the first column in the Slice.
+     * @param key The key for the first column in the Slice.
      */
-    Slice(Metadata meta, ColumnKey key, ColumnKey nextKey, int numCols)
+    Slice(Metadata meta, ColumnKey key, ColumnKey end, int numCols)
     {
-        assert meta != null && key != null;
+        assert meta != null && key != null && end != null;
         this.meta = meta;
         this.key = key;
-        this.nextKey = nextKey;
+        this.end = end;
         this.numCols = numCols;
     }
 
@@ -58,7 +62,7 @@ public class Slice
     {
         StringBuilder buff = new StringBuilder();
         buff.append("#<Slice ").append(key).append(" (");
-        buff.append(numCols).append(") ").append(nextKey).append(">");
+        buff.append(numCols).append(") ").append(end).append(">");
         return buff.toString();
     }
 

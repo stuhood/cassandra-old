@@ -29,6 +29,9 @@ import java.security.MessageDigest;
 import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnKey;
 
+import com.google.common.collect.Iterators;
+import com.google.common.collect.Ordering;
+
 /**
  * Extends Slice to add serialized or realized columns. At least 1 of the 2 will be set
  * at a given time: if the realized columns are modified, the buffer is cleared, and
@@ -109,11 +112,7 @@ public class SliceBuffer extends Slice
     public static List<SliceBuffer> merge(ColumnKey.Comparator comparator, SliceBuffer left, SliceBuffer right)
     {
         final int cdepth = comparator.columnDepth();
-
-
         final List<SliceBuffer> output = new LinkedList<SliceBuffer>();
-        final Metadata overlapmeta = Metadata.resolve(left.meta, right.meta);
-
 
         List<Column> leftover;
         if (comparator.compare(left.key, right.key) < 0)
@@ -121,35 +120,71 @@ public class SliceBuffer extends Slice
             // find the beginning of the overlap in the left buffer
             // TODO: could use binary search here
             int idx = 0;
-            List<Columns> lcols = left.realized();
+            List<Column> lcols = left.realized();
             for (; idx < lcols.size(); idx++)
                 if (comparator.compareAt(lcols.get(idx).name(),
-                                         right.key.name(cdepth)) > 0)
+                                         right.key.name(cdepth), cdepth) > 0)
                     break;
             
             // add a truncated copy of the left buffer to the output
             output.add(new SliceBuffer(left.meta, left.key, right.key,
-                                       lcols.subList(0, idx));
+                                       lcols.subList(0, idx)));
             leftover = lcols.subList(idx, lcols.size());
         }
         else
             // overlap begins at the beginning of the left buffer
             leftover = left.realized();
 
-        
-        final int next = comparator.compare(left.nextKey, right.nextKey);
-        if (next == 0)
-        {
-            // merge all columns in right with leftover
-            // FIXME
-        }
-        else if (next < 0)
-            // overlap ends in the middle of the right buffer
-            // FIXME
-        else
-            // overlap ends after the right buffer
-            // FIXME
 
+        // while columns are less than left.end, merge sort into an overlap buffer
+        List<Column> overlap = new ArrayList<Column>();
+        Iterator<Column> liter = leftover.iterator();
+        Iterator<Column> riter = right.realized().iterator();
+        Column lcol = liter.hasNext() ? liter.next() : null;
+        Column rcol = riter.hasNext() ? riter.next() : null;
+        while (lcol != null && rcol != null)
+        {
+            int comp = comparator.compareAt(lcol.name(), rcol.name(), cdepth);
+            if (comp == 0)
+            {
+                // resolve and add
+                overlap.add(lcol.comparePriority(rcol) <= 0 ? rcol : lcol);
+                lcol = liter.hasNext() ? liter.next() : null;
+                rcol = riter.hasNext() ? riter.next() : null;
+            }
+            else if (comp < 0)
+            {
+                overlap.add(lcol);
+                lcol = liter.hasNext() ? liter.next() : null;
+            }
+            else // comp > 0
+            {
+                overlap.add(rcol);
+                rcol = riter.hasNext() ? riter.next() : null;
+            }
+        }
+        output.add(new SliceBuffer(Metadata.resolve(left.meta, right.meta),
+                                   right.key,
+                                   Ordering.from(comparator).min(left.end, right.end),
+                                   overlap));
+       
+
+        if (lcol != null)
+        {
+            // if columns remain in left output, output with left metadata
+            List<Column> remainder = new ArrayList<Column>();
+            remainder.add(lcol);
+            Iterators.addAll(remainder, liter);
+            output.add(new SliceBuffer(left.meta, right.end, left.end, remainder));
+        }
+        else if (rcol != null)
+        {
+            // if columns remain in right output, output with right metadata
+            List<Column> remainder = new ArrayList<Column>();
+            remainder.add(rcol);
+            Iterators.addAll(remainder, riter);
+            output.add(new SliceBuffer(left.meta, left.end, right.end, remainder));
+        }
 
         // TODO: split any output slices larger than TARGET_MAX_SLICE_BYTES
         return output;

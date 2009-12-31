@@ -90,6 +90,14 @@ public class ColumnKey
     }
 
     /**
+     * @return The name at the maximum/column depth.
+     */
+    public byte[] name()
+    {
+        return names[name.length-1];
+    }
+
+    /**
      * @return The name at the given depth: the dk is at depth 0, so names
      * begin at depth 1.
      */

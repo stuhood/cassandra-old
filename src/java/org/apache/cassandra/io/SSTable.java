@@ -28,6 +28,7 @@ import org.apache.log4j.Logger;
 import org.apache.commons.lang.StringUtils;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnKey;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.utils.BloomFilter;
@@ -225,9 +226,7 @@ public abstract class SSTable
      * metadata about those slices. The status codes in SliceMarks describe the
      * position of the slice in the block.
      *
-     * The Metadata in a Slice should affect any columns between key,
-     * inclusive, and nextKey, exclusive. But, if it is acting as a tombstone, a
-     * Slice on disk may not contain any columns at all.
+     * The nextKey value is the 'key' value of the next slice on disk.
      */
     static class SliceMark extends Slice
     {
@@ -236,14 +235,17 @@ public abstract class SSTable
         // this is the last slice in the block
         public static final byte BLOCK_END = (byte)-1;
 
+        // key for the next slice: may be null
+        public final ColumnKey nextKey;
         // uncompressed bytes to next SliceMark
         public final int length;
         // status of this slice in the current block
         public final byte status;
 
-        public SliceMark(Slice.Metadata meta, ColumnKey key, ColumnKey nextKey, int length, int numCols, byte status)
+        public SliceMark(Slice.Metadata meta, ColumnKey key, ColumnKey end, ColumnKey nextKey, int length, int numCols, byte status)
         {
-            super(meta, key, nextKey, numCols);
+            super(meta, key, end, numCols);
+            this.nextKey = nextKey;
             this.length = length;
             this.status = status;
         }
@@ -251,6 +253,9 @@ public abstract class SSTable
         public void serialize(DataOutput dos) throws IOException
         {
             key.serialize(dos);
+            // a slice must contain columns with the same parents, so we only write
+            // the column name from the end key
+            Column.serializer().writeName(end.name(), dos);
             // nextKey is nullable, indicating the end of the file
             dos.writeBoolean(nextKey != null);
             if (nextKey != null)
@@ -259,7 +264,7 @@ public abstract class SSTable
 
             dos.writeInt(length);
             if (length > 0)
-                // save a few bytes for tombstones
+                // save a few bytes by not writing column count for 0 length slices
                 dos.writeInt(numCols);
             dos.writeByte(status);
         }
@@ -267,13 +272,14 @@ public abstract class SSTable
         public static SliceMark deserialize(DataInput dis) throws IOException
         {
             ColumnKey key = ColumnKey.deserialize(dis);
+            ColumnKey end = key.withName(Column.serializer().readName(dis));
             ColumnKey nextKey = dis.readBoolean() ? ColumnKey.deserialize(dis) : null;
             Slice.Metadata meta = Slice.Metadata.deserialize(dis);
 
             int length = dis.readInt();
             int numCols = length > 0 ? dis.readInt() : 0;
             byte status = dis.readByte();
-            return new SliceMark(meta, key, nextKey, length, numCols, status);
+            return new SliceMark(meta, key, end, nextKey, length, numCols, status);
         }
     }
 
