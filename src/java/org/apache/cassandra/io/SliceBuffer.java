@@ -98,10 +98,9 @@ public class SliceBuffer extends Slice
     }
 
     /**
-     * Merges the given intersecting buffers, where left has a key less than or equal
-     * to right: either of the input buffers may be modified. The output will be 1 or
-     * more slice buffers (depending on size/key/metadata) in sorted order by key,
-     * which may or may not be equal to the input Slices.
+     * Merges the given intersecting buffers. The output will be 1 or more non-
+     * intersecting slice buffers (depending on size/key/metadata) in sorted order by
+     * key.
      *
      * This method can only be used when the Slices intersect/overlap one another,
      * meaning that they have the same parents (otherwise, the output would be
@@ -111,6 +110,14 @@ public class SliceBuffer extends Slice
      */
     public static List<SliceBuffer> merge(ColumnKey.Comparator comparator, SliceBuffer left, SliceBuffer right)
     {
+        if (comparator.compare(left.key, right.key) > 0)
+        {
+            // left should have the <= key
+            SliceBuffer swap = left;
+            left = right;
+            right = swap;
+        }
+
         final int cdepth = comparator.columnDepth();
         final List<SliceBuffer> output = new LinkedList<SliceBuffer>();
 
@@ -214,8 +221,7 @@ public class SliceBuffer extends Slice
      * For each column, adds the parent portion of the key, the metadata and the
      * content of the column to the given digest.
      *
-     * An empty slice (acting only as a tombstone), will digest only the key and
-     * metadata.
+     * An empty slice (acting as a tombstone), will digest only the key and metadata.
      */
     public void updateDigest(MessageDigest digest)
     {

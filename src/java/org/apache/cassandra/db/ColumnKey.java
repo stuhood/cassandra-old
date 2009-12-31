@@ -94,7 +94,7 @@ public class ColumnKey
      */
     public byte[] name()
     {
-        return names[name.length-1];
+        return names[names.length-1];
     }
 
     /**

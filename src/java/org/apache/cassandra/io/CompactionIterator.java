@@ -58,16 +58,15 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
     private final PriorityQueue<SSTableScanner> scanners;
 
     /**
-     * List of Slices which are being prepared for return.
+     * Sorted list of Slices which are being prepared for return. As Slices are added
+     * to the list, they are resolved against intersecting slices, resulting in a
+     * buffer of non-intersecting slices.
      *
      * NB: This buffer is the source of the majority of memory usage for compactions.
      * Its maximum size in bytes is roughly equal to:
      * (CompactionManager.maxCompactThreshold * SSTable.TARGET_MAX_SLICE_BYTES)
-     *
-     * The LinkedList is a natural fit for merge sort because it provides random
-     * insertion performance, and allows constant time removal from the head.
      */
-    private LinkedList<SliceBuffer> mergeBuff;
+    private ArrayList<SliceBuffer> mergeBuff;
 
     /**
      * TODO: add a range-based filter like #607, but use it to seek() on the Scanners.
@@ -87,97 +86,33 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
 
         // open all scanners
         int bufferPer = TOTAL_FILE_BUFFER_BYTES / sstables.size();
-        this.scanners = new PriorityQueue<SSTableScanner>(sstables.size());
+        scanners = new PriorityQueue<SSTableScanner>(sstables.size());
         for (SSTableReader sstable : sstables)
-            this.scanners.add(sstable.getScanner(bufferPer));
-        this.mergeBuff = new LinkedList<SliceBuffer>();
+            scanners.add(sstable.getScanner(bufferPer));
+        mergeBuff = new ArrayList<SliceBuffer>();
     }
 
     /**
-     * Merges the given SliceBuffer into the merge buffer.
+     * Merges the given SliceBuffers into the merge buffer.
      *
-     * If two Slices intersect, they are merged on a metadata and column-by-column
-     * basis, resulting in 1 or more output slices (depending on size and metadata).
+     * If the given slice intersects a slice already in the buffer, they are resolved
+     * using SliceBuffer.merge(), and the resulting slices are recursively merged.
      */
-    void mergeToBuffer(SliceBuffer slice)
+    void mergeToBuffer(SliceBuffer... slice)
     {
-        ListIterator<SliceBuffer> buffiter = mergeBuff.listIterator();
-        Iterator<Column> rhsiter = rhs.iterator();
-
-        BufferEntry buffcur = buffiter.hasNext() ? buffiter.next() : null;
-        // Metadata for the slice as header
-        BufferEntry rhscur = new MetadataEntry(slice.key, slice.meta);
-        while (buffcur != null && rhscur != null)
+        int idx = Collections.binarySearch(mergeBuff, slice, scomparator);
+        if (idx < 0)
         {
-            // compare the heads
-            int comp = buffcur.compareTo(rhscur);
-            if (comp < 0)
-                // merge buffer contains smaller entry
-                buffcur = null;
-            else if (comp == 0)
-            {
-                // buffcur and rhscur have equal keys and types: resolve and replace buffcur
-                buffcur = resolveEntries(buffcur, rhscur);
-                buffiter.set(buffcur);
-                rhscur = null;
-            }
-            else // buffcur > rhscur
-            {
-                // insert smaller entry from rhs before buffcur in the merge buffer
-                buffiter.set(rhscur);
-                buffiter.add(buffcur);
-                buffiter.previous();
-                rhscur = null;
-            }
-
-            if (buffcur == null && buffiter.hasNext())
-                buffcur = buffiter.next();
-            if (rhscur == null && rhsiter.hasNext())
-            {
-                Column column = rhsiter.next();
-                rhscur = new ColumnEntry(slice.key.withName(column.name()),
-                                         column);
-            }
+            // no intersecting slices: insert
+            idx = -(idx + 1);
+            mergeBuff.add(idx, slice);
+            return;
         }
 
-        // add the remainder of rhs to the end of the merge buffer
-        if (rhscur != null)
-            mergeBuff.add(rhscur);
-        while(rhsiter.hasNext())
-        {
-            Column column = rhsiter.next();
-            mergeBuff.add(new ColumnEntry(slice.key.withName(column.name()),
-                                          column));
-        }
-        
-        logger.trace("Added " + (rhs.size()+1) + " items to merge buffer. Contains " +
-            mergeBuff.size()); // FIXME
-    }
-
-    /**
-     * Resolves two BufferEntries of the same type with equal keys against one another.
-     *
-     * @return The resulting BufferEntry, which will never be null because parent
-     * tombstone garbage collection happens as we pop entries from the merge buffer.
-     */
-    BufferEntry resolveEntries(BufferEntry lhs, BufferEntry rhs)
-    {
-        assert lhs.getClass() == rhs.getClass();
-
-        if (lhs instanceof MetadataEntry)
-        {
-            Slice.Metadata lhsmeta = ((MetadataEntry)lhs).meta;
-            Slice.Metadata rhsmeta = ((MetadataEntry)rhs).meta;
-            // maximum deletion times at each parent level win
-            return new MetadataEntry(lhs.key,
-                                     Slice.Metadata.resolve(lhsmeta, rhsmeta));
-        }
-        // else instanceof ColumnEntry
-
-        Column lhscol = ((ColumnEntry)lhs).column;
-        Column rhscol = ((ColumnEntry)rhs).column;
-        // highest priority wins
-        return lhscol.comparePriority(rhscol) <= 0 ? rhs : lhs;
+        // found an intersecting slice: remove and resolve it
+        SliceBuffer old = mergeBuff.remove(idx);
+        for (SliceBuffer resolved : SliceBuffer.merge(comparator, old, slice))
+            mergeToBuffer(resolved);
     }
 
     /**
@@ -309,7 +244,8 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
     }
 
     /**
-     * Compares Slices using their key.
+     * Compares Slices using their key, but declares intersecting slices equal
+     * so that we can resolve them.
      */
     final class SliceComparator implements Comparator<Slice>
     {
@@ -317,11 +253,14 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
         public SliceComparator(ColumnKey.Comparator keycomp)
         {
             this.keycomp = keycomp;
-            throw new RuntimeException("Should compare for intersection!"); // FIXME
         }
         
         public int compare(Slice s1, Slice s2)
         {
+            if (keycomp.compare(s1.key, s2.end) < 0 &&
+                keycomp.compare(s2.key, s1.end) < 0)
+                // intersection
+                return 0;
             return keycomp.compare(s1.key, s2.key);
         }
     }
