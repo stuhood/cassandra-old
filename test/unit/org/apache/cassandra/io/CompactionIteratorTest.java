@@ -69,8 +69,8 @@ public class CompactionIteratorTest extends CleanupHelper
         Iterator<Map.Entry<ColumnKey, Column>> eiter = map.entrySet().iterator();
         while (ci.hasNext())
         {
-            CompactionSlice slice = ci.next();
-            for (Column col : slice.columns)
+            SliceBuffer slice = ci.next();
+            for (Column col : slice.realized())
             {
                 Map.Entry<ColumnKey, Column> entry = eiter.next();
 

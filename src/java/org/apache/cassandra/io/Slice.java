@@ -80,12 +80,12 @@ public abstract class Slice
         // our depth: our parent has depth-1, and the root has depth 0
         private final byte depth;
 
-        Metadata()
+        public Metadata()
         {
             this(Long.MIN_VALUE, Integer.MIN_VALUE);
         }
 
-        Metadata(long markedForDeleteAt, int localDeletionTime)
+        public Metadata(long markedForDeleteAt, int localDeletionTime)
         {
             this(markedForDeleteAt, localDeletionTime, null);
         }

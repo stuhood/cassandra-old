@@ -30,7 +30,7 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.BloomFilter;
 
 /**
- * The full path to a column in a column family.
+ * The full path to a column or slice boundary in a column family.
  */
 public class ColumnKey
 {
@@ -81,7 +81,7 @@ public class ColumnKey
      */
     public ColumnKey withName(byte[] name)
     {
-        assert names.length > 0 && name != null;
+        assert names.length > 0;
 
         // shallow copy of the names
         byte[][] namesClone = Arrays.copyOf(names, names.length);

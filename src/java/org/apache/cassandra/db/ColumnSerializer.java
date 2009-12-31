@@ -30,14 +30,20 @@ public class ColumnSerializer implements ICompactSerializer2<IColumn>
 {
     /**
      * Writes a name of max length Short.MAX_VALUE, with a Short length prepended.
+     * A null name is serialized with length -1.
      */
     public static void writeName(byte[] name, DataOutput out)
     {
-        assert name.length <= Short.MAX_VALUE;
+        assert name == null || name.length <= Short.MAX_VALUE;
         try
         {
-            out.writeShort((short)name.length);
-            out.write(name);
+            if (name == null)
+                out.writeShort(-1);
+            else
+            {
+                out.writeShort((short)name.length);
+                out.write(name);
+            }
         }
         catch (IOException e)
         {
@@ -48,6 +54,9 @@ public class ColumnSerializer implements ICompactSerializer2<IColumn>
     public static byte[] readName(DataInput in) throws IOException
     {
         short length = in.readShort();
+        if (length == -1)
+            return null;
+
         byte[] bytes = new byte[length];
         in.readFully(bytes);
         return bytes;

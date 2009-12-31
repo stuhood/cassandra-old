@@ -26,11 +26,8 @@ import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.filter.QueryPath;
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.dht.IPartitioner;
-import org.apache.cassandra.dht.Range;
-import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.io.CompactionSlice;
-import org.apache.cassandra.io.DataOutputBuffer;
+import org.apache.cassandra.dht.*;
+import org.apache.cassandra.io.*;
 import org.apache.cassandra.locator.TokenMetadata;
 import static org.apache.cassandra.service.AntiEntropyService.*;
 import org.apache.cassandra.utils.FBUtilities;
@@ -150,15 +147,22 @@ public class AntiEntropyServiceTest extends CleanupHelper
         Token min = part.getMinimumToken();
         Token mid = part.midpoint(min, min);
         validator.prepare();
+        SliceBuffer slice;
 
         // add a row with the minimum token
-        CompactionSlice slice = new CompactionSlice(new ColumnKey(new DecoratedKey(min, "nonsense!")),
-                                                    null);
+        DecoratedKey minkey = new DecoratedKey(min, "nonsense!");
+        slice = new SliceBuffer(new Slice.Metadata(),
+                                new ColumnKey(minkey, ColumnKey.NAME_BEGIN),
+                                new ColumnKey(minkey, ColumnKey.NAME_END),
+                                Collections.<org.apache.cassandra.db.Column>emptyList());
         validator.add(slice);
 
         // and a row after it
-        slice = new CompactionSlice(new ColumnKey(new DecoratedKey(mid, "inconceivable!")),
-                                    null);
+        DecoratedKey midkey = new DecoratedKey(mid, "inconceivable!");
+        slice = new SliceBuffer(new Slice.Metadata(),
+                                new ColumnKey(midkey, ColumnKey.NAME_BEGIN),
+                                new ColumnKey(midkey, ColumnKey.NAME_END),
+                                Collections.<org.apache.cassandra.db.Column>emptyList());
         validator.add(slice);
         validator.complete();
 
