@@ -120,21 +120,18 @@ public final class Column implements IColumn
     }
 
     /**
-     * Given the metadata for the parents of this column, determine if the column
-     * should be deleted.
+     * Given the relevant metadata for the parents of this column, determine if the
+     * column is ready for garbage collection.
      *
      * TODO: based on ColumnFamilyStore.removeDeleted: incorporate
      */
-    public boolean isDeleted(Slice.Metadata meta, boolean major, int gcBefore)
+    public boolean readyForGC(long parentMarkedForDeleteAt, int gcBefore)
     {
-        if (!major)
-            // tombstones cannot be removed without a major compaction
-            return false;
+        if (timestamp() <= parentMarkedForDeleteAt)
+            // our timestamp is <= the maximum markedForDeleteAt time of our parents
+            return true;
         if (isMarkedForDelete() && getLocalDeletionTime() <= gcBefore)
             // the column has been deleted, and has acted as a tombstone long enough
-            return true;
-        if (timestamp() <= meta.getMarkedForDeleteAt())
-            // our timestamp is <= the maximum markedForDeleteAt time of our parents
             return true;
         return false;
     }

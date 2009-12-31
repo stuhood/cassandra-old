@@ -39,13 +39,10 @@ import org.apache.log4j.Logger;
  * A Scanner is an abstraction for reading slices from an SSTable. In this
  * implementation, slices are read in forward order.
  *
- * Implements Comparable by comparing the key of the current slice: this means
- * that repositioning the scanner changes its comparison value.
- *
  * TODO: extract an SSTableScanner interface that will be shared between forward
  * and reverse scanners
  */
-public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
+public class SSTableScanner implements Closeable
 {
     private static Logger logger = Logger.getLogger(SSTableScanner.class);
 
@@ -330,14 +327,5 @@ public class SSTableScanner implements Closeable, Comparable<SSTableScanner>
         slice = SliceMark.deserialize(block.stream());
         sliceCols = null;
         return true;
-    }
-
-    /**
-     * Inconsistent with equals: compares the key of the current slice.
-     * NB: The SSTableScanners must be at valid positions.
-     */
-    public int compareTo(SSTableScanner that)
-    {
-        return comparator.compare(this.get().key, that.get().key);
     }
 }

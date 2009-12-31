@@ -66,7 +66,7 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
      * Its maximum size in bytes is roughly equal to:
      * (CompactionManager.maxCompactThreshold * SSTable.TARGET_MAX_SLICE_BYTES)
      */
-    private ArrayList<SliceBuffer> mergeBuff;
+    private LinkedList<SliceBuffer> mergeBuff;
 
     /**
      * TODO: add a range-based filter like #607, but use it to seek() on the Scanners.
@@ -86,60 +86,97 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
 
         // open all scanners
         int bufferPer = TOTAL_FILE_BUFFER_BYTES / sstables.size();
-        scanners = new PriorityQueue<SSTableScanner>(sstables.size());
+        scanners = new PriorityQueue<SSTableScanner>(sstables.size(),
+                                                     new ScannerComparator(comparator));
         for (SSTableReader sstable : sstables)
             scanners.add(sstable.getScanner(bufferPer));
-        mergeBuff = new ArrayList<SliceBuffer>();
+        mergeBuff = new LinkedList<SliceBuffer>();
     }
 
     /**
-     * Merges the given SliceBuffers into the merge buffer.
+     * Merges the given non-intersecting SliceBuffers into the merge buffer.
      *
-     * If the given slice intersects a slice already in the buffer, they are resolved
-     * using SliceBuffer.merge(), and the resulting slices are recursively merged.
+     * If a given slice intersects a slice already in the buffer, they are resolved
+     * using SliceBuffer.merge(), and the resulting slices are merged.
      */
-    void mergeToBuffer(SliceBuffer... slice)
+    void mergeToBuffer(SliceBuffer... slices)
     {
-        int idx = Collections.binarySearch(mergeBuff, slice, scomparator);
-        if (idx < 0)
+        ListIterator<SliceBuffer> buffiter = mergeBuff.listIterator();
+        Iterator<SliceBuffer> rhsiter = Arrays.asList(slices).iterator();
+
+        SliceBuffer buffcur = null;
+        SliceBuffer rhscur = null;
+        while (true)
         {
-            // no intersecting slices: insert
-            idx = -(idx + 1);
-            mergeBuff.add(idx, slice);
-            return;
+            // ensure that items remain
+            if (buffcur == null)
+            {
+                if (buffiter.hasNext())
+                    buffcur = buffiter.next();
+                else
+                    break;
+            }
+            if (rhscur == null)
+            {
+                if (rhsiter.hasNext())
+                    rhscur = rhsiter.next();
+                else
+                    break;
+            }
+
+            int comp = scomparator.compare(buffcur, rhscur);
+            if (comp == 0)
+            {
+                // slices intersect: resolve and prepend to rhsiter
+                List<SliceBuffer> resolved = SliceBuffer.merge(comparator,
+                                                               buffcur, rhscur);
+                rhsiter = Iterators.concat(resolved.iterator(), rhsiter);
+
+                // buffcur and rhscur were consumed
+                buffcur = null; rhscur = null;
+            }
+            else if (comp > 0)
+            {
+                // insert rhscur
+                buffiter.set(rhscur);
+                buffiter.add(buffcur);
+                buffiter.previous();
+                rhscur = null;
+            }
+            else
+                // buffcur was the lesser: skip it
+                buffcur = null;
         }
 
-        // found an intersecting slice: remove and resolve it
-        SliceBuffer old = mergeBuff.remove(idx);
-        for (SliceBuffer resolved : SliceBuffer.merge(comparator, old, slice))
-            mergeToBuffer(resolved);
+        // remaining items from rhsiter go to the end of the buffer
+        if (rhscur != null)
+            mergeBuff.add(rhscur);
+        Iterators.addAll(mergeBuff, rhsiter);
     }
 
     /**
-     * Ensure that the minimum keys from all Scanners have been added to the merge buffer.
-     * In the best case (since all lists are sorted) this involves a single comparison
-     * of the head of the merge buffer to the head of the scanner priorityq. In the worst
-     * case, it requires scanners.size() comparisons.
+     * Ensure that the minimum slices from all Scanners have been added to the merge
+     * buffer.
      *
      * @return False if the merge buffer and all Scanners are empty.
      */
     boolean ensureMergeBuffer()
     {
-        // select the minimum key
-        ColumnKey minimum;
+        // select the minimum slice
+        Slice minimum;
         if (mergeBuff.isEmpty())
         {
             if (scanners.isEmpty())
                 // the merge buffer and scanner queue are empty. we're done!
                 return false;
-            minimum = scanners.peek().get().key;
+            minimum = scanners.peek().get();
         }
         else
-            minimum = mergeBuff.peek().key;
+            minimum = mergeBuff.peek();
 
-        // remove any scanners with keys less than or equal to the minimum
+        // remove any scanners with slices less than or intersecting the minimum
         List<SSTableScanner> selected = null;
-        while (!scanners.isEmpty() && comparator.compare(scanners.peek().get().key, minimum) <= 0)
+        while (!scanners.isEmpty() && scomparator.compare(scanners.peek().get(), minimum) <= 0)
         {
             if (selected == null)
                 // lazily create list of scanners
@@ -147,27 +184,28 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
             selected.add(scanners.poll());
         }
         if (selected == null)
-            // merge buffer contains minimum key
+            // merge buffer contains minimum slice
             return true;
 
-        // for each of the minimum slices
+        // for each of the minimum scanners
         for (SSTableScanner scanner : selected)
         {
             try
             {
                 // merge the first slice to the merge buffer
-                mergeToBuffer(scanner.get(), scanner.getBuffer());
+                mergeToBuffer(scanner.getBuffer());
 
                 // skip to the next slice
                 if (scanner.next())
                     // has more slices: add back to the queue to reprioritize
                     scanners.add(scanner);
                 else
+                    // consumed: close early
                     scanner.close();
             }
             catch (IOException e)
             {
-                // FIXME: the iterator interface sucks for IO
+                // the iterator interface sucks for IO
                 throw new IOError(e);
             }
         }
@@ -175,12 +213,9 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
     }
 
     /**
-     * First, guarantees that the minimum keys for this iteration are contained in the
-     * merge buffer.
-     *
-     * Then, while maintaining that guarantee, pops from the head of the merge
-     * buffer into an output slice, while applying deletion metadata and garbage
-     * collecting tombstones.
+     * First, guarantees that the minimum slices for this iteration are contained in
+     * the merge buffer, then pops from the head of the merge buffer, applying
+     * garbage collection for tombstones.
      *
      * @return The next SliceBuffer for this iterator.
      */
@@ -189,35 +224,14 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
     {
         while (ensureMergeBuffer())
         {
-            BufferEntry entry = mergeBuff.poll();
-            if (entry instanceof MetadataEntry)
-            {
-                // metadata marks the beginning of a new slice
-                MetadataEntry mentry = (MetadataEntry)entry;
-                SliceBuffer oldslice = outslice;
-                outslice = new SliceBuffer(mentry.key, mentry.meta);
-                if (oldslice != null && !oldslice.isDeleted(major, gcBefore))
-                    // return the finished slice
-                    return oldslice;
+            SliceBuffer slice = mergeBuff.poll();
+
+            // garbage collect tombstones: may return null or an identical reference
+            slice = slice.garbageCollect(major, gcBefore);
+            if (slice == null)
                 continue;
-            }
 
-            // else, ColumnEntry to add to the current slice
-            ColumnEntry centry = (ColumnEntry)entry;
-            if (!centry.column.isDeleted(outslice.meta, major, gcBefore))
-                // add if metadata does not indicate that it should be removed
-                outslice.columns.add(centry.column);
-
-            // TODO: need to check TARGET_MAX_SLICE_BYTES here, and artificially
-            // split the slice to prevent it from becoming too large
-        }
-
-        if (outslice != null && !outslice.isDeleted(major, gcBefore))
-        {
-            // return the final slice
-            SliceBuffer oldslice = outslice;
-            outslice = null;
-            return oldslice;
+            return slice;
         }
 
         // no more columns
@@ -244,7 +258,7 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
     }
 
     /**
-     * Compares Slices using their key, but declares intersecting slices equal
+     * Compares Slices using their end key, but declares intersecting slices equal
      * so that we can resolve them.
      */
     final class SliceComparator implements Comparator<Slice>
@@ -261,7 +275,21 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
                 keycomp.compare(s2.key, s1.end) < 0)
                 // intersection
                 return 0;
-            return keycomp.compare(s1.key, s2.key);
+            return keycomp.compare(s1.end, s2.end);
+        }
+    }
+
+    final class ScannerComparator implements Comparator<SSTableScanner>
+    {
+        private final ColumnKey.Comparator keycomp;
+        public ScannerComparator(ColumnKey.Comparator keycomp)
+        {
+            this.keycomp = keycomp;
+        }
+        
+        public int compare(SSTableScanner s1, SSTableScanner s2)
+        {
+            return keycomp.compare(s1.get().end, s2.get().end);
         }
     }
 }

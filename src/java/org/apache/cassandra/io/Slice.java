@@ -33,7 +33,7 @@ import org.apache.cassandra.utils.Pair;
  * The Metadata in a Slice affects any columns between key, inclusive, and end,
  * exclusive. But if it is acting as a tombstone, a Slice may not contain any columns.
  */
-public class Slice
+public abstract class Slice
 {
     public final Metadata meta;
     // inclusive beginning of our range: all but the last name will be equal for
@@ -41,28 +41,24 @@ public class Slice
     public final ColumnKey key;
     // exclusive end to our range
     public final ColumnKey end;
-    // number of columns in the slice
-    public final int numCols;
 
     /**
      * @param meta Metadata for the key range this Slice defines.
      * @param key The key for the first column in the Slice.
      * @param key The key for the first column in the Slice.
      */
-    Slice(Metadata meta, ColumnKey key, ColumnKey end, int numCols)
+    Slice(Metadata meta, ColumnKey key, ColumnKey end)
     {
         assert meta != null && key != null && end != null;
         this.meta = meta;
         this.key = key;
         this.end = end;
-        this.numCols = numCols;
     }
 
     public String toString()
     {
         StringBuilder buff = new StringBuilder();
-        buff.append("#<Slice ").append(key).append(" (");
-        buff.append(numCols).append(") ").append(end).append(">");
+        buff.append("#<Slice ").append(key).append(", ").append(end).append(">");
         return buff.toString();
     }
 

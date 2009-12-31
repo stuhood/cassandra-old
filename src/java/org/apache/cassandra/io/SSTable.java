@@ -239,14 +239,17 @@ public abstract class SSTable
         public final ColumnKey nextKey;
         // uncompressed bytes to next SliceMark
         public final int length;
+        // number of columns
+        public final int numCols;
         // status of this slice in the current block
         public final byte status;
 
         public SliceMark(Slice.Metadata meta, ColumnKey key, ColumnKey end, ColumnKey nextKey, int length, int numCols, byte status)
         {
-            super(meta, key, end, numCols);
+            super(meta, key, end);
             this.nextKey = nextKey;
             this.length = length;
+            this.numCols = numCols;
             this.status = status;
         }
 

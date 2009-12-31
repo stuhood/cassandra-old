@@ -29,32 +29,38 @@ import java.security.MessageDigest;
 import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnKey;
 
+import com.google.common.base.Predicate;
 import com.google.common.collect.Iterators;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Ordering;
 
 /**
- * Extends Slice to add serialized or realized columns. At least 1 of the 2 will be set
- * at a given time: if the realized columns are modified, the buffer is cleared, and
- * lazily recreated. Likewise, if the buffer is modified, the realized columns will be
- * lazily deserialized.
+ * Immutable object which extends Slice to add serialized or realized columns.
+ * At least 1 of the 2 will be set at a given time, and a missing value will be
+ * lazily created.
  */
 public class SliceBuffer extends Slice
 {
-    private DataOutputBuffer serialized;
-    private List<Column> realized;
+    // either serialized and numCols must be set together...
+    private DataOutputBuffer serialized = null;
+    private int numCols = -1;
+
+    // or realized must be set
+    private List<Column> realized = null;
 
     SliceBuffer(Slice.Metadata meta, ColumnKey key, ColumnKey nextKey, List<Column> realized)
     {
-        super(meta, key, nextKey, realized.size());
+        super(meta, key, nextKey);
         assert this.realized != null;
-        this.realized = realized;
+        this.realized = Collections.unmodifiableList(realized);
     }
 
     SliceBuffer(Slice.Metadata meta, ColumnKey key, ColumnKey nextKey, int numCols, DataOutputBuffer serialized)
     {
-        super(meta, key, nextKey, numCols);
+        super(meta, key, nextKey);
         assert this.serialized != null;
         this.serialized = serialized;
+        numCols = numCols;
     }
 
     public DataOutputBuffer serialized()
@@ -63,12 +69,15 @@ public class SliceBuffer extends Slice
             return serialized;
         
         // serialize the columns
-        serialized = new DataOutputBuffer(numCols * 10);
+        serialized = new DataOutputBuffer(realized.size() * 10);
         for (Column col : realized)
             Column.serializer().serialize(col, serialized);
         return serialized;
     }
 
+    /**
+     * An immutable sorted list of columns for this buffer.
+     */
     public List<Column> realized()
     {
         if (realized != null)
@@ -91,12 +100,6 @@ public class SliceBuffer extends Slice
         return realized;
     }
 
-    public void realized(List<Column> realized)
-    {
-        this.realized = realized;
-        serialized = null;
-    }
-
     /**
      * Merges the given intersecting buffers. The output will be 1 or more non-
      * intersecting slice buffers (depending on size/key/metadata) in sorted order by
@@ -105,6 +108,8 @@ public class SliceBuffer extends Slice
      * This method can only be used when the Slices intersect/overlap one another,
      * meaning that they have the same parents (otherwise, the output would be
      * exactly the same as the input).
+     *
+     * TODO: Use Collating/Reducing iterators for this merge, since it is traditional
      *
      * @return One or more SliceBuffers resulting from the merge.
      */
@@ -198,23 +203,31 @@ public class SliceBuffer extends Slice
     }
 
     /**
-     * Calculates whether the Metadata representing this Slice as a tombstone should
-     * be removed.
-     *
-     * @return True if the Slice is empty, and it was marked deleted long enough ago.
+     * @return A copy of this buffer with tombstones removed, this exact buffer if no
+     * changes were needed, or null if this buffer represented a metadata tombstone.
      */
-    public boolean isDeleted(boolean major, int gcBefore)
+    public SliceBuffer garbageCollect(boolean major, int gcBefore)
     {
         if (!major)
-            // tombstones cannot be removed without a major compaction
-            return false;
-        if (numCols > 0)
-            // this Slice is not a tombstone, so it can't be removed
-            return false;
-        if (meta.getLocalDeletionTime() > gcBefore)
-            // a component of our metadata is too young to be gc'd
-            return false;
-        return true;
+            // garbage cannot be collected without a major compaction
+            return this;
+
+        // determine count of columns that will survive garbage collection
+        SurvivorPredicate gcpred = new SurvivorPredicate(meta, gcBefore);
+        int surviving = Iterables.frequency(realized(), gcpred);
+
+        if (meta.getLocalDeletionTime() > gcBefore && surviving == 0)
+            // empty, and ready for gc
+            return null;
+
+        if (surviving == realized.size())
+            // all columns survived: return ourself without copying
+            return this;
+
+        // create a filtered copy
+        List<Column> survivors = new ArrayList<Column>(surviving);
+        Iterables.addAll(survivors, Iterables.filter(realized(), gcpred));
+        return new SliceBuffer(meta, key, end, survivors);
     }
 
     /**
@@ -244,6 +257,25 @@ public class SliceBuffer extends Slice
         {
             digest.update(shared.getData(), 0, shared.getLength());
             col.updateDigest(digest);
+        }
+    }
+    
+    /**
+     * For use during major compactions (when GC is applicable).
+     */
+    static final class SurvivorPredicate implements Predicate<Column>
+    {
+        public final long parentMarkedForDeleteAt;
+        public final int gcBefore;
+        public SurvivorPredicate(Slice.Metadata meta, int gcBefore)
+        {
+            this.parentMarkedForDeleteAt = meta.getMarkedForDeleteAt();
+            this.gcBefore = gcBefore;
+        }
+
+        public boolean apply(Column col)
+        {
+            return !col.readyForGC(parentMarkedForDeleteAt, gcBefore);
         }
     }
 }
