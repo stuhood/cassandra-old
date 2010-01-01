@@ -45,16 +45,17 @@ public class CompactionIteratorTest extends CleanupHelper
         final List<SSTableReader> readers = new ArrayList<SSTableReader>();
 
         TreeMap<ColumnKey, Column> map = new TreeMap<ColumnKey, Column>(COMPARATOR);
+        byte[] ssbytes = null;
         for (int sstable = 0; sstable < numsstables; sstable++)
         {
+            ssbytes = ("" + sstable).getBytes();
             // the map for each sstable overwrites the previous
             for (int i = 0; i < 1000; i++)
             {
                 byte[] name = Integer.toString(i).getBytes();
                 ColumnKey key = new ColumnKey(StorageService.getPartitioner().decorateKey(Integer.toString(i)),
                                               name);
-                map.put(key, new Column(name,
-                                        ("Avinash Lakshman is a good man: " + i).getBytes(),
+                map.put(key, new Column(name, ssbytes,
                                         // last sstable wins
                                         System.currentTimeMillis() + sstable));
             }
@@ -75,9 +76,14 @@ public class CompactionIteratorTest extends CleanupHelper
                 Map.Entry<ColumnKey, Column> entry = eiter.next();
 
                 assert COMPARATOR.compare(entry.getKey(), slice.key, 0) == 0 :
-                    "Slice key should share dk with column.";
+                    "Slice key should share dk with column: expected, actual:\n" +
+                    "\t" + COMPARATOR.getString(slice.key) + 
+                    "\n\t" + COMPARATOR.getString(entry.getKey());
                 assert COMPARATOR.compareAt(entry.getValue().name(), col.name(), 1) == 0 :
                     "Column names should match.";
+                assert Arrays.equals(ssbytes, col.value()) :
+                    "Column content should be from winning sstable: " +
+                     new String(ssbytes) + " != " + new String(col.value());
             }
         }
 

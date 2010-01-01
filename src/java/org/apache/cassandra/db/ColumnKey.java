@@ -223,10 +223,13 @@ public class ColumnKey implements Named
      * A Comparator that supports comparing ColumnKeys at an arbitrary depth.
      * The implementation of java.util.Comparator.compare() uses the maximum
      * depth.
+     *
+     * TODO: This comparator wraps null safety around AbstractType, but we should
+     * push it down instead.
      */
     public static class Comparator extends Ordering<ColumnKey>
     {
-        final AbstractType[] nameComparators;
+        private final AbstractType[] nameComparators;
         public Comparator(AbstractType... nameComparators)
         {
             this.nameComparators = nameComparators;
@@ -294,6 +297,25 @@ public class ColumnKey implements Named
                 if (comp != 0) return comp;
             }
             return 0;
+        }
+
+        private String getString(int namepos, byte[] name)
+        {
+            return name == null ?
+                "null" :
+                '"' + nameComparators[namepos].getString(name) + '"';
+        }
+
+        public String getString(ColumnKey key)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.append("#<ColumnKey [");
+            sb.append(key.dk).append(",");
+            sb.append(getString(0, key.names[0]));
+            for (int i = 1; i < key.names.length; i++)
+                sb.append(",").append(getString(i, key.names[i]));
+            sb.append("]>");
+            return sb.toString();
         }
     }
 }

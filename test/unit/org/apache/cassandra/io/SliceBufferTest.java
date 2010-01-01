@@ -45,13 +45,16 @@ public class SliceBufferTest
     /**
      * Merges two input SliceBuffers, and compares to an ordered list of SliceBuffers.
      */
-    public void mergedEquals(SliceBuffer one, SliceBuffer two, SliceBuffer... expectarr)
+    void mergedEquals(SliceBuffer one, SliceBuffer two, SliceBuffer... expectarr)
     {
         exactlyEquals(SliceBuffer.merge(COMPARATOR, one, two), expectarr);
         exactlyEquals(SliceBuffer.merge(COMPARATOR, two, one), expectarr);
     }
 
-    public void exactlyEquals(List<SliceBuffer> actuals, SliceBuffer... expectarr)
+    /**
+     * TODO: move inner loop into SliceBuffer.equals()?
+     */
+    void exactlyEquals(List<SliceBuffer> actuals, SliceBuffer... expectarr)
     {
         List<SliceBuffer> expecteds = Arrays.asList(expectarr);
 
