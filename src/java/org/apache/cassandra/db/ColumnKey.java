@@ -29,10 +29,12 @@ import org.apache.cassandra.io.DataOutputBuffer;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.BloomFilter;
 
+import com.google.common.collect.Ordering;
+
 /**
  * The full path to a column or slice boundary in a column family.
  */
-public class ColumnKey
+public class ColumnKey implements Named
 {
     // singleton names representing the beginning and end of a subrange
     public static final byte[] NAME_BEGIN = new byte[0];
@@ -222,7 +224,7 @@ public class ColumnKey
      * The implementation of java.util.Comparator.compare() uses the maximum
      * depth.
      */
-    public static class Comparator implements java.util.Comparator<ColumnKey>
+    public static class Comparator extends Ordering<ColumnKey>
     {
         final AbstractType[] nameComparators;
         public Comparator(AbstractType... nameComparators)
@@ -254,8 +256,9 @@ public class ColumnKey
         }
 
         /**
-         * Implement Comparator.compare() by comparing at the maximum depth.
+         * Implement Ordering/Comparator.compare() by comparing at the maximum depth.
          */
+        @Override
         public int compare(ColumnKey o1, ColumnKey o2)
         {
             return compare(o1, o2, o1.names.length);

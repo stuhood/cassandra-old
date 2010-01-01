@@ -94,7 +94,7 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
     }
 
     /**
-     * Merges the given non-intersecting SliceBuffers into the merge buffer.
+     * Merges the given sorted, non-intersecting SliceBuffers into the merge buffer.
      *
      * If a given slice intersects a slice already in the buffer, they are resolved
      * using SliceBuffer.merge(), and the resulting slices are merged.
@@ -130,6 +130,10 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
                 // slices intersect: resolve and prepend to rhsiter
                 List<SliceBuffer> resolved = SliceBuffer.merge(comparator,
                                                                buffcur, rhscur);
+
+                // FIXME:
+                System.out.println("Resolved to " + resolved);
+
                 rhsiter = Iterators.concat(resolved.iterator(), rhsiter);
 
                 // buffcur and rhscur were consumed
@@ -209,6 +213,14 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
                 throw new IOError(e);
             }
         }
+
+        // FIXME
+        System.out.println("Status");
+        for (SliceBuffer buff : mergeBuff)
+            System.out.println("\tsb: " + buff.key.dk + "|" + new String(buff.key.name(1)) + " -- " + buff.end.dk + "|" + (buff.end.name(1) == null ? "null" : new String(buff.end.name(1))));
+        for (SSTableScanner scanner : scanners)
+            System.out.println("\tsc: " + scanner.get().key.dk + "|" + new String(scanner.get().key.name(1)));
+
         return true;
     }
 
@@ -258,7 +270,7 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
     }
 
     /**
-     * Compares Slices using their end key, but declares intersecting slices equal
+     * Compares Slices using their key, but declares intersecting slices equal
      * so that we can resolve them.
      */
     final class SliceComparator implements Comparator<Slice>
@@ -275,7 +287,7 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
                 keycomp.compare(s2.key, s1.end) < 0)
                 // intersection
                 return 0;
-            return keycomp.compare(s1.end, s2.end);
+            return keycomp.compare(s1.key, s2.key);
         }
     }
 
@@ -289,7 +301,7 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
         
         public int compare(SSTableScanner s1, SSTableScanner s2)
         {
-            return keycomp.compare(s1.get().end, s2.get().end);
+            return keycomp.compare(s1.get().key, s2.get().key);
         }
     }
 }

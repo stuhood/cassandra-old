@@ -33,7 +33,7 @@ import org.apache.cassandra.utils.Pair;
  * The Metadata in a Slice affects any columns between key, inclusive, and end,
  * exclusive. But if it is acting as a tombstone, a Slice may not contain any columns.
  */
-public abstract class Slice
+public class Slice
 {
     public final Metadata meta;
     // inclusive beginning of our range: all but the last name will be equal for

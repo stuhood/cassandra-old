@@ -37,7 +37,7 @@ import org.apache.cassandra.io.Slice;
  *  with something like PCollections -- http://code.google.com
  */
 
-public final class Column implements IColumn
+public final class Column implements IColumn,Named
 {
     private static Logger logger_ = Logger.getLogger(Column.class);
 

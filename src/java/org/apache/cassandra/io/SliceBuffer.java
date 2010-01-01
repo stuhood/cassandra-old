@@ -28,11 +28,15 @@ import java.security.MessageDigest;
 
 import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnKey;
+import org.apache.cassandra.db.Named;
+import org.apache.cassandra.utils.ReducingIterator;
+
+import org.apache.commons.collections.IteratorUtils;
 
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Ordering;
+import com.google.common.collect.PeekingIterator;
 
 /**
  * Immutable object which extends Slice to add serialized or realized columns.
@@ -102,7 +106,7 @@ public class SliceBuffer extends Slice
     }
 
     /**
-     * Merges the given intersecting buffers. The output will be 1 or more non-
+     * Merges the given intersecting buffers. The output will be one or more non-
      * intersecting slice buffers (depending on size/key/metadata) in sorted order by
      * key.
      *
@@ -110,97 +114,68 @@ public class SliceBuffer extends Slice
      * meaning that they have the same parents (otherwise, the output would be
      * exactly the same as the input).
      *
-     * TODO: Use Collating/Reducing iterators for this merge, since it is traditional
-     *
      * @return One or more SliceBuffers resulting from the merge.
      */
-    public static List<SliceBuffer> merge(ColumnKey.Comparator comparator, SliceBuffer left, SliceBuffer right)
+    public static List<SliceBuffer> merge(ColumnKey.Comparator comparator, SliceBuffer one, SliceBuffer two)
     {
-        if (comparator.compare(left.key, right.key) > 0)
-        {
-            // left should have the <= key
-            SliceBuffer swap = left;
-            left = right;
-            right = swap;
-        }
+        assert comparator.compare(one.key, two.key, comparator.columnDepth()-1) == 0;
+        NameComparator namecomp = new NameComparator(comparator);
 
-        final int cdepth = comparator.columnDepth();
-        final List<SliceBuffer> output = new LinkedList<SliceBuffer>();
+        // mergesort the columns of the two slices
+        Iterator<Column> co = IteratorUtils.collatedIterator(namecomp,
+                                                             one.realized().iterator(),
+                                                             two.realized().iterator());
+        PeekingIterator<Column> merged = new ColumnResolvingIterator(co);
 
-        List<Column> leftover;
-        if (comparator.compare(left.key, right.key) < 0)
+
+        // build an ordered list of output Slices
+        List<SliceBuffer> output = new LinkedList<SliceBuffer>();
+        // left side of the overlap
+        slicesFor(output, namecomp, merged, one.meta, two.meta, one.key, two.key);
+        // overlap
+        Slice.Metadata olapmeta = Slice.Metadata.resolve(one.meta, two.meta);
+        // FIXME: 1 possible metadata, and 4 possible keys for the overlap
+        slicesFor(output, namecomp, merged, olapmeta, olapmeta, one.key, two.key);
+        // right side of the overlap
+        slicesFor(output, namecomp, merged, two.meta, one.meta, one.end, two.end);
+
+        assert !merged.hasNext();
+        return output;
+    }
+
+
+
+    /**
+     * Adds zero or more Slices of Columns from the given iterator to the given output
+     * list.
+     *
+     * FIXME: Add size restrictions based on SSTable.SLICE_MAX
+     */
+    private static void slicesFor(List<SliceBuffer> output, NameComparator namecomp, PeekingIterator<Column> iter, Slice.Metadata onemeta, Slice.Metadata twometa, ColumnKey onekey, ColumnKey twokey)
+    {
+        int comp = namecomp.compare(onekey, twokey);
+        if (comp == 0)
+            // slice would have 0 length
+            return;
+        Slice.Metadata meta;
+        ColumnKey left,right;
+        if (comp < 0)
         {
-            // find the beginning of the overlap in the left buffer
-            // TODO: could use binary search here
-            int idx = 0;
-            List<Column> lcols = left.realized();
-            for (; idx < lcols.size(); idx++)
-                if (comparator.compareAt(lcols.get(idx).name(),
-                                         right.key.name(cdepth), cdepth) > 0)
-                    break;
-            
-            // add a truncated copy of the left buffer to the output
-            output.add(new SliceBuffer(left.meta, left.key, right.key,
-                                       lcols.subList(0, idx)));
-            leftover = lcols.subList(idx, lcols.size());
+            meta = onemeta;
+            left = onekey;
+            right = twokey;
         }
         else
-            // overlap begins at the beginning of the left buffer
-            leftover = left.realized();
-
-
-        // while columns are less than left.end, merge sort into an overlap buffer
-        List<Column> overlap = new ArrayList<Column>();
-        Iterator<Column> liter = leftover.iterator();
-        Iterator<Column> riter = right.realized().iterator();
-        Column lcol = liter.hasNext() ? liter.next() : null;
-        Column rcol = riter.hasNext() ? riter.next() : null;
-        while (lcol != null && rcol != null)
         {
-            int comp = comparator.compareAt(lcol.name(), rcol.name(), cdepth);
-            if (comp == 0)
-            {
-                // resolve and add
-                overlap.add(lcol.comparePriority(rcol) <= 0 ? rcol : lcol);
-                lcol = liter.hasNext() ? liter.next() : null;
-                rcol = riter.hasNext() ? riter.next() : null;
-            }
-            else if (comp < 0)
-            {
-                overlap.add(lcol);
-                lcol = liter.hasNext() ? liter.next() : null;
-            }
-            else // comp > 0
-            {
-                overlap.add(rcol);
-                rcol = riter.hasNext() ? riter.next() : null;
-            }
-        }
-        output.add(new SliceBuffer(Metadata.resolve(left.meta, right.meta),
-                                   right.key,
-                                   Ordering.from(comparator).min(left.end, right.end),
-                                   overlap));
-       
-
-        if (lcol != null)
-        {
-            // if columns remain in left output, output with left metadata
-            List<Column> remainder = new ArrayList<Column>();
-            remainder.add(lcol);
-            Iterators.addAll(remainder, liter);
-            output.add(new SliceBuffer(left.meta, right.end, left.end, remainder));
-        }
-        else if (rcol != null)
-        {
-            // if columns remain in right output, output with right metadata
-            List<Column> remainder = new ArrayList<Column>();
-            remainder.add(rcol);
-            Iterators.addAll(remainder, riter);
-            output.add(new SliceBuffer(left.meta, left.end, right.end, remainder));
+            meta = twometa;
+            left = twokey;
+            right = onekey;
         }
 
-        // TODO: split any output slices larger than TARGET_MAX_SLICE_BYTES
-        return output;
+        List<Column> buff = new ArrayList<Column>();
+        while (iter.hasNext() && namecomp.compare(iter.peek(), right) < 0)
+            buff.add(iter.next());
+        output.add(new SliceBuffer(meta, left, right, buff));
     }
 
     /**
@@ -277,6 +252,49 @@ public class SliceBuffer extends Slice
         public boolean apply(Column col)
         {
             return !col.readyForGC(parentMarkedForDeleteAt, gcBefore);
+        }
+    }
+
+    /**
+     * Comparator for Column names using a backing ColumnKey.Comparator.
+     */
+    static final class NameComparator implements Comparator<Named>
+    {
+        public final ColumnKey.Comparator ckcomp;
+        public NameComparator(ColumnKey.Comparator ckcomp)
+        {
+            this.ckcomp = ckcomp;
+        }
+        
+        public int compare(Named n1, Named n2)
+        {
+            return ckcomp.compareAt(n1.name(), n2.name(), ckcomp.columnDepth());
+        }
+    }
+
+    /**
+     * Resolves columns with equal names by comparing their priority.
+     */
+    static final class ColumnResolvingIterator extends ReducingIterator<Column, Column>
+    {
+        private Column col = null;
+        
+        public ColumnResolvingIterator(Iterator<Column> source)
+        {
+            super(source);
+        }
+
+        public void reduce(Column newcol)
+        {
+            if (col == null || col.comparePriority(newcol) < 0)
+                col = newcol;
+        }
+
+        public Column getReduced()
+        {
+            Column reduced = col;
+            col = null;
+            return reduced;
         }
     }
 }
