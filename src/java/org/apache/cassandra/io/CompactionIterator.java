@@ -130,15 +130,13 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
                 // slices intersect: resolve and prepend to rhsiter
                 List<SliceBuffer> resolved = SliceBuffer.merge(comparator,
                                                                buffcur, rhscur);
-
                 rhsiter = Iterators.concat(resolved.iterator(), rhsiter);
-
                 // buffcur and rhscur were consumed
                 buffcur = null; rhscur = null;
             }
             else if (comp > 0)
             {
-                // insert rhscur
+                // insert rhscur before buffcur
                 buffiter.set(rhscur);
                 buffiter.add(buffcur);
                 buffiter.previous();

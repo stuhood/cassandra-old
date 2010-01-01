@@ -52,6 +52,11 @@ public class SliceBuffer extends Slice
     // or realized must be set
     private List<Column> realized = null;
 
+    public SliceBuffer(Slice.Metadata meta, ColumnKey key, ColumnKey end, Column... realized)
+    {
+        this(meta, key, end, Arrays.asList(realized));
+    }
+
     public SliceBuffer(Slice.Metadata meta, ColumnKey key, ColumnKey end, List<Column> realized)
     {
         super(meta, key, end);
@@ -110,9 +115,9 @@ public class SliceBuffer extends Slice
      * intersecting slice buffers (depending on size/key/metadata) in sorted order by
      * key.
      *
-     * This method can only be used when the Slices intersect/overlap one another,
-     * meaning that they have the same parents (otherwise, the output would be
-     * exactly the same as the input).
+     * This method asserts that the Slices have the same parents, meaning that they
+     * might intersect/overlap one another (otherwise, the output would be exactly the
+     * same as the input).
      *
      * TODO: This method does 3n comparisons:
      * 1. CollatingIterator merge sorts,
@@ -129,11 +134,11 @@ public class SliceBuffer extends Slice
         assert comparator.compare(one.key, two.key, comparator.columnDepth()-1) == 0;
         NameComparator namecomp = new NameComparator(comparator);
 
-        // mergesort the columns of the two slices
+        // mergesort and resolve the columns of the two slices
         Iterator<Column> co = IteratorUtils.collatedIterator(namecomp,
                                                              one.realized().iterator(),
                                                              two.realized().iterator());
-        PeekingIterator<Column> merged = new ColumnResolvingIterator(co);
+        PeekingIterator<Column> merged = new ColumnResolvingIterator(co, namecomp);
 
 
         // build an ordered list of output Slices
@@ -283,19 +288,29 @@ public class SliceBuffer extends Slice
      */
     static final class ColumnResolvingIterator extends ReducingIterator<Column, Column>
     {
+        private NameComparator ncomp;
         private Column col = null;
         
-        public ColumnResolvingIterator(Iterator<Column> source)
+        public ColumnResolvingIterator(Iterator<Column> source, NameComparator ncomp)
         {
             super(source);
+            this.ncomp = ncomp;
         }
 
+        @Override
+        public boolean isEqual(Column c1, Column c2)
+        {
+            return ncomp.compare(c1, c2) == 0;
+        }
+
+        @Override
         public void reduce(Column newcol)
         {
             if (col == null || col.comparePriority(newcol) < 0)
                 col = newcol;
         }
 
+        @Override
         public Column getReduced()
         {
             Column reduced = col;
