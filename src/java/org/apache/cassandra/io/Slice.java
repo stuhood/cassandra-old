@@ -33,7 +33,7 @@ import org.apache.cassandra.utils.Pair;
  * The Metadata in a Slice affects any columns between key, inclusive, and end,
  * exclusive. But if it is acting as a tombstone, a Slice may not contain any columns.
  */
-public class Slice
+public abstract class Slice
 {
     public final Metadata meta;
     // inclusive beginning of our range: all but the last name will be equal for
@@ -59,7 +59,8 @@ public class Slice
     public String toString()
     {
         StringBuilder buff = new StringBuilder();
-        buff.append("#<Slice ").append(key).append(", ").append(end).append(">");
+        buff.append("#<Slice ").append(key).append(" (");
+        buff.append(meta).append(") ").append(end).append(">");
         return buff.toString();
     }
 
@@ -137,7 +138,7 @@ public class Slice
         /**
          * @return The max localDeletionTime value contained in this Metadata list.
          */
-        public long getLocalDeletionTime()
+        public int getLocalDeletionTime()
         {
             return parent != null ?
                 Math.max(parent.getLocalDeletionTime(), localDeletionTime) :
@@ -188,6 +189,13 @@ public class Slice
                 dos.writeInt(meta.localDeletionTime);
                 meta = meta.parent;
             }
+        }
+
+        @Override
+        public String toString()
+        {
+            return markedForDeleteAt + "$" + localDeletionTime +
+                (parent == null ? "." : "," + parent.toString());
         }
 
         /**

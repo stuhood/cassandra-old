@@ -39,9 +39,13 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.PeekingIterator;
 
 /**
- * Immutable object which extends Slice to add serialized or realized columns.
- * At least 1 of the 2 will be set at a given time, and a missing value will be
- * lazily created.
+ * An immutable object which extends Slice to add serialized or realized columns.
+ * At least 1 of the 2 will be set at a given time, and a missing value will be lazily
+ * created.
+ *
+ * This laziness allows non-intersecting buffers to skip deserialization during (non-
+ * major) compactions: intersecting buffers can be resolved into non-intersecting
+ * buffers using merge().
  */
 public class SliceBuffer extends Slice
 {
@@ -127,6 +131,8 @@ public class SliceBuffer extends Slice
      * logic into the ReducingIterator subclass would cut this down to less than
      * 2 comparisons.
      *
+     * FIXME: Merge consecutive slices with equal metadata by calling slicesFor once
+     *
      * @return One or more SliceBuffers resulting from the merge.
      */
     public static List<SliceBuffer> merge(ColumnKey.Comparator comparator, SliceBuffer one, SliceBuffer two)
@@ -140,9 +146,9 @@ public class SliceBuffer extends Slice
                                                              two.realized().iterator());
         PeekingIterator<Column> merged = new ColumnResolvingIterator(co, namecomp);
 
-
         // build an ordered list of output Slices
         List<SliceBuffer> output = new LinkedList<SliceBuffer>();
+
         // left side of the overlap
         slicesFor(output, namecomp, merged, one.meta, two.meta, one.key, two.key);
         // overlap: resolved metadata, and max start and min end values
@@ -159,7 +165,6 @@ public class SliceBuffer extends Slice
     /**
      * Adds zero or more Slices of Columns which fall between the min and max input keys
      * from the given iterator to the given output list.
-     *
      * FIXME: Add size restrictions based on SSTable.SLICE_MAX
      */
     private static void slicesFor(List<SliceBuffer> output, NameComparator namecomp, PeekingIterator<Column> iter, Slice.Metadata onemeta, Slice.Metadata twometa, ColumnKey onekey, ColumnKey twokey)
@@ -203,7 +208,7 @@ public class SliceBuffer extends Slice
         SurvivorPredicate gcpred = new SurvivorPredicate(meta, gcBefore);
         int surviving = Iterables.frequency(realized(), gcpred);
 
-        if (meta.getLocalDeletionTime() > gcBefore && surviving == 0)
+        if (meta.getLocalDeletionTime() < gcBefore && surviving == 0)
             // empty, and ready for gc
             return null;
 
