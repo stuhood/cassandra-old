@@ -132,6 +132,7 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
                                                                buffcur, rhscur);
                 rhsiter = Iterators.concat(resolved.iterator(), rhsiter);
                 // buffcur and rhscur were consumed
+                buffiter.remove();
                 buffcur = null; rhscur = null;
             }
             else if (comp > 0)
@@ -208,7 +209,6 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
                 throw new IOError(e);
             }
         }
-
         return true;
     }
 
