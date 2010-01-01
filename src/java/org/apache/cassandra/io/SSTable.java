@@ -284,6 +284,13 @@ public abstract class SSTable
             byte status = dis.readByte();
             return new SliceMark(meta, key, end, nextKey, length, numCols, status);
         }
+
+        public String toString()
+        {
+            return "#<SliceMark " + key + ", " + end + " next=" + nextKey +
+                " meta=" + meta + " len=" + length + " numCols=" + numCols +
+                " status=" + status + ">";
+        }
     }
 
     /**

@@ -128,11 +128,18 @@ public class SSTableTest extends CleanupHelper
         {
             Iterator<Map.Entry<ColumnKey, Column>> columns = map.entrySet().iterator();
             SSTableReader.Block block = sstable.getBlock(file, 0);
-            SSTable.SliceMark slice = null;
+            SSTable.SliceMark slice,last = null;
 
             while (true)
             {
                 slice = SSTable.SliceMark.deserialize(block.stream());
+
+                if (last != null)
+                {
+                    assert COMPARATOR.compare(last.key, slice.key) < 0;
+                    assert COMPARATOR.compare(last.end, slice.key) <= 0;
+                    assert COMPARATOR.compare(last.nextKey, slice.key) == 0;
+                }
 
                 for (int i = 0; i < slice.numCols; i++)
                 {
@@ -146,6 +153,7 @@ public class SSTableTest extends CleanupHelper
                     break;
                 if (slice.status == SSTable.SliceMark.BLOCK_END)
                     block = sstable.getBlock(file, file.getFilePointer());
+                last = slice;
             }
 
             assert !columns.hasNext();

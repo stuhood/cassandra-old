@@ -457,8 +457,11 @@ public class SSTableWriter extends SSTable
 
             int sliceLen = sliceBuffer.getLength();
             byte status = closeBlock ? SliceMark.BLOCK_END : SliceMark.BLOCK_CONTINUE;
+            // TODO: this status code usage is yucky
             ColumnKey endKey = btype == BoundaryType.NATURAL ?
                 headKey.withName(ColumnKey.NAME_END) : nextKey;
+            nextKey = nextKey != null && btype == BoundaryType.NATURAL ?
+                nextKey.withName(ColumnKey.NAME_BEGIN) : nextKey;
             new SliceMark(meta, headKey, endKey, nextKey,
                           sliceLen, numCols, status).serialize(blockStream);
             blockStream.write(sliceBuffer.getData(), 0, sliceLen);
