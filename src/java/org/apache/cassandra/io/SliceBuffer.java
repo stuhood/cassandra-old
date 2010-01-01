@@ -114,6 +114,14 @@ public class SliceBuffer extends Slice
      * meaning that they have the same parents (otherwise, the output would be
      * exactly the same as the input).
      *
+     * TODO: This method does 3n comparisons:
+     * 1. CollatingIterator merge sorts,
+     * 2. ReducingIterator merges consecutive equal values,
+     * 3. Slice collection compares ranges.
+     * Modifying ReducingIterator to perform collation, and moving Slice creation
+     * logic into the ReducingIterator subclass would cut this down to less than
+     * 2 comparisons.
+     *
      * @return One or more SliceBuffers resulting from the merge.
      */
     public static List<SliceBuffer> merge(ColumnKey.Comparator comparator, SliceBuffer one, SliceBuffer two)
@@ -132,10 +140,10 @@ public class SliceBuffer extends Slice
         List<SliceBuffer> output = new LinkedList<SliceBuffer>();
         // left side of the overlap
         slicesFor(output, namecomp, merged, one.meta, two.meta, one.key, two.key);
-        // overlap
+        // overlap: resolved metadata, and max start and min end values
         Slice.Metadata olapmeta = Slice.Metadata.resolve(one.meta, two.meta);
-        // FIXME: 1 possible metadata, and 4 possible keys for the overlap
-        slicesFor(output, namecomp, merged, olapmeta, olapmeta, one.key, two.key);
+        slicesFor(output, namecomp, merged, olapmeta, olapmeta,
+                  comparator.max(one.key, two.key), comparator.min(one.end, two.end));
         // right side of the overlap
         slicesFor(output, namecomp, merged, two.meta, one.meta, one.end, two.end);
 
@@ -143,11 +151,9 @@ public class SliceBuffer extends Slice
         return output;
     }
 
-
-
     /**
-     * Adds zero or more Slices of Columns from the given iterator to the given output
-     * list.
+     * Adds zero or more Slices of Columns which fall between the min and max input keys
+     * from the given iterator to the given output list.
      *
      * FIXME: Add size restrictions based on SSTable.SLICE_MAX
      */

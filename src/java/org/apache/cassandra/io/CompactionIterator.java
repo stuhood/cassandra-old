@@ -131,9 +131,6 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
                 List<SliceBuffer> resolved = SliceBuffer.merge(comparator,
                                                                buffcur, rhscur);
 
-                // FIXME:
-                System.out.println("Resolved to " + resolved);
-
                 rhsiter = Iterators.concat(resolved.iterator(), rhsiter);
 
                 // buffcur and rhscur were consumed
@@ -213,13 +210,6 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
                 throw new IOError(e);
             }
         }
-
-        // FIXME
-        System.out.println("Status");
-        for (SliceBuffer buff : mergeBuff)
-            System.out.println("\tsb: " + buff.key.dk + "|" + new String(buff.key.name(1)) + " -- " + buff.end.dk + "|" + (buff.end.name(1) == null ? "null" : new String(buff.end.name(1))));
-        for (SSTableScanner scanner : scanners)
-            System.out.println("\tsc: " + scanner.get().key.dk + "|" + new String(scanner.get().key.name(1)));
 
         return true;
     }
