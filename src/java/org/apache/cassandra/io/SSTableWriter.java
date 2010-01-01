@@ -134,7 +134,7 @@ public class SSTableWriter extends SSTable
      * 2. the new key has different metadata than the current slice,
      * 3. the slice size threshold has been reached.
      *
-     * At a natural boundary, the least significant name in the key will be nulled,
+     * At a natural boundary, the least significant name in the key will be NAME_BEGIN,
      * which rounds the beginning of the slice down to the beginning of the subrange,
      * and causes the Metadata to cover all of the subrange.
      *
@@ -433,7 +433,7 @@ public class SSTableWriter extends SSTable
             assert btype != BoundaryType.NONE;
 
             this.meta = meta;
-            this.headKey = btype == BoundaryType.NATURAL ?
+            this.headKey = headKey != null && btype == BoundaryType.NATURAL ?
                 headKey.withName(ColumnKey.NAME_BEGIN) : headKey;
             sliceBuffer.reset();
             numCols = 0;
@@ -458,7 +458,7 @@ public class SSTableWriter extends SSTable
             int sliceLen = sliceBuffer.getLength();
             byte status = closeBlock ? SliceMark.BLOCK_END : SliceMark.BLOCK_CONTINUE;
             ColumnKey endKey = btype == BoundaryType.NATURAL ?
-                headKey.withName(ColumnKey.NAME_END) : headKey;
+                headKey.withName(ColumnKey.NAME_END) : nextKey;
             new SliceMark(meta, headKey, endKey, nextKey,
                           sliceLen, numCols, status).serialize(blockStream);
             blockStream.write(sliceBuffer.getData(), 0, sliceLen);
