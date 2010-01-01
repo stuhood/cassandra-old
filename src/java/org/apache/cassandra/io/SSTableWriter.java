@@ -197,14 +197,17 @@ public class SSTableWriter extends SSTable
      * Handles appending any metadata to the index and filter files after having
      * written the given ColumnKey to the data file.
      *
-     * @param columnKey The key for the appended column.
+     * @param key The first key of the last batch of appended columns.
+     * @param end The last key of the last batch of appended columns.
      * @param btype The boundary type for a newly created block.
      */
-    private void afterAppend(ColumnKey columnKey, BoundaryType btype) throws IOException
+    private void afterAppend(ColumnKey key, ColumnKey end, BoundaryType btype) throws IOException
     {
         // update the filter and index files
+        // FIXME: this is FATAL. need to find a way to maintain the bloom filter
+        // and preserve opaque columns
         columnKey.addToBloom(bf);
-        lastWrittenKey = columnKey;
+        lastWrittenKey = end;
         columnsWritten++;
 
         if (lastIndexEntry != null && btype == BoundaryType.NONE)
@@ -212,10 +215,10 @@ public class SSTableWriter extends SSTable
             return;
         // else: the previous block was closed, or this is the first block in the file
         
-        // a single col is buffered for a new block: write an IndexEntry to mark the new block
+        // columns are buffered for a new block: write an IndexEntry to mark it
         long indexPosition = indexFile.getFilePointer();
         ColumnKey blockKey = btype == BoundaryType.NATURAL ?
-            columnKey.withName(ColumnKey.NAME_BEGIN) : columnKey;
+            key.withName(ColumnKey.NAME_BEGIN) : key;
         lastIndexEntry = new IndexEntry(blockKey.dk, blockKey.names, indexPosition,
                                         blockContext.getCurrentBlockPos());
         lastIndexEntry.serialize(indexFile);
@@ -242,7 +245,21 @@ public class SSTableWriter extends SSTable
         assert column != null;
         BoundaryType btype = beforeAppend(meta, columnKey);
         blockContext.bufferColumn(column);
-        afterAppend(columnKey, btype);
+        afterAppend(columnKey, columnKey, btype);
+    }
+
+    /**
+     * Appends the given SliceBuffer to the SSTable. The buffer is assumed not
+     * to violate SLICE_TARGET_MAX_BYTES.
+     *
+     * @param slice SliceBuffer to append.
+     */
+    public void append(SliceBuffer slice) throws IOException
+    {
+        assert slice != null;
+        BoundaryType btype = beforeAppend(slice.meta, slice.key);
+        blockContext.buffer(slice);
+        afterAppend(slice.key, slice.end, btype);
     }
 
     /**
