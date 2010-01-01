@@ -837,8 +837,10 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
                     }
                     // FIXME: writer needs a Slice append that can use the serialized() method
                     for (Column column : slice.realized())
+                    {
                         writer.append(slice.meta, slice.key, column);
-                    totalColsWritten++;
+                        totalColsWritten++;
+                    }
                 }
             }
         }
@@ -898,7 +900,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         boolean major = sstables.size() == ssTables_.size();
 
         long startTime = System.currentTimeMillis();
-        long totalkeysWritten = 0;
+        long totalcolsWritten = 0;
 
         // TODO the int cast here is potentially buggy
         int expectedBloomFilterSize = Math.max(SSTableReader.indexInterval(), (int)SSTableReader.getApproximateKeyCount(sstables));
@@ -930,9 +932,11 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 SliceBuffer slice = ci.next();
                 // FIXME: writer needs a Slice append that can use the serialized() method
                 for (Column column : slice.realized())
+                {
                     writer.append(slice.meta, slice.key, column);
+                    totalcolsWritten++;
+                }
                 validator.add(slice);
-                totalkeysWritten++;
             }
             validator.complete();
         }
@@ -947,9 +951,9 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         gcAfterRpcTimeout();
         CompactionManager.instance.submitMinor(ColumnFamilyStore.this);
 
-        String format = "Compacted to %s.  %d/%d bytes for %d keys.  Time: %dms.";
+        String format = "Compacted to %s.  %d/%d bytes for %d columns.  Time: %dms.";
         long dTime = System.currentTimeMillis() - startTime;
-        logger_.info(String.format(format, writer.getFilename(), getTotalBytes(sstables), ssTable.length(), totalkeysWritten, dTime));
+        logger_.info(String.format(format, writer.getFilename(), getTotalBytes(sstables), ssTable.length(), totalcolsWritten, dTime));
         return sstables.size();
     }
 
