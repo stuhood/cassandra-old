@@ -48,19 +48,20 @@ public class SliceBuffer extends Slice
     // or realized must be set
     private List<Column> realized = null;
 
-    public SliceBuffer(Slice.Metadata meta, ColumnKey key, ColumnKey nextKey, List<Column> realized)
+    public SliceBuffer(Slice.Metadata meta, ColumnKey key, ColumnKey end, List<Column> realized)
     {
-        super(meta, key, nextKey);
+        super(meta, key, end);
         assert realized != null;
         this.realized = Collections.unmodifiableList(realized);
     }
 
-    public SliceBuffer(Slice.Metadata meta, ColumnKey key, ColumnKey nextKey, int numCols, DataOutputBuffer serialized)
+    public SliceBuffer(Slice.Metadata meta, ColumnKey key, ColumnKey end, int numCols, DataOutputBuffer serialized)
     {
-        super(meta, key, nextKey);
+        super(meta, key, end);
         assert serialized != null;
+        assert numCols > -1;
         this.serialized = serialized;
-        numCols = numCols;
+        this.numCols = numCols;
     }
 
     public DataOutputBuffer serialized()

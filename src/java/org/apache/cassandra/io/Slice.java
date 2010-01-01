@@ -49,7 +49,8 @@ public abstract class Slice
      */
     Slice(Metadata meta, ColumnKey key, ColumnKey end)
     {
-        assert meta != null && key != null && end != null;
+        assert meta != null;
+        assert key != null && end != null;
         this.meta = meta;
         this.key = key;
         this.end = end;
