@@ -206,7 +206,10 @@ public class SliceBuffer extends Slice
 
         // determine count of columns that will survive garbage collection
         SurvivorPredicate gcpred = new SurvivorPredicate(meta, gcBefore);
-        int surviving = Iterables.frequency(realized(), gcpred);
+        int surviving = 0;
+        for (Column col : realized())
+            if (gcpred.apply(col))
+                surviving++;
 
         if (meta.getLocalDeletionTime() < gcBefore && surviving == 0)
             // empty, and ready for gc
@@ -265,6 +268,9 @@ public class SliceBuffer extends Slice
             this.gcBefore = gcBefore;
         }
 
+        /**
+         * True if a Column should survive GC.
+         */
         public boolean apply(Column col)
         {
             return !col.readyForGC(parentMarkedForDeleteAt, gcBefore);

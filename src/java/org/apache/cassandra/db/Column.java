@@ -127,11 +127,11 @@ public final class Column implements IColumn,Named
      */
     public boolean readyForGC(long parentMarkedForDeleteAt, int gcBefore)
     {
-        if (timestamp() <= parentMarkedForDeleteAt)
-            // our timestamp is <= the maximum markedForDeleteAt time of our parents
-            return true;
         if (isMarkedForDelete() && getLocalDeletionTime() <= gcBefore)
-            // the column has been deleted, and has acted as a tombstone long enough
+            // the column is deleted, and has acted as a tombstone long enough
+            return true;
+        if (timestamp() <= parentMarkedForDeleteAt)
+            // our parents indicate that we should be deleted
             return true;
         return false;
     }
