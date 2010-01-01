@@ -34,6 +34,7 @@ public class SliceBufferTest
     public static final Column LCOL = new Column("a".getBytes(), "a".getBytes(), 1);
     public static final Column LCOL_TOMB = new Column(LCOL.name(), LCOL.value(), 2, true);
     public static final Column MCOL = new Column("m".getBytes(), "m".getBytes(), 1);
+    public static final Column MCOL_TOMB = new Column(MCOL.name(), MCOL.value(), 2, true);
     public static final Column RCOL = new Column("y".getBytes(), "y".getBytes(), 1);
 
     DecoratedKey dk(String str)
@@ -42,10 +43,14 @@ public class SliceBufferTest
     }
 
     /**
-     * Compare two ordered lists of SliceBuffers.
-     *
-     * TODO: move inner loop to equals() method for SliceBuffer
+     * Merges two input SliceBuffers, and compares to an ordered list of SliceBuffers.
      */
+    public void mergedEquals(SliceBuffer one, SliceBuffer two, SliceBuffer... expectarr)
+    {
+        exactlyEquals(SliceBuffer.merge(COMPARATOR, one, two), expectarr);
+        exactlyEquals(SliceBuffer.merge(COMPARATOR, two, one), expectarr);
+    }
+
     public void exactlyEquals(List<SliceBuffer> actuals, SliceBuffer... expectarr)
     {
         List<SliceBuffer> expecteds = Arrays.asList(expectarr);
@@ -93,7 +98,51 @@ public class SliceBufferTest
         SliceBuffer two = new SliceBuffer(win, left, right, LCOL_TOMB, MCOL);
 
         // one output slice
-        exactlyEquals(SliceBuffer.merge(COMPARATOR, one, two),
+        mergedEquals(one, two,
                       new SliceBuffer(win, left, right, LCOL_TOMB, MCOL, RCOL));
+    }
+
+    /**
+     * One buffer's range completely containing the other.
+     */
+    @Test
+    public void testMergeContaining() throws Exception
+    {
+        SliceBuffer outer = new SliceBuffer(new Slice.Metadata(),
+                                            new ColumnKey(dk("a"), ColumnKey.NAME_BEGIN),
+                                            new ColumnKey(dk("a"), ColumnKey.NAME_END),
+                                            LCOL, MCOL, RCOL);
+        SliceBuffer inner = new SliceBuffer(new Slice.Metadata(1,1),
+                                            new ColumnKey(dk("a"), "b".getBytes()),
+                                            new ColumnKey(dk("a"), "s".getBytes()),
+                                            MCOL_TOMB);
+
+        // three output slices
+        mergedEquals(outer, inner,
+                      new SliceBuffer(outer.meta, outer.key, inner.key, LCOL),
+                      new SliceBuffer(inner.meta, inner.key, inner.end, MCOL_TOMB),
+                      new SliceBuffer(outer.meta, inner.end, outer.end, RCOL));
+    }
+
+    /**
+     * Inputs have equal start keys.
+     */
+    @Test
+    public void testMergeEqualStart() throws Exception
+    {
+        SliceBuffer outer = new SliceBuffer(new Slice.Metadata(),
+                                            new ColumnKey(dk("a"), ColumnKey.NAME_BEGIN),
+                                            new ColumnKey(dk("a"), ColumnKey.NAME_END),
+                                            LCOL_TOMB, MCOL, RCOL);
+        SliceBuffer inner = new SliceBuffer(new Slice.Metadata(1,1),
+                                            new ColumnKey(dk("a"), ColumnKey.NAME_BEGIN),
+                                            new ColumnKey(dk("a"), "s".getBytes()),
+                                            LCOL, MCOL_TOMB);
+
+        // three output slices
+        mergedEquals(outer, inner,
+                      new SliceBuffer(inner.meta, inner.key, inner.end,
+                                      LCOL_TOMB, MCOL_TOMB),
+                      new SliceBuffer(outer.meta, inner.end, outer.end, RCOL));
     }
 }
