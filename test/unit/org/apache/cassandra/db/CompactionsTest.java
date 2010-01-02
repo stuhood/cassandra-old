@@ -46,9 +46,10 @@ public class CompactionsTest extends CleanupHelper
         Table table = Table.open(TABLE1);
         ColumnFamilyStore store = table.getColumnFamilyStore("Standard1");
 
-        final int ROWS_PER_SSTABLE = 10;
+        final int MIN_SSTABLES = 2;
+        final int ROWS_PER_SSTABLE = 100;
         Set<String> inserted = new HashSet<String>();
-        for (int j = 0; j < (SSTableReader.indexInterval() * 3) / ROWS_PER_SSTABLE; j++) {
+        for (int j = 0; j < MIN_SSTABLES; j++) {
             for (int i = 0; i < ROWS_PER_SSTABLE; i++) {
                 String key = String.valueOf(i % 2);
                 RowMutation rm = new RowMutation(TABLE1, key);
@@ -172,9 +173,10 @@ public class CompactionsTest extends CleanupHelper
         Table table = Table.open(TABLE2);
         ColumnFamilyStore store = table.getColumnFamilyStore("Standard1");
 
-        final int ROWS_PER_SSTABLE = 10;
+        final int MIN_SSTABLES = 2;
+        final int ROWS_PER_SSTABLE = 100;
         Set<String> inserted = new HashSet<String>();
-        for (int j = 0; j < (SSTableReader.indexInterval() * 3) / ROWS_PER_SSTABLE; j++) {
+        for (int j = 0; j < MIN_SSTABLES; j++) {
             for (int i = 0; i < ROWS_PER_SSTABLE; i++) {
                 String key = String.valueOf(i % 2);
                 RowMutation rm = new RowMutation(TABLE2, key);
