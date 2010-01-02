@@ -24,4 +24,21 @@ package org.apache.cassandra.db;
 public interface Named
 {
     public byte[] name();
+
+    /**
+     * Comparator for Column names using a backing ColumnKey.Comparator.
+     */
+    static final class Comparator implements java.util.Comparator<Named>
+    {
+        public final ColumnKey.Comparator ckcomp;
+        public Comparator(ColumnKey.Comparator ckcomp)
+        {
+            this.ckcomp = ckcomp;
+        }
+        
+        public int compare(Named n1, Named n2)
+        {
+            return ckcomp.compareAt(n1.name(), n2.name(), ckcomp.columnDepth());
+        }
+    }
 }

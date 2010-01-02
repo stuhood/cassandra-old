@@ -59,7 +59,7 @@ public class SliceBuffer extends Slice
     public SliceBuffer(Slice.Metadata meta, ColumnKey key, ColumnKey end, Column... realized)
     {
         super(meta, key, end);
-        this.realized = Arrays.asList(realized)
+        this.realized = Arrays.asList(realized);
     }
 
     public SliceBuffer(Slice.Metadata meta, ColumnKey key, ColumnKey end, List<Column> realized)
@@ -147,7 +147,7 @@ public class SliceBuffer extends Slice
     public static List<SliceBuffer> merge(ColumnKey.Comparator comparator, SliceBuffer one, SliceBuffer two)
     {
         assert comparator.compare(one.key, two.key, comparator.columnDepth()-1) == 0;
-        NameComparator namecomp = new NameComparator(comparator);
+        Named.Comparator namecomp = new Named.Comparator(comparator);
 
         // mergesort and resolve the columns of the two slices
         Iterator<Column> co = IteratorUtils.collatedIterator(namecomp,
@@ -176,7 +176,7 @@ public class SliceBuffer extends Slice
      * from the given iterator to the given output list.
      * FIXME: Add size restrictions based on SSTable.SLICE_MAX
      */
-    private static void slicesFor(List<SliceBuffer> output, NameComparator namecomp, PeekingIterator<Column> iter, Slice.Metadata onemeta, Slice.Metadata twometa, ColumnKey onekey, ColumnKey twokey)
+    private static void slicesFor(List<SliceBuffer> output, Named.Comparator namecomp, PeekingIterator<Column> iter, Slice.Metadata onemeta, Slice.Metadata twometa, ColumnKey onekey, ColumnKey twokey)
     {
         int comp = namecomp.compare(onekey, twokey);
         if (comp == 0)
@@ -287,31 +287,14 @@ public class SliceBuffer extends Slice
     }
 
     /**
-     * Comparator for Column names using a backing ColumnKey.Comparator.
-     */
-    static final class NameComparator implements Comparator<Named>
-    {
-        public final ColumnKey.Comparator ckcomp;
-        public NameComparator(ColumnKey.Comparator ckcomp)
-        {
-            this.ckcomp = ckcomp;
-        }
-        
-        public int compare(Named n1, Named n2)
-        {
-            return ckcomp.compareAt(n1.name(), n2.name(), ckcomp.columnDepth());
-        }
-    }
-
-    /**
      * Resolves columns with equal names by comparing their priority.
      */
     static final class ColumnResolvingIterator extends ReducingIterator<Column, Column>
     {
-        private NameComparator ncomp;
+        private Named.Comparator ncomp;
         private Column col = null;
         
-        public ColumnResolvingIterator(Iterator<Column> source, NameComparator ncomp)
+        public ColumnResolvingIterator(Iterator<Column> source, Named.Comparator ncomp)
         {
             super(source);
             this.ncomp = ncomp;

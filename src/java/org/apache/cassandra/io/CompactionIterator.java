@@ -268,7 +268,6 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
                 e = ie;
             }
         }
-        // FIXME: should be debug level
         logger.info(String.format("%s: in:%d out:%d merge-in:%d merge-out:%d gcd:%d", 
                                   this, inBufferCount, outBufferCount, inMergeCount,
                                   outMergeCount, gcCount));

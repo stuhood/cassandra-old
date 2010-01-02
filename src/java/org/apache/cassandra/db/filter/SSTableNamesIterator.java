@@ -38,6 +38,7 @@ public class SSTableNamesIterator extends AbstractIterator<IColumn> implements C
     private ColumnFamily cf;
     private final SSTableScanner scanner;
     private final ColumnKey.Comparator comparator;
+    private final Named.Comparator ncomparator;
 
     private final PeekingIterator<ColumnKey> keys;
     private final Queue<IColumn> buffer;
@@ -56,6 +57,7 @@ public class SSTableNamesIterator extends AbstractIterator<IColumn> implements C
 
         scanner = ssTable.getScanner(DatabaseDescriptor.getIndexedReadBufferSizeInKB() * 1024);
         comparator = scanner.comparator();
+        ncomparator = new Named.Comparator(comparator);
     }
 
     public ColumnFamily getColumnFamily()
@@ -84,13 +86,15 @@ public class SSTableNamesIterator extends AbstractIterator<IColumn> implements C
     {
         while (buffer.isEmpty() && keys.hasNext())
         {
-            ColumnKey key = keys.peek();
-            if (!scanner.seekTo(key))
+            if (!scanner.seekTo(keys.peek()))
             {
                 // filter or index determined that this key is not in this sstable
                 keys.next();
                 continue;
             }
+            if (comparator.compare(keys.peek(), scanner.get().key, 0) != 0)
+                // no slices with our decorated key
+                break;
 
             if (cf == null)
             {
@@ -100,27 +104,33 @@ public class SSTableNamesIterator extends AbstractIterator<IColumn> implements C
                 cf.delete(meta.localDeletionTime, meta.markedForDeleteAt);
             }
 
-            // positioned at slice that might contain some of our keys
+            // positioned at a slice that might contain some of our keys
             if (scanner.sstable().getColumnDepth() == 1)
             {
                 // standard CF
                 Slice slice = scanner.get();
-                for (Column col : scanner.getColumns())
+                List<Column> slicecols = scanner.getColumns();
+                while (keys.hasNext())
                 {
-                    int comp = comparator.compareAt(key.name(1), col.name(), 1);
-                    if (comp > 0)
-                        // haven't reached current key
-                        continue;
-                    if (comp == 0)
-                        // found current key
-                        buffer.add(col);
-                    // else: passed current key
-
-                    // start looking for next key
-                    keys.next();
-                    if (!keys.hasNext())
-                        break;
-                    key = keys.peek();
+                    // search for current key in the slice
+                    int idx = Collections.binarySearch(slicecols, keys.peek(),
+                                                       ncomparator);
+                    if (0 <= idx)
+                    {
+                        // found key
+                        buffer.add(slicecols.get(idx));
+                        keys.next();
+                    }
+                    else
+                    {
+                        // key not in current slice
+                        if (ncomparator.compare(slice.end, keys.peek()) <= 0)
+                            // possibly in another slice
+                            break; // inner
+                        else
+                            // doesn't exist
+                            keys.next();
+                    }
                 }
             }
             else
