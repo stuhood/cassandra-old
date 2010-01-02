@@ -245,6 +245,7 @@ public class SSTableWriter extends SSTable
         BoundaryType btype = beforeAppend(meta, columnKey);
         blockContext.bufferColumn(column);
         afterAppend(columnKey, columnKey, btype);
+        columnsWritten++;
     }
 
     /**
@@ -259,6 +260,7 @@ public class SSTableWriter extends SSTable
         BoundaryType btype = beforeAppend(slice.meta, slice.key);
         blockContext.buffer(slice);
         afterAppend(slice.key, slice.end, btype);
+        columnsWritten += slice.numCols();
     }
 
     /**
@@ -503,7 +505,6 @@ public class SSTableWriter extends SSTable
 
             // update block counts
             slicesInBlock++;
-            columnsWritten += numCols;
 
             if (closeBlock)
                 closeBlock(file);
