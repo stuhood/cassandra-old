@@ -290,8 +290,11 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
      */
     long getBlockPosition(ColumnKey target) throws IOException
     {
+        /* FIXME: disabled until we find a way to update the filter and maintain opaque
+         * slices.
         if (!target.isPresentInBloom(bf))
             return -1;
+        */
         if (keyCache != null)
         {
             IndexEntry cachedEntry = keyCache.get(target);

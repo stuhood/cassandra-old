@@ -835,12 +835,8 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
                         String newFilename = new File(compactionFileLocation, getTempSSTableFileName()).getAbsolutePath();
                         writer = new SSTableWriter(newFilename, expectedBloomFilterSize, StorageService.getPartitioner());
                     }
-                    // FIXME: writer needs a Slice append that can use the serialized() method
-                    for (Column column : slice.realized())
-                    {
-                        writer.append(slice.meta, slice.key, column);
-                        totalColsWritten++;
-                    }
+                    writer.append(slice);
+                    totalColsWritten += slice.numCols();
                 }
             }
         }
@@ -930,12 +926,8 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             while (ci.hasNext())
             {
                 SliceBuffer slice = ci.next();
-                // FIXME: writer needs a Slice append that can use the serialized() method
-                for (Column column : slice.realized())
-                {
-                    writer.append(slice.meta, slice.key, column);
-                    totalcolsWritten++;
-                }
+                writer.append(slice);
+                totalcolsWritten += slice.numCols();
                 validator.add(slice);
             }
             validator.complete();

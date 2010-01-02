@@ -204,9 +204,9 @@ public class SSTableWriter extends SSTable
     private void afterAppend(ColumnKey key, ColumnKey end, BoundaryType btype) throws IOException
     {
         // update the filter and index files
-        // FIXME: this is FATAL. need to find a way to maintain the bloom filter
-        // and preserve opaque columns
-        columnKey.addToBloom(bf);
+        // FIXME: need to find a way to maintain the bloom filter and preserve opaque slices:
+        // they are a massive speed boost
+        // columnKey.addToBloom(bf);
         lastWrittenKey = end;
         columnsWritten++;
 
@@ -360,23 +360,42 @@ public class SSTableWriter extends SSTable
     {
         private Slice.Metadata meta = null;
         private ColumnKey headKey = null;
-        private DataOutputBuffer sliceBuffer = new DataOutputBuffer();
-        private DataOutputStream blockStream = null;
         private int numCols = 0;
 
         private int slicesInBlock = 0;
         private long currentBlockPos = 0;
+
+        private DataOutputBuffer sliceBuffer = new DataOutputBuffer();
+        private DataOutputStream blockStream = null;
 
         /**
          * Serializes and buffers the given column into the current slice.
          */
         public void bufferColumn(Column column)
         {
-            if (column == null)
-                // the current slice is a tombstone
-                return;
             Column.serializer().serialize(column, sliceBuffer);
             numCols++;
+        }
+
+        /**
+         * Buffers the given slice: asserts that the current slice is empty.
+         */
+        public void buffer(SliceBuffer slice)
+        {
+            assert isEmpty();
+            meta = slice.meta;
+            headKey = slice.key;
+            numCols = slice.numCols();
+            // TODO: we copy rather than worrying about who owns the input buffer
+            try
+            {
+                sliceBuffer.write(slice.serialized().getData(),
+                                  0, slice.serialized().getLength());
+            }
+            catch (IOException e)
+            {
+                throw new AssertionError(e);
+            }
         }
 
         /**

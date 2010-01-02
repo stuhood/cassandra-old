@@ -29,10 +29,6 @@ import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.Pair;
 
-/**
- * TODO: These methods imitate Memtable.writeSortedKeys to some degree, but
- * because it is so monolithic, we can't reuse much.
- */
 public class SSTableUtils
 {
     // first configured table and cf
@@ -105,8 +101,8 @@ public class SSTableUtils
     }
 
     /**
-     * Writes a series of columns within the same slice. All columns in the slice
-     * will have the same empty metadata.
+     * Writes a series of columns which may fall into many slices. All columns will
+     * have the same empty metadata.
      */
     public static SSTableReader writeRawSSTable(String tablename, String cfname, SortedMap<ColumnKey, Column> entries) throws IOException
     {

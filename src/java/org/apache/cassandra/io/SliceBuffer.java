@@ -77,6 +77,14 @@ public class SliceBuffer extends Slice
         this.numCols = numCols;
     }
 
+    /**
+     * @return The number of columns in this buffer, without modifying internal state.
+     */
+    public int numCols()
+    {
+        return numCols != -1 ? numCols : realized.size();
+    }
+
     public DataOutputBuffer serialized()
     {
         if (serialized != null)
