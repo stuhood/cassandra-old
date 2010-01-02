@@ -143,5 +143,4 @@ public class SSTableExportTest
         assertTrue(cf != null);
         assertTrue(Arrays.equals(cf.getColumn("name".getBytes()).value(), hexToBytes("76616c")));
     }
-    
 }

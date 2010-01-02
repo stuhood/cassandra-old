@@ -39,6 +39,10 @@ import org.apache.log4j.Logger;
  * A Scanner is an abstraction for reading slices from an SSTable. In this
  * implementation, slices are read in forward order.
  *
+ * TODO: as implemented, the first block in the file is opened every time we
+ * open a scanner: it would probably be beneficial to do this lazily, since the
+ * first thing we typically do with a scanner is seek on it anyway.
+ *
  * TODO: extract an SSTableScanner interface that will be shared between forward
  * and reverse scanners
  */
@@ -232,7 +236,7 @@ public class SSTableScanner implements Closeable
     /**
      * Reads the entire ColumnFamily defined by the key of the current Slice. After
      * the call, the Scanner will be positioned at the beginning of the first Slice
-     * for the next ColumnFamily.
+     * for the next ColumnFamily, or at EOF.
      *
      * FIXME: This is here temporarily as we port callers to the Slice API.
      *
