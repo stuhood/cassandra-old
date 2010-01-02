@@ -498,7 +498,7 @@ public final class BufferedRandomAccessFile extends RandomAccessFile
         @Override
         public void flush() throws IOException
         {
-            file.flush();
+            // pass
         }
 
         @Override
