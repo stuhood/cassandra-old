@@ -58,7 +58,8 @@ public class SliceBuffer extends Slice
 
     public SliceBuffer(Slice.Metadata meta, ColumnKey key, ColumnKey end, Column... realized)
     {
-        this(meta, key, end, Arrays.asList(realized));
+        super(meta, key, end);
+        this.realized = Arrays.asList(realized)
     }
 
     public SliceBuffer(Slice.Metadata meta, ColumnKey key, ColumnKey end, List<Column> realized)

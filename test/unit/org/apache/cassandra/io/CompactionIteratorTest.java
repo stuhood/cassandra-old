@@ -86,6 +86,7 @@ public class CompactionIteratorTest extends CleanupHelper
                      new String(ssbytes) + " != " + new String(col.value());
             }
         }
+        ci.close();
         assert !eiter.hasNext() : "Iterator contained at least: " + eiter.next();
     }
 }

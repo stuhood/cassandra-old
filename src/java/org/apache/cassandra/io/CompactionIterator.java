@@ -66,7 +66,17 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
      * Its maximum size in bytes is roughly equal to:
      * (CompactionManager.maxCompactThreshold * SSTable.TARGET_MAX_SLICE_BYTES)
      */
-    private LinkedList<SliceBuffer> mergeBuff;
+    private final LinkedList<SliceBuffer> mergeBuff;
+
+    // total input/output buffers to compaction
+    private long inBufferCount = 0;
+    private long outBufferCount = 0;
+    // buffers that needed to be SB.merge()'d
+    private long inMergeCount = 0;
+    // buffers that resulted from SB.merge()
+    private long outMergeCount = 0;
+    // buffers garbage collected
+    private long gcCount = 0;
 
     /**
      * TODO: add a range-based filter like #607, but use it to seek() on the Scanners.
@@ -101,6 +111,7 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
      */
     void mergeToBuffer(SliceBuffer... slices)
     {
+        inBufferCount += slices.length;
         ListIterator<SliceBuffer> buffiter = mergeBuff.listIterator();
         Iterator<SliceBuffer> rhsiter = Arrays.asList(slices).iterator();
 
@@ -134,6 +145,7 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
                 // buffcur and rhscur were consumed
                 buffiter.remove();
                 buffcur = null; rhscur = null;
+                inMergeCount++; outMergeCount += resolved.size();
             }
             else if (comp > 0)
             {
@@ -229,8 +241,12 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
             // garbage collect tombstones: may return null or an identical reference
             slice = slice.garbageCollect(major, gcBefore);
             if (slice == null)
+            {
+                gcCount++;
                 continue;
+            }
 
+            outBufferCount++;
             return slice;
         }
 
@@ -252,6 +268,10 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
                 e = ie;
             }
         }
+        // FIXME: should be debug level
+        logger.info(String.format("%s: in:%d out:%d merge-in:%d merge-out:%d gcd:%d", 
+                                  this, inBufferCount, outBufferCount, inMergeCount,
+                                  outMergeCount, gcCount));
         // we can only rethrow one exception, but we want to close all scanners
         if (e != null)
             throw e;
