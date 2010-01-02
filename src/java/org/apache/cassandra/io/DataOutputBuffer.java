@@ -30,11 +30,14 @@ import java.io.IOException;
  */
 public class DataOutputBuffer extends DataOutputStream
 {
+    // BAOS defaults to 32 bytes
+    public static final int DEFAULT_SIZE = 256;
+
     private static class Buffer extends ByteArrayOutputStream
     {
         public Buffer()
         {
-            super();
+            super(DEFAULT_SIZE);
         }
 
         public Buffer(int size)
@@ -70,7 +73,7 @@ public class DataOutputBuffer extends DataOutputStream
     /** Constructs a new empty buffer. */
     public DataOutputBuffer()
     {
-        this(new Buffer());
+        this(DEFAULT_SIZE);
     }
 
     /**
