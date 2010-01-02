@@ -145,7 +145,7 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
                 // buffcur and rhscur were consumed
                 buffiter.remove();
                 buffcur = null; rhscur = null;
-                inMergeCount++; outMergeCount += resolved.size();
+                inMergeCount += 2; outMergeCount += resolved.size();
             }
             else if (comp > 0)
             {

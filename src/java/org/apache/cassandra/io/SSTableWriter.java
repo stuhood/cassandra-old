@@ -208,7 +208,6 @@ public class SSTableWriter extends SSTable
         // they are a massive speed boost
         // columnKey.addToBloom(bf);
         lastWrittenKey = end;
-        columnsWritten++;
 
         if (lastIndexEntry != null && btype == BoundaryType.NONE)
             // this append fell into the last block: don't need a new IndexEntry
@@ -504,6 +503,7 @@ public class SSTableWriter extends SSTable
 
             // update block counts
             slicesInBlock++;
+            columnsWritten += numCols;
 
             if (closeBlock)
                 closeBlock(file);
