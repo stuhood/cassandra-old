@@ -131,10 +131,10 @@ public class ColumnKey implements Named
     List<byte[]> getBloomComponents()
     {
         List<byte[]> components = new ArrayList<byte[]>(1+names.length);
-        // key only
         DataOutputBuffer buff = new DataOutputBuffer();
         try
         {
+            // key only
             buff.writeUTF(dk.key);
             components.add(buff.toByteArray());
             for (int i = 0; i < names.length; i++)
@@ -142,6 +142,7 @@ public class ColumnKey implements Named
                 if (names[i] == null || names[i].length < 1)
                     // beginning of trailing null names
                     break;
+                buff.write('\u0000');
                 buff.write(names[i]);
                 // with name at depth i+1 appended
                 components.add(buff.toByteArray());

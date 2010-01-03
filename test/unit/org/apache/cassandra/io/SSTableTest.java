@@ -190,11 +190,8 @@ public class SSTableTest extends CleanupHelper
         }
 
         // write
-        Thread.sleep(1000); // FIXME
-        long start = System.currentTimeMillis();
         SSTableReader ssTable = SSTableUtils.writeRawSSTable(SSTableUtils.TABLENAME,
                                                              SSTableUtils.CFNAME, map);
-        System.out.println("Wrote " + numkeys + " * " + colsPerKey + " in " + (System.currentTimeMillis() - start) + "ms.");
 
         // verify
         Predicate<SSTable> cfpred;
@@ -218,8 +215,8 @@ public class SSTableTest extends CleanupHelper
 
         // the number of keys in memory should be approximately:
         // numkeys * bytes_per_key / SSTWriter.TARGET_MAX_BLOCK_BYTES / SSTable.INDEX_INTERVAL
-        double numSlices = (double)columnBytes / SSTableWriter.TARGET_MAX_BLOCK_BYTES;
-        double expected = Math.ceil(numSlices / SSTable.INDEX_INTERVAL);
-        assert actual <= expected : "actual " + actual + " !<= expected " + expected;
+        double numSlices = Math.ceil((double)columnBytes / SSTableWriter.TARGET_MAX_BLOCK_BYTES);
+        double expected = 1 + Math.ceil(numSlices / SSTable.INDEX_INTERVAL);
+        assert actual <= expected : "actual " + actual + " > expected " + expected;
     }
 }

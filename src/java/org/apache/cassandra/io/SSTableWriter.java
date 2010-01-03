@@ -63,7 +63,7 @@ public class SSTableWriter extends SSTable
      * enough, the block containing it might be stretched to larger than this value.
      * FIXME: tune and make configurable
      */
-    public static final int TARGET_MAX_BLOCK_BYTES = 1 << 12;
+    public static final int TARGET_MAX_BLOCK_BYTES = 1 << 10;
 
     enum BoundaryType
     {
@@ -100,7 +100,7 @@ public class SSTableWriter extends SSTable
         columnsWritten = 0;
         slicesWritten = 0;
         blocksWritten = 0;
-        // TODO: assumes ~10 columns per key
+        // TODO: assumes ~11 columns per key
         // TODO: fix long -> int cast
         bf = new BloomFilter((int)(keyCount*11), 15); 
         lastWrittenKey = null;
