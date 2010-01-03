@@ -77,7 +77,7 @@ public abstract class SSTable
      * stretch this value (because a slice cannot be smaller than a column).
      * TODO: tune
      */
-    public static final int TARGET_MAX_SLICE_BYTES = 1 << 14;
+    public static final int TARGET_MAX_SLICE_BYTES = 1 << 10;
 
     protected String path;
     protected final IPartitioner partitioner;

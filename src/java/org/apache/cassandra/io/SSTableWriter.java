@@ -61,9 +61,9 @@ public class SSTableWriter extends SSTable
      * The target decompressed size of a block. An entire block might need to be
      * read from disk in order to read a single column. If a column is large
      * enough, the block containing it might be stretched to larger than this value.
-     * TODO: tune
+     * FIXME: tune and make configurable
      */
-    public static final int TARGET_MAX_BLOCK_BYTES = 1 << 16;
+    public static final int TARGET_MAX_BLOCK_BYTES = 1 << 12;
 
     enum BoundaryType
     {
@@ -161,7 +161,8 @@ public class SSTableWriter extends SSTable
     }
 
     /**
-     * Prepares to buffer the given ColumnKey.
+     * Prepares to buffer a series of Columns that start at and share parents with
+     * ColumnKey.
      *
      * @param meta @see append.
      * @param columnKey The key that is about to be appended.
@@ -195,20 +196,13 @@ public class SSTableWriter extends SSTable
 
     /**
      * Handles appending any metadata to the index and filter files after having
-     * written the given ColumnKey to the data file.
+     * written a range beginning with the given key.
      *
      * @param key The first key of the last batch of appended columns.
-     * @param end The last key of the last batch of appended columns.
      * @param btype The boundary type for a newly created block.
      */
-    private void afterAppend(ColumnKey key, ColumnKey end, BoundaryType btype) throws IOException
+    private void afterAppend(ColumnKey key, BoundaryType btype) throws IOException
     {
-        // update the filter and index files
-        // FIXME: need to find a way to maintain the bloom filter and preserve opaque slices:
-        // they are a massive speed boost
-        // columnKey.addToBloom(bf);
-        lastWrittenKey = end;
-
         if (lastIndexEntry != null && btype == BoundaryType.NONE)
             // this append fell into the last block: don't need a new IndexEntry
             return;
@@ -244,7 +238,11 @@ public class SSTableWriter extends SSTable
         assert column != null;
         BoundaryType btype = beforeAppend(meta, columnKey);
         blockContext.bufferColumn(column);
-        afterAppend(columnKey, columnKey, btype);
+        afterAppend(columnKey, btype);
+
+        // add to filter
+        columnKey.addToBloom(bf);
+        lastWrittenKey = columnKey;
         columnsWritten++;
     }
 
@@ -259,7 +257,15 @@ public class SSTableWriter extends SSTable
         assert slice != null;
         BoundaryType btype = beforeAppend(slice.meta, slice.key);
         blockContext.buffer(slice);
-        afterAppend(slice.key, slice.end, btype);
+        afterAppend(slice.key, btype);
+
+        // add to filter
+        for (Column col : slice.realized())
+            // TODO: this realizes the columns, and copies and hashes the key for each
+            // one: consider unioning the bloom filters during minor compactions, and
+            // building it externally for major compactions
+            slice.key.withName(col.name()).addToBloom(bf);
+        lastWrittenKey = slice.end;
         columnsWritten += slice.numCols();
     }
 
