@@ -39,9 +39,8 @@ import org.apache.log4j.Logger;
  * A Scanner is an abstraction for reading slices from an SSTable. In this
  * implementation, slices are read in forward order.
  *
- * TODO: as implemented, the first block in the file is opened every time we
- * open a scanner: it would probably be beneficial to do this lazily, since the
- * first thing we typically do with a scanner is seek on it anyway.
+ * After creation, the Scanner is positioned at the beginning of the file:
+ * call seek() or next() to reposition it at Slices.
  *
  * TODO: extract an SSTableScanner interface that will be shared between forward
  * and reverse scanners
@@ -55,8 +54,9 @@ public class SSTableScanner implements Closeable
 
     private BufferedRandomAccessFile file;
     /**
-     * Current block and slice pointers: the block should never be null, but
-     * the slice might be if a seek*() failed.
+     * Current block and slice pointers. The block is lazily created for the first
+     * positioning call and remains non-null for the life of the scanner. The slice
+     * will be null whenever the Scanner is not in a valid position.
      */
     private Block block;
     private SliceMark slice;
@@ -70,14 +70,7 @@ public class SSTableScanner implements Closeable
         this.sstable = sstable;
         comparator = sstable.getComparator();
 
-        file = new BufferedRandomAccessFile(sstable.getFilename(), "r",
-                                            bufferSize);
-        if (file.length() < 1)
-            throw new IOException("Cannot scan empty file!");
-
-        // an sstable must contain at least one block and slice
-        block = sstable.getBlock(file, 0);
-        slice = SliceMark.deserialize(block.stream());
+        file = new BufferedRandomAccessFile(sstable.getFilename(), "r", bufferSize);
     }
 
     /**
@@ -107,6 +100,48 @@ public class SSTableScanner implements Closeable
     }
 
     /**
+     * Positions the Scanner at the first slice in the file.
+     * @return False if the file is empty.
+     */
+    public boolean first() throws IOException
+    {
+        if (file.length() < 1)
+            return false;
+        block = sstable.getBlock(file, 0);
+        slice = SliceMark.deserialize(block.stream());
+        return true;
+    }
+
+    /**
+     * See the contract for seekNear(CK).
+     */
+    public boolean seekNear(DecoratedKey seekKey) throws IOException
+    {
+        // a ColumnKey with empty names matches the beginning of the first slice with
+        // this DecoratedKey
+        return seekNear(new ColumnKey(seekKey, sstable.getColumnDepth()));
+    }
+
+    /**
+     * Seeks to the first slice with a key greater than or equal to the given key.
+     *
+     * @return False if no such Slice was found.
+     */
+    public boolean seekNear(ColumnKey seekKey) throws IOException
+    {
+        // seek to the correct block
+        if (!seekInternal(seekKey, true))
+            return false;
+
+        // seek forward while the key is >= the beginning of the next slice
+        while (slice.nextKey != null && comparator.compare(seekKey, slice.nextKey) >= 0)
+            assert next();
+
+        // positioned at the correct slice
+        return true;
+    }
+
+    /**
      * See the contract for seekTo(CK).
      */
     public boolean seekTo(DecoratedKey seekKey) throws IOException
@@ -117,8 +152,9 @@ public class SSTableScanner implements Closeable
     }
 
     /**
-     * Seeks to the slice which would contain the given key. If such a slice does not
-     * exist, the next calls to get*() will have undefined results.
+     * Seeks to the slice which might contain the given key. If the key does not
+     * exist, or such a slice does not exist, the next calls to get*() will have
+     * undefined results.
      *
      * seekKeys with trailing NAME_BEGIN or NAME_END names will properly match
      * the slices that they begin or end when used with this method.
@@ -128,15 +164,12 @@ public class SSTableScanner implements Closeable
     public boolean seekTo(ColumnKey seekKey) throws IOException
     {
         // seek to the correct block
-        if (!seekInternal(seekKey))
+        if (!seekInternal(seekKey, false))
             return false;
 
         // seek forward while the key is >= the beginning of the next slice
         while (slice.nextKey != null && comparator.compare(seekKey, slice.nextKey) >= 0)
-            if (!next())
-                // TODO: assert that this loop never seeks outside of a block
-                // reached the end of the file
-                break;
+            assert next();
 
         // positioned at the correct slice
         return true;
@@ -146,16 +179,18 @@ public class SSTableScanner implements Closeable
      * Seeks to the proper block for the given seekKey, and opens the first slice.
      * FIXME: optimize forward seeks within the same block by not resetting the block
      */
-    private boolean seekInternal(ColumnKey seekKey) throws IOException
+    private boolean seekInternal(ColumnKey seekKey, boolean nearest) throws IOException
     {
-        long position = sstable.getBlockPosition(seekKey);
+        long position = nearest ?
+            sstable.nearestBlockPosition(seekKey) : sstable.getBlockPosition(seekKey);
         if (position < 0)
             return false;
 
-        if (position != block.offset)
+        if (block == null || position != block.offset)
             // acquire the new block
             block = sstable.getBlock(file, position);
-        block.reset();
+        else
+            block.reset();
 
         // read the first slice from the block
         slice = SliceMark.deserialize(block.stream());
@@ -292,18 +327,23 @@ public class SSTableScanner implements Closeable
      * @return True if we are positioned at a valid slice and a call to next() will be
      * successful.
      */
-    public boolean hasNext()
+    public boolean hasNext() throws IOException
     {
+        if (block == null)
+            return first();
         return slice != null && slice.nextKey != null;
     }
 
     /**
      * Seeks to the next slice, unless the last call to seek*() failed, or we are at
      * the end of the file.
-     * @return True if we are positioned at a valid slice.
+     * @return True if we are positioned at the next valid slice.
      */
     public boolean next() throws IOException
     {
+        if (block == null && !first())
+            // the file is empty
+            return false;
         if (slice == null)
             // position is invalid
             return false;

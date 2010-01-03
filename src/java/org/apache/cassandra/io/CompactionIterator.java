@@ -99,7 +99,11 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
         scanners = new PriorityQueue<SSTableScanner>(sstables.size(),
                                                      new ScannerComparator(comparator));
         for (SSTableReader sstable : sstables)
-            scanners.add(sstable.getScanner(bufferPer));
+        {
+            SSTableScanner scanner = sstable.getScanner(bufferPer);
+            scanner.first();
+            scanners.add(scanner);
+        }
         mergeBuff = new LinkedList<SliceBuffer>();
     }
 

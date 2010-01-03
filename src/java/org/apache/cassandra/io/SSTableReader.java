@@ -335,12 +335,54 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     }
 
     /**
+     * @return The position of the first block with a key greater than or equal
+     * to the target key, or -1 if such a block is not contained in this SSTable.
+     */
+    long nearestBlockPosition(ColumnKey target) throws IOException
+    {
+        if (keyCache != null)
+        {
+            IndexEntry cachedEntry = keyCache.get(target);
+            if (cachedEntry != null)
+                return cachedEntry.dataOffset;
+        }
+        IndexEntry indexEntry = getIndexScanPosition(target);
+        if (indexEntry == null)
+            return -1;
+
+        BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(path), "r");
+        input.seek(indexEntry.indexOffset);
+        int i = 0;
+        try
+        {
+            do
+            {
+                indexEntry = IndexEntry.deserialize(input);
+                int v = comparator.compare(indexEntry, target);
+                if (v == 0)
+                    // exact matches can be cached
+                    return cacheAndReturn(target, indexEntry);
+                else if (v > 0)
+                    return indexEntry.dataOffset;
+                // else, continue
+            } while  (++i < INDEX_INTERVAL);
+        }
+        catch (EOFException e)
+        {
+            // pass
+        }
+        finally
+        {
+            input.close();
+        }
+        return -1;
+    }
+
+    /**
      * Factory function for blocks within this SSTable.
      */
     public Block getBlock(BufferedRandomAccessFile file, long blockPosition)
     {
-        // TODO: plug in an optional (decompressed) block cache, to trade memory
-        // for cpu.
         return new Block(file, blockPosition);
     }
 
@@ -453,7 +495,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         public Block reset() throws IOException
         {
             stream = null;
-            file.seek(offset);
             return this;
         }
 
@@ -475,11 +516,11 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                 // return the existing stream
                 return stream;
 
+            file.seek(offset);
             // read the block header
             BlockHeader mark = BlockHeader.deserialize(file);
 
             // TODO: handle setting up an appropriate decompression stream here
-
             stream = new DataInputStream(file.inputStream());
             return stream;
         }

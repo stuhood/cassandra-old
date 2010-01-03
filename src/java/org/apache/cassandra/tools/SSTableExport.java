@@ -211,6 +211,7 @@ public class SSTableExport
     {
         // full table scan: large buffer
         SSTableScanner scanner = reader.getScanner(1 << 18);
+        scanner.first();
         
         outs.println("{");
         
