@@ -86,8 +86,7 @@ public class SSTableTest extends CleanupHelper
             assert Arrays.equals(key.name(1), column.name());
             assert Arrays.equals(value, column.value());
 
-            // nothing more in the block 
-            assertEquals(block.stream().available(), 0);
+            assert -1 == block.stream().read() : "Should have been at EOF";
         }
         finally
         {
@@ -122,12 +121,16 @@ public class SSTableTest extends CleanupHelper
 
     private void verifyMany(SSTableReader sstable, TreeMap<ColumnKey, Column> map) throws IOException
     {
-        BufferedRandomAccessFile file = new BufferedRandomAccessFile(sstable.getFilename(),
+        BufferedRandomAccessFile indexFile = new BufferedRandomAccessFile(sstable.indexFilename(), "r");
+        BufferedRandomAccessFile dataFile = new BufferedRandomAccessFile(sstable.getFilename(),
                                                                      "r", 1 << 12);
         try
         {
             Iterator<Map.Entry<ColumnKey, Column>> columns = map.entrySet().iterator();
-            SSTableReader.Block block = sstable.getBlock(file, 0);
+            SSTableReader.Block block = sstable.getBlock(dataFile, 0);
+            IndexEntry indexEntry = IndexEntry.deserialize(indexFile);
+            assert indexEntry.dataOffset == 0;
+
             SSTable.SliceMark slice,last = null;
 
             while (true)
@@ -152,7 +155,11 @@ public class SSTableTest extends CleanupHelper
                 if (slice.nextKey == null)
                     break;
                 if (slice.status == SSTable.SliceMark.BLOCK_END)
-                    block = sstable.getBlock(file, file.getFilePointer());
+                {
+                    indexEntry = IndexEntry.deserialize(indexFile);
+                    assert indexEntry.dataOffset == dataFile.getFilePointer();
+                    block = sstable.getBlock(dataFile, dataFile.getFilePointer());
+                }
                 last = slice;
             }
 
@@ -160,7 +167,8 @@ public class SSTableTest extends CleanupHelper
         }
         finally
         {
-            file.close();
+            indexFile.close();
+            dataFile.close();
         }
     }
 
