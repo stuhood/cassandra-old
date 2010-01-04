@@ -44,12 +44,14 @@ public class IndexEntry extends ColumnKey
 {
     public final long indexOffset;
     public final long dataOffset;
+    public final int blockLen;
 
-    public IndexEntry(DecoratedKey key, byte[][] names, long indexOffset, long dataOffset)
+    IndexEntry(DecoratedKey key, byte[][] names, long indexOffset, long dataOffset, int blockLen)
     {
         super(key, names);
         this.indexOffset = indexOffset;
         this.dataOffset = dataOffset;
+        this.blockLen = blockLen;
     }
 
     /**
@@ -59,9 +61,10 @@ public class IndexEntry extends ColumnKey
     public void serialize(DataOutput dos) throws IOException
     {
         super.serialize(dos);
-        // note: only the dataOffset is serialized to disk, because in order
-        // to deserialize this value, we will need to know indexOffset anyway
+        // indexOffset is not serialized to disk, because in order to deserialize
+        // an IndexEntry, we need to know indexOffset anyway
         dos.writeLong(dataOffset);
+        dos.writeInt(blockLen);
     }
 
     /**
@@ -72,26 +75,15 @@ public class IndexEntry extends ColumnKey
         long indexOffset = dis.getFilePointer();
         ColumnKey key = ColumnKey.deserialize(dis);
         long dataOffset = dis.readLong();
-        return new IndexEntry(key.dk, key.names, indexOffset, dataOffset);
-    }
-
-    /**
-     * Skips a single IndexEntry in the given file.
-     */
-    public static void skip(RandomAccessFile dis) throws IOException
-    {
-        dis.readUTF();
-        byte nameCount = dis.readByte();
-        while (nameCount-- > 0)
-            ColumnSerializer.readName(dis);
-        dis.readLong();
+        int blockLen = dis.readInt();
+        return new IndexEntry(key.dk, key.names, indexOffset, dataOffset, blockLen);
     }
 
     public String toString()
     {
         StringBuilder buff = new StringBuilder();
-        buff.append("#<IndexEntry ").append(super.toString()).append(" ioffset=")
-            .append(indexOffset).append(" doffset=").append(dataOffset).append(">");
-        return buff.toString();
+        buff.append("#<IndexEntry ").append(super.toString());
+        buff.append(" doffset=").append(dataOffset).append(" dlen=").append(blockLen);
+        return buff.append(">").toString();
     }
 }

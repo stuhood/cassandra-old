@@ -110,21 +110,22 @@ public class SSTableWriter extends SSTable
 
     /**
      * Flushes the current slice if it is not empty, and begins a new one with the
-     * given key. A slice always begins with a SliceMark indicating the length
-     * of the slice.
+     * given key.
+     * @return An IndexEntry if the flush caused a block to be closed as well.
      */
-    private boolean flushSlice(Slice.Metadata meta, BoundaryType btype, ColumnKey columnKey, boolean closeBlock) throws IOException
+    private void flushSlice(Slice.Metadata meta, BoundaryType btype, ColumnKey columnKey, boolean closeBlock) throws IOException
     {
         if (blockContext.isEmpty())
-            return false;
+            return;
 
-        // flush the current slice (after prepending a mark)
-        blockContext.flushSlice(dataFile, btype, columnKey, closeBlock);
-        if (closeBlock) blocksWritten++;
+        // flush the current slice
+        IndexEntry entry = blockContext.flushSlice(dataFile, indexFile, btype,
+                                                   columnKey, closeBlock);
+        if (entry != null)
+            addToIndex(entry);
         slicesWritten++;
         // then reset for the next slice
         blockContext.resetSlice(meta, btype, columnKey);
-        return true;
     }
 
     /**
@@ -167,9 +168,8 @@ public class SSTableWriter extends SSTable
      *
      * @param meta @see append.
      * @param columnKey The key that is about to be appended.
-     * @return The type of boundary between blocks if a block change was caused.
      */
-    private BoundaryType beforeAppend(Slice.Metadata meta, ColumnKey columnKey) throws IOException
+    private void beforeAppend(Slice.Metadata meta, ColumnKey columnKey) throws IOException
     {
         assert columnKey != null : "Keys must not be null.";
 
@@ -177,52 +177,39 @@ public class SSTableWriter extends SSTable
         {
             // we're beginning the first slice: natural boundary
             blockContext.resetSlice(meta, BoundaryType.NATURAL, columnKey);
-            return BoundaryType.NATURAL;
+            return;
         }
 
         // true if the current block has reached its target length
         boolean filled = TARGET_MAX_BLOCK_BYTES < blockContext.getApproxBlockLength();
 
         // determine if we need to flush the current slice
-        boolean flushed = false;
         BoundaryType btype = shouldFlushSlice(meta, columnKey);
         if (btype != BoundaryType.NONE)
-        {
             // flush the previous slice to the data file
-            flushed = flushSlice(meta, btype, columnKey, filled);
-            assert flushed : "Failed to flush non-empty slice!";
-        }
-        return flushed && filled ? btype : BoundaryType.NONE;
+            flushSlice(meta, btype, columnKey, filled);
     }
 
     /**
-     * Handles appending any metadata to the index and filter files after having
-     * written a range beginning with the given key.
+     * Handles appending any metadata to the index after having possibly closed
+     * a block.
      *
-     * @param key The first key of the last batch of appended columns.
-     * @param btype The boundary type for a newly created block.
+     * @param entry If a block was closed, an IndexEntry for the block.
      */
-    private void afterAppend(ColumnKey key, BoundaryType btype) throws IOException
+    private void addToIndex(IndexEntry entry) throws IOException
     {
-        if (lastIndexEntry != null && btype == BoundaryType.NONE)
+        if (entry == null)
             // this append fell into the last block: don't need a new IndexEntry
             return;
-        // else: the previous block was closed, or this is the first block in the file
 
-        // columns are buffered for a new block: write an IndexEntry to mark it
-        long indexPosition = indexFile.getFilePointer();
-        ColumnKey blockKey = btype == BoundaryType.NATURAL ?
-            key.withName(ColumnKey.NAME_BEGIN) : key;
-        lastIndexEntry = new IndexEntry(blockKey.dk, blockKey.names, indexPosition,
-                                        blockContext.getCurrentBlockPos());
-        lastIndexEntry.serialize(indexFile);
+        entry.serialize(indexFile);
         if (logger.isDebugEnabled())
-            logger.debug("Initialized block marked by " + lastIndexEntry + " in " + getFilename());
+            logger.debug("Closed block for " + entry + " in " + getFilename());
 
         // if we've written INDEX_INTERVAL blocks/IndexEntries, hold onto one in memory
-        if (blocksWritten % INDEX_INTERVAL != 0)
+        if (blocksWritten++ % INDEX_INTERVAL != 0)
             return;
-        indexEntries.add(lastIndexEntry);
+        indexEntries.add(entry);
     }
 
     /**
@@ -237,9 +224,8 @@ public class SSTableWriter extends SSTable
     public void append(Slice.Metadata meta, ColumnKey columnKey, Column column) throws IOException
     {
         assert column != null;
-        BoundaryType btype = beforeAppend(meta, columnKey);
-        blockContext.bufferColumn(column);
-        afterAppend(columnKey, btype);
+        beforeAppend(meta, columnKey);
+        blockContext.buffer(column);
 
         // add to filter
         columnKey.addToBloom(bf);
@@ -256,9 +242,8 @@ public class SSTableWriter extends SSTable
     public void append(SliceBuffer slice) throws IOException
     {
         assert slice != null;
-        BoundaryType btype = beforeAppend(slice.meta, slice.key);
+        beforeAppend(slice.meta, slice.key);
         blockContext.buffer(slice);
-        afterAppend(slice.key, btype);
 
         // add to filter
         for (Column col : slice.realized())
@@ -324,7 +309,8 @@ public class SSTableWriter extends SSTable
         indexFile.close();
 
         // main data
-        dataFile.close(); // calls force
+        dataFile.getChannel().force(true);
+        dataFile.close();
 
         logger.info("Wrote " + blocksWritten + " blocks, " +
             slicesWritten + " slices, and " + columnsWritten + " columns to " + path);
@@ -367,11 +353,12 @@ public class SSTableWriter extends SSTable
     static class BlockContext
     {
         private Slice.Metadata meta = null;
-        private ColumnKey headKey = null;
+        private ColumnKey sliceKey = null;
         private int numCols = 0;
 
         private int slicesInBlock = 0;
         private long currentBlockPos = 0;
+        private ColumnKey blockKey = null;
 
         private DataOutputBuffer sliceBuffer = new DataOutputBuffer();
         private DataOutputStream blockStream = null;
@@ -379,7 +366,7 @@ public class SSTableWriter extends SSTable
         /**
          * Serializes and buffers the given column into the current slice.
          */
-        public void bufferColumn(Column column)
+        public void buffer(Column column)
         {
             Column.serializer().serialize(column, sliceBuffer);
             numCols++;
@@ -392,7 +379,7 @@ public class SSTableWriter extends SSTable
         {
             assert isEmpty();
             meta = slice.meta;
-            headKey = slice.key;
+            sliceKey = slice.key;
             numCols = slice.numCols();
             // TODO: we copy rather than worrying about who owns the input buffer
             try
@@ -424,19 +411,6 @@ public class SSTableWriter extends SSTable
         }
 
         /**
-         * @return Count of columns buffered for current slice.
-         */
-        public int getSliceColCount()
-        {
-            return numCols;
-        }
-
-        public long getCurrentBlockPos()
-        {
-            return currentBlockPos;
-        }
-
-        /**
          * @return The sum of the exact length of the block that has been flushed to
          * disk, and the approximate length of the currently buffered slice.
          */
@@ -454,30 +428,39 @@ public class SSTableWriter extends SSTable
          * Closes the current block, and resets the context so that the next
          * flushed slice will be the first in a new block.
          */
-        private void closeBlock(RandomAccessFile file) throws IOException
+        private IndexEntry closeBlock(RandomAccessFile dataFile, RandomAccessFile indexFile) throws IOException
         {
-            assert blockStream != null && blockStream.size() > 0 :
-                "Should not write empty blocks.";
+            assert blockStream != null;
 
-            // flush block content (without actually closing the file)
+            // flush block content
             blockStream.close();
+            long nextBlockPos = dataFile.getFilePointer();
+
+            // build an IndexEntry to mark the closed block
+            int blockLen = (int)(nextBlockPos - currentBlockPos);
+            IndexEntry entry = new IndexEntry(blockKey.dk, blockKey.names,
+                                              indexFile.getFilePointer(),
+                                              currentBlockPos, blockLen);
 
             // reset for the next block
             blockStream = null;
             slicesInBlock = 0;
-            currentBlockPos = file.getFilePointer();
+            blockKey = null;
+            currentBlockPos = nextBlockPos;
+
+            return entry;
         }
 
         /**
          * Begins a slice with the given shared metadata and first key.
          */
-        public void resetSlice(Slice.Metadata meta, BoundaryType btype, ColumnKey headKey)
+        public void resetSlice(Slice.Metadata meta, BoundaryType btype, ColumnKey sliceKey)
         {
             assert btype != BoundaryType.NONE;
             
             this.meta = meta;
-            this.headKey = headKey != null && btype == BoundaryType.NATURAL ?
-                headKey.withName(ColumnKey.NAME_BEGIN) : headKey;
+            this.sliceKey = sliceKey != null && btype == BoundaryType.NATURAL ?
+                sliceKey.withName(ColumnKey.NAME_BEGIN) : sliceKey;
             sliceBuffer.reset();
             numCols = 0;
         }
@@ -486,34 +469,39 @@ public class SSTableWriter extends SSTable
          * Prepend a mark to our buffer to indicate the beginning of the slice, and
          * then flush the buffered data to the given output.
          * @param closeBlock True if this should be the last slice in the block.
+         * @return The IndexEntry for the closed block, or null.
          */
-        public void flushSlice(BufferedRandomAccessFile file, BoundaryType btype, ColumnKey nextKey, boolean closeBlock) throws IOException
+        public IndexEntry flushSlice(BufferedRandomAccessFile dataFile, BufferedRandomAccessFile indexFile, BoundaryType btype, ColumnKey nextKey, boolean closeBlock) throws IOException
         {
             assert btype != BoundaryType.NONE;
+
+            // initialize if this is the first slice in a new block
             if (slicesInBlock == 0)
             {
-                // first slice in block: prepend BlockHeader, and open stream
-                new BlockHeader("FIXME").serialize(file);
+                blockKey = sliceKey;
+                // prepend BlockHeader, and open stream
+                new BlockHeader("FIXME").serialize(dataFile);
                 assert blockStream == null;
-                blockStream = new DataOutputStream(new GZIPOutputStream(file.outputStream()));
+                blockStream = new DataOutputStream(dataFile.outputStream());
             }
 
             int sliceLen = sliceBuffer.getLength();
             byte status = closeBlock ? SliceMark.BLOCK_END : SliceMark.BLOCK_CONTINUE;
-            // TODO: this status code usage is yucky
+            // TODO: this status code usage is yucky: we're rounding natural slice
+            // boundaries up and down at their ends, so that metadata in the slice
+            // applies to any keys we might come across later that share parents
             ColumnKey endKey = btype == BoundaryType.NATURAL ?
-                headKey.withName(ColumnKey.NAME_END) : nextKey;
+                sliceKey.withName(ColumnKey.NAME_END) : nextKey;
             nextKey = nextKey != null && btype == BoundaryType.NATURAL ?
                 nextKey.withName(ColumnKey.NAME_BEGIN) : nextKey;
-            new SliceMark(meta, headKey, endKey, nextKey,
+            new SliceMark(meta, sliceKey, endKey, nextKey,
                           sliceLen, numCols, status).serialize(blockStream);
             blockStream.write(sliceBuffer.getData(), 0, sliceLen);
 
             // update block counts
             slicesInBlock++;
 
-            if (closeBlock)
-                closeBlock(file);
+            return closeBlock ? closeBlock(dataFile, indexFile) : null;
         }
     }
 }
