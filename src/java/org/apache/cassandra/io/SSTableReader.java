@@ -469,12 +469,39 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     }
 
     /**
+     * An iterator over entries in the index file. The index file is lazily opened
+     * when the second entry is requested.
+     */
+    final class IndexIterator extends AbstractIterator<IndexEntry> implements Closeable
+    {
+        private BufferedRandomAccessFile ifile;
+        private IndexEntry first;
+        public IndexIterator(IndexEntry first)
+        {
+            this.first = first;
+        }
+
+        @Override
+        public IndexEntry computeNext()
+        {
+            if (ifile)
+        }
+
+        public void close() throws IOException
+        {
+            if (ifile != null)
+                ifile.close();
+            ifile = null;
+        }
+    }
+
+    /**
      * A block in the SSTable, with a method to open a stream for the block.
      *
      * As a non-static class, a Block holds a reference to the SSTable it was
      * created for and should prevent it from being cleaned up.
      */
-    class Block
+    final class Block
     {
         public final BufferedRandomAccessFile file;
         // offset from the beginning of the data file
