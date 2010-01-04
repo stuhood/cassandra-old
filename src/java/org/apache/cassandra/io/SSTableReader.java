@@ -20,6 +20,7 @@ package org.apache.cassandra.io;
 
 import java.io.*;
 import java.util.*;
+import java.util.zip.GZIPInputStream;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.PhantomReference;
 import java.lang.ref.Reference;
@@ -526,7 +527,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             BlockHeader mark = BlockHeader.deserialize(file);
 
             // TODO: handle setting up an appropriate decompression stream here
-            stream = new DataInputStream(file.inputStream());
+            stream = new DataInputStream(new GZIPInputStream(file.inputStream()));
             return stream;
         }
     }

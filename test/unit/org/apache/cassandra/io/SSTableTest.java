@@ -157,7 +157,7 @@ public class SSTableTest extends CleanupHelper
                 if (slice.status == SSTable.SliceMark.BLOCK_END)
                 {
                     indexEntry = IndexEntry.deserialize(indexFile);
-                    assert indexEntry.dataOffset == dataFile.getFilePointer();
+                    assertEquals(indexEntry.dataOffset, dataFile.getFilePointer());
                     block = sstable.getBlock(dataFile, dataFile.getFilePointer());
                 }
                 last = slice;

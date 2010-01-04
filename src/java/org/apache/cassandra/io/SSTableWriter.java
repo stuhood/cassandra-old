@@ -23,6 +23,7 @@ package org.apache.cassandra.io;
 
 import java.io.*;
 import java.util.*;
+import java.util.zip.GZIPOutputStream;
 
 import org.apache.log4j.Logger;
 
@@ -63,7 +64,7 @@ public class SSTableWriter extends SSTable
      * enough, the block containing it might be stretched to larger than this value.
      * FIXME: tune and make configurable
      */
-    public static final int TARGET_MAX_BLOCK_BYTES = 1 << 8;
+    public static final int TARGET_MAX_BLOCK_BYTES = 1 << 14;
 
     enum BoundaryType
     {
@@ -207,7 +208,7 @@ public class SSTableWriter extends SSTable
             // this append fell into the last block: don't need a new IndexEntry
             return;
         // else: the previous block was closed, or this is the first block in the file
-        
+
         // columns are buffered for a new block: write an IndexEntry to mark it
         long indexPosition = indexFile.getFilePointer();
         ColumnKey blockKey = btype == BoundaryType.NATURAL ?
@@ -473,7 +474,7 @@ public class SSTableWriter extends SSTable
         public void resetSlice(Slice.Metadata meta, BoundaryType btype, ColumnKey headKey)
         {
             assert btype != BoundaryType.NONE;
-
+            
             this.meta = meta;
             this.headKey = headKey != null && btype == BoundaryType.NATURAL ?
                 headKey.withName(ColumnKey.NAME_BEGIN) : headKey;
@@ -494,7 +495,7 @@ public class SSTableWriter extends SSTable
                 // first slice in block: prepend BlockHeader, and open stream
                 new BlockHeader("FIXME").serialize(file);
                 assert blockStream == null;
-                blockStream = new DataOutputStream(file.outputStream());
+                blockStream = new DataOutputStream(new GZIPOutputStream(file.outputStream()));
             }
 
             int sliceLen = sliceBuffer.getLength();
