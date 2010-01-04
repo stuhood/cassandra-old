@@ -267,12 +267,13 @@ public final class BufferedRandomAccessFile extends RandomAccessFile
 
     /**
      * @return An input stream that utilizes the buffer of the random access file,
-     * positioned at the current position of the file. Reading from the stream will
-     * move the file pointer, but closing the stream will have no effect.
+     * positioned at the current position of the file, and bounded to the given length
+     * from the opening position. Reading from the stream will move the file pointer,
+     * but closing the stream will have no effect.
      */
     public InputStream inputStream()
     {
-        return new BRAFInputStream(this);
+        return new BRAFInputStream(this, Integer.MAX_VALUE); // FIXME: bound
     }
 
     /**
@@ -416,21 +417,24 @@ public final class BufferedRandomAccessFile extends RandomAccessFile
     }
 
     /**
-     * An input stream which utilizes the buffer of the BRAF.
+     * An input stream which utilizes the buffer of the BRAF, and is bounded to
+     * prevent reading past an offset from the opening position.
      */
     public static final class BRAFInputStream extends InputStream
     {
         private final BufferedRandomAccessFile file;
-        BRAFInputStream(BufferedRandomAccessFile file)
+        private int available;
+        BRAFInputStream(BufferedRandomAccessFile file, int bound)
         {
             this.file = file;
+            available = bound;
         }
 
         @Override
         public int available() throws IOException
         {
             // amount remaining in the buffer
-            return (int)Math.min(file.hi_ - file.curr_, Integer.MAX_VALUE);
+            return (int)Math.min(file.hi_ - file.curr_, available);
         }
         
         @Override
@@ -442,7 +446,8 @@ public final class BufferedRandomAccessFile extends RandomAccessFile
         @Override
         public long skip(long n) throws IOException
         {
-            long skip = Math.min(file.length() - file.curr_, n);
+            long skip = Math.min(available, n);
+            skip = Math.min(file.length() - file.curr_, skip);
             file.seek(file.curr_ + skip);
             return skip;
         }
@@ -450,19 +455,23 @@ public final class BufferedRandomAccessFile extends RandomAccessFile
         @Override
         public int read() throws IOException
         {
+            if (available == 0)
+                return -1;
             return file.read();
         }
 
         @Override
         public int read(byte[] b) throws IOException
         {
-            return file.read(b);
+            return read(b, 0, b.length);
         }
 
         @Override
         public int read(byte[] b, int off, int len) throws IOException
         {
-            return file.read(b, off, len);
+            int read = file.read(b, off, Math.min(len, available));
+            available -= read;
+            return read;
         }
 
         @Override

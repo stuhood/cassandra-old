@@ -83,7 +83,7 @@ public class IndexEntry extends ColumnKey
     {
         StringBuilder buff = new StringBuilder();
         buff.append("#<IndexEntry ").append(super.toString());
-        buff.append(" doffset=").append(dataOffset).append(" dlen=").append(blockLen);
+        buff.append(" boff=").append(dataOffset).append(" blen=").append(blockLen);
         return buff.append(">").toString();
     }
 }
