@@ -238,10 +238,9 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                 if (indexPosition == indexSize)
                     break;
 
+                IndexEntry entry = IndexEntry.deserialize(input);
                 if (i++ % INDEX_INTERVAL == 0)
-                    indexEntries.add(IndexEntry.deserialize(input));
-                else
-                    IndexEntry.skip(input);
+                    indexEntries.add(entry);
             }
         }
         finally
