@@ -1296,7 +1296,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         // we iterate through memtables with a priority queue to avoid more sorting than necessary.
         // this predicate throws out the keys before the start of our range.
-        // TODO: this is horribly inefficent
+        // TODO: seems horribly inefficent
         Predicate<DecoratedKey> p = new Predicate<DecoratedKey>()
         {
             public boolean apply(DecoratedKey key)
@@ -1577,7 +1577,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         {
             try
             {
-                if (scanner.get() == null && !scanner.next())
+                if (scanner.get() == null)
                     return endOfData();
                 DecoratedKey key = scanner.get().key.dk;
                 scanner.next();

@@ -117,28 +117,23 @@ public class SSTableScanner implements Closeable
      */
     public boolean seekNear(DecoratedKey seekKey) throws IOException
     {
-        // a ColumnKey with empty names matches the beginning of the first slice with
-        // this DecoratedKey
+        // empty names match the beginning of the first slice with this DecoratedKey
         return seekNear(new ColumnKey(seekKey, sstable.getColumnDepth()));
     }
 
     /**
-     * Seeks to the first slice with a key greater than or equal to the given key.
+     * Seeks to the slice which might contain the given key, without checking the
+     * existence of the key in the filter. If such a slice does not exist, the next
+     * calls to get*() will have undefined results.
+     *
+     * seekKeys with trailing NAME_BEGIN or NAME_END names will properly match
+     * the slices that they begin or end when used with this method.
      *
      * @return False if no such Slice was found.
      */
     public boolean seekNear(ColumnKey seekKey) throws IOException
     {
-        // seek to the correct block
-        if (!seekInternal(seekKey, true))
-            return false;
-
-        // seek forward while the key is >= the beginning of the next slice
-        while (slice.nextKey != null && comparator.compare(seekKey, slice.nextKey) >= 0)
-            assert next();
-
-        // positioned at the correct slice
-        return true;
+        return seekInternal(seekKey, false);
     }
 
     /**
@@ -146,8 +141,7 @@ public class SSTableScanner implements Closeable
      */
     public boolean seekTo(DecoratedKey seekKey) throws IOException
     {
-        // a ColumnKey with empty names matches the beginning of the first slice with
-        // this DecoratedKey
+        // empty names match the beginning of the first slice with this DecoratedKey
         return seekTo(new ColumnKey(seekKey, sstable.getColumnDepth()));
     }
 
@@ -163,26 +157,20 @@ public class SSTableScanner implements Closeable
      */
     public boolean seekTo(ColumnKey seekKey) throws IOException
     {
-        // seek to the correct block
-        if (!seekInternal(seekKey, false))
-            return false;
-
-        // seek forward while the key is >= the beginning of the next slice
-        while (slice.nextKey != null && comparator.compare(seekKey, slice.nextKey) >= 0)
-            assert next();
-
-        // positioned at the correct slice
-        return true;
+        return seekInternal(seekKey, true);
     }
 
     /**
-     * Seeks to the proper block for the given seekKey, and opens the first slice.
+     * Seeks to the slice that might contain the given seekKey. If exact is true,
+     * the filter is checked for the existence of the key, and the seek will fail
+     * if it does not exist.
+     *
      * FIXME: optimize forward seeks within the same block by not resetting the block
      */
-    private boolean seekInternal(ColumnKey seekKey, boolean nearest) throws IOException
+    private boolean seekInternal(ColumnKey seekKey, boolean exact) throws IOException
     {
-        long position = nearest ?
-            sstable.nearestBlockPosition(seekKey) : sstable.getBlockPosition(seekKey);
+        long position = exact ?
+            sstable.getBlockPosition(seekKey) : sstable.nearestBlockPosition(seekKey);
         if (position < 0)
             return false;
 
@@ -195,6 +183,10 @@ public class SSTableScanner implements Closeable
         // read the first slice from the block
         slice = SliceMark.deserialize(block.stream());
         sliceCols = null;
+
+        // seek forward while the key is >= the beginning of the next slice
+        while (slice.nextKey != null && comparator.compare(seekKey, slice.nextKey) >= 0)
+            assert next();
 
         return true;
     }

@@ -259,37 +259,12 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     }
 
     /**
-     * @return The last cached index entry less than or equal to the given target.
-     * The entry contains the position to begin scanning the index file or the
-     * data file.
-     */
-    private IndexEntry getIndexScanPosition(ColumnKey target)
-    {
-        assert !indexEntries.isEmpty();
-        int index = Collections.binarySearch(indexEntries, target, comparator);
-        if (index < 0)
-        {
-            // binary search gives us the first index _greater_ than the key searched for,
-            // i.e., its insertion position
-            int greaterThan = (index + 1) * -1;
-            if (greaterThan == 0)
-                return null;
-            return indexEntries.get(greaterThan - 1);
-        }
-        else
-        {
-            // TODO: for exact matches, utilize the dataOffset to seek directly to
-            // the data file
-            return indexEntries.get(index);
-        }
-    }
-
-    /**
      * @return The position of the block that might contain the target key,
      * or -1 if the key is not contained in this SSTable.
      */
     long getBlockPosition(ColumnKey target) throws IOException
     {
+        // see if the filter or cache can confirm/deny
         if (!target.isPresentInBloom(bf))
             return -1;
         if (keyCache != null)
@@ -298,10 +273,23 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             if (cachedEntry != null)
                 return cachedEntry.dataOffset;
         }
-        IndexEntry indexEntry = getIndexScanPosition(target);
-        if (indexEntry == null)
-            return -1;
 
+        // check the index
+        assert !indexEntries.isEmpty();
+        int indexPos = Collections.binarySearch(indexEntries, target, comparator);
+        if (indexPos >= 0)
+            // exact index match: no need to read from the index file
+            return indexEntries.get(indexPos).dataOffset;
+
+        // found an index entry near the one we want: first index _greater_ than the
+        // key searched for, i.e., its insertion position
+        int greaterThan = (indexPos + 1) * -1;
+        if (greaterThan == 0)
+            // key would be contained before the first block in the file
+            return -1;
+        IndexEntry indexEntry = indexEntries.get(greaterThan - 1);
+
+        // scan the index file from the entry we found
         BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(path), "r");
         input.seek(indexEntry.indexOffset);
         int i = 0;
@@ -340,19 +328,34 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
      */
     long nearestBlockPosition(ColumnKey target) throws IOException
     {
+        // see if the exact location of the key is cached
         if (keyCache != null)
         {
             IndexEntry cachedEntry = keyCache.get(target);
             if (cachedEntry != null)
                 return cachedEntry.dataOffset;
         }
-        IndexEntry indexEntry = getIndexScanPosition(target);
-        if (indexEntry == null)
-            return -1;
 
+        // check the index
+        assert !indexEntries.isEmpty();
+        int indexPos = Collections.binarySearch(indexEntries, target, comparator);
+        if (indexPos >= 0)
+            // exact index match: no need to read from the index file
+            return indexEntries.get(indexPos).dataOffset;
+
+        // found an index entry near the one we want: first index _greater_ than the
+        // key searched for, i.e., its insertion position
+        int greaterThan = (indexPos + 1) * -1;
+        if (greaterThan == indexEntries.size())
+            // key might be contained in the final blocks of the file
+            greaterThan = greaterThan - 1;
+        IndexEntry indexEntry = indexEntries.get(greaterThan);
+
+        // scan the index file from the entry we found
         BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(path), "r");
         input.seek(indexEntry.indexOffset);
         int i = 0;
+        IndexEntry previous = indexEntry;
         try
         {
             do
@@ -363,8 +366,9 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                     // exact matches can be cached
                     return cacheAndReturn(target, indexEntry);
                 else if (v > 0)
-                    return indexEntry.dataOffset;
+                    break;
                 // else, continue
+                previous = indexEntry;
             } while  (++i < INDEX_INTERVAL);
         }
         catch (EOFException e)
@@ -375,7 +379,8 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         {
             input.close();
         }
-        return -1;
+        // previous block was the first that might contain content >= to the key
+        return previous.dataOffset;
     }
 
     /**

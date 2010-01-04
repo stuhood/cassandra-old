@@ -302,16 +302,14 @@ public class ColumnKey implements Named
 
         private String getString(int namepos, byte[] name)
         {
-            return name == null ?
-                "null" :
-                '"' + nameComparators[namepos].getString(name) + '"';
+            return name == null ? "null" : nameComparators[namepos].getString(name);
         }
 
         public String getString(ColumnKey key)
         {
             StringBuilder sb = new StringBuilder();
             sb.append("#<ColumnKey [");
-            sb.append(key.dk).append(",");
+            sb.append("\"").append(key.dk.key).append("\",");
             sb.append(getString(0, key.names[0]));
             for (int i = 1; i < key.names.length; i++)
                 sb.append(",").append(getString(i, key.names[i]));

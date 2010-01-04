@@ -71,7 +71,7 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
         
         // seek to the slice which might contain the first column
         scanner = ssTable.getScanner(DatabaseDescriptor.getSlicedReadBufferSizeInKB() * 1024);
-        scanner.seekTo(startKey);
+        scanner.seekNear(startKey);
         comparator = scanner.comparator();
     }
 
@@ -116,7 +116,7 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
             // buffer any interesting columns in this slice
             if (scanner.sstable().getColumnDepth() == 1)
             {
-                // TODO: be optimistic, and peek() on the scanner to see if the whole
+                // TODO: be optimistic, and compare to slice.end to see if the whole
                 // slice can be buffered without more comparisons
 
                 // standard CF: buffer columns from the slice
