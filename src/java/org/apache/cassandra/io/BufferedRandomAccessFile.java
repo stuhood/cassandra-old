@@ -418,7 +418,7 @@ public final class BufferedRandomAccessFile extends RandomAccessFile
     /**
      * An input stream which utilizes the buffer of the BRAF.
      */
-    public static class BRAFInputStream extends InputStream
+    public static final class BRAFInputStream extends InputStream
     {
         private final BufferedRandomAccessFile file;
         BRAFInputStream(BufferedRandomAccessFile file)
@@ -487,7 +487,7 @@ public final class BufferedRandomAccessFile extends RandomAccessFile
     /**
      * An output stream which utilizes the buffer of the BRAF.
      */
-    public static class BRAFOutputStream extends OutputStream
+    public static final class BRAFOutputStream extends OutputStream
     {
         private final BufferedRandomAccessFile file;
         BRAFOutputStream(BufferedRandomAccessFile file)

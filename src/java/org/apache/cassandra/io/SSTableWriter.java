@@ -63,7 +63,7 @@ public class SSTableWriter extends SSTable
      * enough, the block containing it might be stretched to larger than this value.
      * FIXME: tune and make configurable
      */
-    public static final int TARGET_MAX_BLOCK_BYTES = 1 << 10;
+    public static final int TARGET_MAX_BLOCK_BYTES = 1 << 8;
 
     enum BoundaryType
     {
@@ -459,7 +459,6 @@ public class SSTableWriter extends SSTable
                 "Should not write empty blocks.";
 
             // flush block content (without actually closing the file)
-            blockStream.flush();
             blockStream.close();
 
             // reset for the next block

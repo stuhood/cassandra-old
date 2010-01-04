@@ -480,7 +480,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         // offset from the beginning of the data file
         public final long offset;
         // the currently opened stream for this block, or null;
-        public DataInputStream stream;
+        private DataInputStream stream;
 
         /**
          * To construct a Block, use SSTReader.getBlock().

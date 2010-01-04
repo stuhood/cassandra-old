@@ -231,8 +231,7 @@ public class SSTableScanner implements Closeable
             DataInputStream stream = block.stream();
             for (int i = 0; i < cols.length; i++)
                 cols[i] = (Column)Column.serializer().deserialize(stream);
-            sliceCols = new SliceBuffer(slice.meta, slice.key, slice.end,
-                                        Arrays.asList(cols));
+            sliceCols = new SliceBuffer(slice.meta, slice.key, slice.end, cols);
         }
         return sliceCols.realized();
     }
