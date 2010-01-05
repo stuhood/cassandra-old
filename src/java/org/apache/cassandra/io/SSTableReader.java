@@ -472,6 +472,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
      * An iterator over entries in the index file. The index file is lazily opened
      * when the second entry is requested.
      */
+    /**
     final class IndexIterator extends AbstractIterator<IndexEntry> implements Closeable
     {
         private BufferedRandomAccessFile ifile;
@@ -494,6 +495,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             ifile = null;
         }
     }
+    */
 
     /**
      * A block in the SSTable, with a method to open a stream for the block.
@@ -553,7 +555,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             BlockHeader mark = BlockHeader.deserialize(file);
 
             // TODO: handle setting up an appropriate decompression stream here
-            stream = new DataInputStream(file.inputStream());
+            stream = new DataInputStream(file.inputStream(mark.blockLen));
             return stream;
         }
     }

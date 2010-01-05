@@ -86,7 +86,6 @@ public class SSTableWriter extends SSTable
     private BufferedRandomAccessFile indexFile;
 
     private ColumnKey lastWrittenKey;
-    private IndexEntry lastIndexEntry;
 
     public SSTableWriter(String filename, long keyCount, IPartitioner partitioner) throws IOException
     {
@@ -105,7 +104,6 @@ public class SSTableWriter extends SSTable
         // TODO: fix long -> int cast
         bf = new BloomFilter((int)(keyCount*11), 15); 
         lastWrittenKey = null;
-        lastIndexEntry = null;
     }
 
     /**
@@ -360,7 +358,10 @@ public class SSTableWriter extends SSTable
         private long currentBlockPos = 0;
         private ColumnKey blockKey = null;
 
+        // the slice in progress
         private DataOutputBuffer sliceBuffer = new DataOutputBuffer();
+        // the block in progress
+        private DataOutputBuffer rawBlock = null;
         private DataOutputStream blockStream = null;
 
         /**
@@ -432,17 +433,20 @@ public class SSTableWriter extends SSTable
         {
             assert blockStream != null;
 
-            // flush block content
+            // flush block content to rawBlock, and write that to the data file
             blockStream.close();
+            new BlockHeader(rawBlock.getLength(), "FIXME").serialize(dataFile);
+            dataFile.write(rawBlock.getData(), 0, rawBlock.getLength());
             long nextBlockPos = dataFile.getFilePointer();
 
             // build an IndexEntry to mark the closed block
             int blockLen = (int)(nextBlockPos - currentBlockPos);
             IndexEntry entry = new IndexEntry(blockKey.dk, blockKey.names,
                                               indexFile.getFilePointer(),
-                                              currentBlockPos, blockLen);
+                                              currentBlockPos);
 
             // reset for the next block
+            rawBlock = null;
             blockStream = null;
             slicesInBlock = 0;
             blockKey = null;
@@ -479,10 +483,11 @@ public class SSTableWriter extends SSTable
             if (slicesInBlock == 0)
             {
                 blockKey = sliceKey;
-                // prepend BlockHeader, and open stream
-                new BlockHeader("FIXME").serialize(dataFile);
+                // open raw block and stream
+                rawBlock = new DataOutputBuffer(TARGET_MAX_BLOCK_BYTES);
                 assert blockStream == null;
-                blockStream = new DataOutputStream(dataFile.outputStream());
+                // FIXME: plug in block compression here
+                blockStream = new DataOutputStream(rawBlock);
             }
 
             int sliceLen = sliceBuffer.getLength();

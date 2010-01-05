@@ -271,19 +271,9 @@ public final class BufferedRandomAccessFile extends RandomAccessFile
      * from the opening position. Reading from the stream will move the file pointer,
      * but closing the stream will have no effect.
      */
-    public InputStream inputStream()
+    public InputStream inputStream(int bound)
     {
-        return new BRAFInputStream(this, Integer.MAX_VALUE); // FIXME: bound
-    }
-
-    /**
-     * @return An output stream that utilizes the buffer of the random access file,
-     * positioned at the current position of the file. Writing to the stream will
-     * move the file pointer, but closing the stream will have no effect.
-     */
-    public OutputStream outputStream()
-    {
-        return new BRAFOutputStream(this);
+        return new BRAFInputStream(this, bound);
     }
 
     public long getFilePointer()
@@ -490,48 +480,6 @@ public final class BufferedRandomAccessFile extends RandomAccessFile
         public void reset()
         {
             throw new UnsupportedOperationException();
-        }
-    }
-
-    /**
-     * An output stream which utilizes the buffer of the BRAF.
-     */
-    public static final class BRAFOutputStream extends OutputStream
-    {
-        private final BufferedRandomAccessFile file;
-        BRAFOutputStream(BufferedRandomAccessFile file)
-        {
-            this.file = file;
-        }
-
-        @Override
-        public void flush() throws IOException
-        {
-            // pass
-        }
-
-        @Override
-        public void close() throws IOException
-        {
-            // pass
-        }
-
-        @Override
-        public void write(int b) throws IOException
-        {
-            file.write(b);
-        }
-
-        @Override
-        public void write(byte[] b) throws IOException
-        {
-            file.write(b);
-        }
-
-        @Override
-        public void write(byte[] b, int off, int len) throws IOException
-        {
-            file.write(b, off, len);
         }
     }
 }

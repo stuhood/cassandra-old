@@ -302,11 +302,13 @@ public abstract class SSTable
     {
         public static final int MAGIC = 1337;
 
+        public final int blockLen;
         // compression codec
         public final String codecClass;
 
-        public BlockHeader(String codecClass)
+        public BlockHeader(int blockLen, String codecClass)
         {
+            this.blockLen = blockLen;
             this.codecClass = codecClass;
         }
 
@@ -314,6 +316,7 @@ public abstract class SSTable
         {
             dos.writeInt(MAGIC);
             dos.writeByte(VERSION);
+            dos.writeInt(blockLen);
             dos.writeUTF(codecClass);
         }
 
@@ -323,7 +326,7 @@ public abstract class SSTable
                 "An outdated or corrupt SSTable was detected. If you recently " +
                 "upgraded Cassandra, you will need to run an upgrade command " +
                 "before starting the server.";
-            return new BlockHeader(dis.readUTF());
+            return new BlockHeader(dis.readInt(), dis.readUTF());
         }
     }
 }
