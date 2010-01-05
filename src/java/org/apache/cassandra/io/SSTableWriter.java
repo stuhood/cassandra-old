@@ -64,7 +64,7 @@ public class SSTableWriter extends SSTable
      * enough, the block containing it might be stretched to larger than this value.
      * FIXME: tune and make configurable
      */
-    public static final int TARGET_MAX_BLOCK_BYTES = 1 << 14;
+    public static final int TARGET_MAX_BLOCK_BYTES = 1 << 16;
 
     enum BoundaryType
     {

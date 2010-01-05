@@ -62,8 +62,7 @@ public abstract class SSTable
      * to start looking for the IndexEntry on disk with less seeking. The index
      * contains one IndexEntry per block.
      *
-     * FIXME: make configurable, or remove entirely: the entire index should fit in
-     * memory now
+     * FIXME: make configurable
      */
     public static final int INDEX_INTERVAL = 16;
     // required extension for temporary files created during compactions

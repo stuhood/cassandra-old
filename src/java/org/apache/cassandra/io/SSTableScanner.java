@@ -27,7 +27,6 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.io.SSTable.SliceMark;
 import org.apache.cassandra.io.SSTableReader.Block;
 
-// FIXME: remove when getCF() is removed
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.ColumnFamily;
@@ -39,8 +38,11 @@ import org.apache.log4j.Logger;
  * A Scanner is an abstraction for reading slices from an SSTable. In this
  * implementation, slices are read in forward order.
  *
- * After creation, the Scanner is positioned at the beginning of the file:
- * call seek() or next() to reposition it at Slices.
+ * After creation, the Scanner is positioned at the beginning of the file, before
+ * the first slice (if it exists). Call seek() or next() to position it at Slices.
+ *
+ * FIXME: we should open the file lazily, since a bloom filter check in seekTo might
+ * indicate that we don't need to look at the dataFile anyway.
  *
  * TODO: extract an SSTableScanner interface that will be shared between forward
  * and reverse scanners
