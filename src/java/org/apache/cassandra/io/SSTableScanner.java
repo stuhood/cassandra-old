@@ -41,9 +41,6 @@ import org.apache.log4j.Logger;
  * After creation, the Scanner is positioned at the beginning of the file, before
  * the first slice (if it exists). Call seek() or next() to position it at Slices.
  *
- * FIXME: we should open the file lazily, since a bloom filter check in seekTo might
- * indicate that we don't need to look at the dataFile anyway.
- *
  * TODO: extract an SSTableScanner interface that will be shared between forward
  * and reverse scanners
  */
@@ -53,15 +50,18 @@ public class SSTableScanner implements Closeable
 
     private final SSTableReader sstable;
     private final ColumnKey.Comparator comparator;
+    private final int bufferSize;
 
-    private BufferedRandomAccessFile file;
     /**
-     * Current block and slice pointers. The block is lazily created for the first
-     * positioning call and remains non-null for the life of the scanner. The slice
-     * will be null whenever the Scanner is not in a valid position.
+     * Current file and block pointers. The file and block are lazily created
+     * for the first positioning call and remain non-null until the scanner is closed.
      */
+    private BufferedRandomAccessFile file;
     private Block block;
     private long blockOff;
+    /**
+     * Current slice. Will be null whenever the Scanner is not in a valid position.
+     */
     private SliceMark slice;
     private SliceBuffer sliceCols;
 
@@ -71,13 +71,14 @@ public class SSTableScanner implements Closeable
     SSTableScanner(SSTableReader sstable, int bufferSize) throws IOException
     {
         this.sstable = sstable;
+        this.bufferSize = bufferSize;
         comparator = sstable.getComparator();
-
-        file = new BufferedRandomAccessFile(sstable.getFilename(), "r", bufferSize);
     }
 
     private void loadBlock(long position) throws IOException
     {
+        if (file == null)
+            file = new BufferedRandomAccessFile(sstable.getFilename(), "r", bufferSize);
         block = sstable.getBlock(file, position);
         // read the header, record the block content offset
         block.header();
@@ -105,22 +106,19 @@ public class SSTableScanner implements Closeable
      */
     public void close() throws IOException
     {
-        if (file != null);
+        if (file != null)
             file.close();
         file = null;
     }
 
     /**
-     * Positions the Scanner at the first slice in the file.
-     * @return False if the file is empty.
+     * Positions the Scanner at the first slice in the file. SSTables should never
+     * be empty, so this call should never fail.
      */
-    public boolean first() throws IOException
+    public void first() throws IOException
     {
-        if (file.length() < 1)
-            return false;
         loadBlock(0);
         slice = SliceMark.deserialize(block.stream());
-        return true;
     }
 
     /**
@@ -332,7 +330,8 @@ public class SSTableScanner implements Closeable
     public boolean hasNext() throws IOException
     {
         if (block == null)
-            return first();
+            // there's always the first slice in the file
+            return true;
         return slice != null && slice.nextKey != null;
     }
 
@@ -343,9 +342,12 @@ public class SSTableScanner implements Closeable
      */
     public boolean next() throws IOException
     {
-        if (block == null && !first())
-            // the file is empty
-            return false;
+        if (block == null)
+        {
+            // load the first block
+            first();
+            return true;
+        }
         if (slice == null)
             // position is invalid
             return false;
