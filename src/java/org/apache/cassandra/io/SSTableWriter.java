@@ -412,8 +412,8 @@ public class SSTableWriter extends SSTable
         }
 
         /**
-         * @return The sum of the exact length of the block that has been flushed to
-         * disk, and the approximate length of the currently buffered slice.
+         * @return The uncompressed length of the block, and the approximate length
+         * of the currently buffered slice.
          */
         public int getApproxBlockLength()
         {
@@ -484,10 +484,10 @@ public class SSTableWriter extends SSTable
             {
                 blockKey = sliceKey;
                 // open raw block and stream
+                assert rawBlock == null && blockStream == null;
                 rawBlock = new DataOutputBuffer(TARGET_MAX_BLOCK_BYTES);
-                assert blockStream == null;
                 // FIXME: plug in block compression here
-                blockStream = new DataOutputStream(rawBlock);
+                blockStream = new DataOutputStream(new GZIPOutputStream(rawBlock));
             }
 
             int sliceLen = sliceBuffer.getLength();

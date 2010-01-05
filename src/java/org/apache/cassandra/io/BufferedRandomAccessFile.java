@@ -447,6 +447,7 @@ public final class BufferedRandomAccessFile extends RandomAccessFile
         {
             if (available == 0)
                 return -1;
+            available--;
             return file.read();
         }
 

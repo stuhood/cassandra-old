@@ -555,7 +555,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             BlockHeader mark = BlockHeader.deserialize(file);
 
             // TODO: handle setting up an appropriate decompression stream here
-            stream = new DataInputStream(file.inputStream(mark.blockLen));
+            stream = new DataInputStream(new GZIPInputStream(file.inputStream(mark.blockLen)));
             return stream;
         }
     }
