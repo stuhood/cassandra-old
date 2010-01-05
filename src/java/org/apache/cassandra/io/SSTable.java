@@ -333,16 +333,4 @@ public abstract class SSTable
             return new BlockHeader(dis.readInt(), dis.readUTF());
         }
     }
-
-    public static class PositionSize
-    {
-        public final long position;
-        public final long size;
-
-        public PositionSize(long position, long size)
-        {
-            this.position = position;
-            this.size = size;
-        }
-    }
 }

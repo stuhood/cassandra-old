@@ -193,8 +193,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         return ConcurrentLinkedHashMap.create(ConcurrentLinkedHashMap.EvictionPolicy.SECOND_CHANCE, size);
     }
 
-    // offset of the first block in the data file
-    FileDeletingReference phantomReference;
     private ConcurrentLinkedHashMap<ColumnKey, IndexEntry> keyCache;
 
     /**

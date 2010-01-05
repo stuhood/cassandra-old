@@ -32,6 +32,7 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.SuperColumn;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
+import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.FileDataInput;
 
 import org.apache.log4j.Logger;

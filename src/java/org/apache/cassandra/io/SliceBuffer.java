@@ -29,6 +29,7 @@ import java.security.MessageDigest;
 import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnKey;
 import org.apache.cassandra.db.Named;
+import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.utils.ReducingIterator;
 
 import org.apache.commons.collections.IteratorUtils;
