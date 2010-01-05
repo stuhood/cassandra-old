@@ -283,7 +283,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
         // found an index entry near the one we want: first index _greater_ than the
         // key searched for, i.e., its insertion position
-        int greaterThan = (indexPos + 1) * -1;
+        int greaterThan = -(indexPos + 1);
         if (greaterThan == 0)
             // key would be contained before the first block in the file
             return -1;
@@ -345,7 +345,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
         // found an index entry near the one we want: first index _greater_ than the
         // key searched for, i.e., its insertion position
-        int greaterThan = (indexPos + 1) * -1;
+        int greaterThan = -(indexPos + 1);
         if (greaterThan == indexEntries.size())
             // key might be contained in the final blocks of the file
             greaterThan = greaterThan - 1;

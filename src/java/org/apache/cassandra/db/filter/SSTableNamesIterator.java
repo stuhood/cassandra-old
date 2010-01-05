@@ -50,7 +50,7 @@ public class SSTableNamesIterator extends AbstractIterator<IColumn> implements C
      */
     public SSTableNamesIterator(SSTableReader ssTable, SortedSet<ColumnKey> keys) throws IOException
     {
-        assert keys != null && !keys.isEmpty();
+        assert keys != null;
 
         this.keys = Iterators.peekingIterator(keys.iterator());
         buffer = new ArrayDeque<IColumn>();

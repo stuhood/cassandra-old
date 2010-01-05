@@ -42,10 +42,12 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
    
     private final SSTableScanner scanner;
     private final ColumnKey.Comparator comparator;
+    private final Named.Comparator ncomparator;
 
     // unreturned columns from the previous slice
     private final Deque<IColumn> buffer = new ArrayDeque<IColumn>();
 
+    private boolean completed;
     private ColumnFamily cf;
 
     /**
@@ -73,6 +75,9 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
         scanner = ssTable.getScanner(DatabaseDescriptor.getSlicedReadBufferSizeInKB() * 1024);
         scanner.seekNear(startKey);
         comparator = scanner.comparator();
+        ncomparator = new Named.Comparator(comparator);
+
+        completed = false;
     }
 
     public ColumnFamily getColumnFamily()
@@ -99,11 +104,14 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
 
     private IColumn computeNextUnsafe() throws IOException
     {
-        while (buffer.isEmpty() && scanner.get() != null)
+        while (!completed && buffer.isEmpty() && scanner.get() != null)
         {
             if (comparator.compare(startKey, scanner.get().key, 0) != 0)
+            {
                 // our decorated key doesn't match this slice
+                completed = true;
                 break;
+            }
             
             if (cf == null)
             {
@@ -116,34 +124,45 @@ class SSTableSliceIterator extends AbstractIterator<IColumn> implements ColumnIt
             // buffer any interesting columns in this slice
             if (scanner.sstable().getColumnDepth() == 1)
             {
-                // TODO: be optimistic, and compare to slice.end to see if the whole
-                // slice can be buffered without more comparisons
-
                 // standard CF: buffer columns from the slice
-                for (Column col : scanner.getColumns())
+                Slice slice = scanner.get();
+                List<Column> slicecols = scanner.getColumns();
+                int numcols = slicecols.size();
+               
+                // iterate from the (insert) position of startKey
+                int sidx = -1;
+                for (sidx = keyPos(slicecols, startKey); sidx < numcols; sidx++)
                 {
-                    if (comparator.compareAt(col.name(), startKey.name(1), 1) < 0)
-                        // column name less than starting key
-                        continue;
-                    if (comparator.compareAt(finishKey.name(1), col.name(), 1) < 0)
+                    Column col = slicecols.get(sidx);
+                    if (ncomparator.compare(finishKey, col) < 0)
                         // column name greater than finishing key
                         break; // inner loop
-
                     buffer.add(col);
                 }
+                if (sidx == numcols && ncomparator.compare(slice.end, finishKey) <= 0)
+                    // there might be more columns in another slice
+                    scanner.next();
+                else
+                    completed = true;
             }
             else
             {
                 // super CF: multiple slices may go into each returned super column
                 throw new RuntimeException("Not implemented"); // FIXME
             }
-
-            // move to next slice
-            scanner.next();
         }
 
         // return a buffered column
         return buffer.isEmpty() ? endOfData() : buffer.poll();
+    }
+
+    private int keyPos(List<Column> slicecols, Named key)
+    {
+        int idx = Collections.binarySearch(slicecols, key, ncomparator);
+        if (idx < 0)
+            // missing
+            return -(idx + 1);
+        return idx;
     }
 
     public void close() throws IOException
