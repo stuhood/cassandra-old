@@ -42,6 +42,8 @@ public class CompactionsTest extends CleanupHelper
     @Test
     public void testCompactions() throws IOException, ExecutionException, InterruptedException
     {
+        CompactionManager.instance.disableAutoCompaction();
+
         // this test does enough rows to force multiple block indexes to be used
         Table table = Table.open(TABLE1);
         ColumnFamilyStore store = table.getColumnFamilyStore("Standard1");
@@ -65,13 +67,13 @@ public class CompactionsTest extends CleanupHelper
         }
         while (true)
         {
-            Future<Integer> ft = CompactionManager.instance.submitMinor(store);
+            Future<Integer> ft = CompactionManager.instance.submitMinorIfNeeded(store);
             if (ft.get() == 0)
                 break;
         }
         if (store.getSSTables().size() > 1)
         {
-            store.doCompaction(2, store.getSSTables().size());
+            CompactionManager.instance.submitMajor(store).get();
         }
         assertEquals(inserted.size(), table.getColumnFamilyStore("Standard1").getKeyRange("", "", 10000).keys.size());
     }
@@ -79,7 +81,7 @@ public class CompactionsTest extends CleanupHelper
     @Test
     public void testCompactionPurge() throws IOException, ExecutionException, InterruptedException
     {
-        CompactionManager.instance.disableCompactions();
+        CompactionManager.instance.disableAutoCompaction();
 
         Table table = Table.open(TABLE1);
         String cfName = "Standard1";
@@ -118,12 +120,12 @@ public class CompactionsTest extends CleanupHelper
         rm.add(new QueryPath(cfName, null, "0".getBytes()), new byte[0], 0);
         rm.apply();
         store.forceBlockingFlush();
-        store.doFileCompaction(sstablesIncomplete, Integer.MAX_VALUE);
+        CompactionManager.instance.doCompaction(store, sstablesIncomplete, CompactionManager.getDefaultGCBefore());
         ColumnFamily cf = table.getColumnFamilyStore(cfName).getColumnFamily(new IdentityQueryFilter(key, new QueryPath(cfName)));
         assert cf.getColumnCount() == 10;
 
         // major compact and test that all columns but the resurrected one is completely gone
-        store.doFileCompaction(store.getSSTables(), Integer.MAX_VALUE);
+        CompactionManager.instance.submitMajor(store, 0, Integer.MAX_VALUE).get();
         cf = table.getColumnFamilyStore(cfName).getColumnFamily(new IdentityQueryFilter(key, new QueryPath(cfName)));
         assert cf.getColumnCount() == 1;
         assert cf.getColumn(String.valueOf(5).getBytes()) != null;
@@ -132,7 +134,7 @@ public class CompactionsTest extends CleanupHelper
     @Test
     public void testCompactionPurgeOneFile() throws IOException, ExecutionException, InterruptedException
     {
-        CompactionManager.instance.disableCompactions();
+        CompactionManager.instance.disableAutoCompaction();
 
         Table table = Table.open(TABLE1);
         String cfName = "Standard2";
@@ -161,7 +163,7 @@ public class CompactionsTest extends CleanupHelper
         assert store.getSSTables().size() == 1 : store.getSSTables(); // inserts & deletes were in the same memtable -> only deletes in sstable
 
         // compact and test that the row is completely gone
-        store.doFileCompaction(store.getSSTables(), Integer.MAX_VALUE);
+        CompactionManager.instance.submitMajor(store, 0, Integer.MAX_VALUE).get();
         assert store.getSSTables().isEmpty();
         ColumnFamily cf = table.getColumnFamilyStore(cfName).getColumnFamily(new IdentityQueryFilter(key, new QueryPath(cfName)));
         assert cf == null : cf;
@@ -170,6 +172,8 @@ public class CompactionsTest extends CleanupHelper
     @Test
     public void testCompactionReadonly() throws IOException, ExecutionException, InterruptedException
     {
+        CompactionManager.instance.disableAutoCompaction();
+
         Table table = Table.open(TABLE2);
         ColumnFamilyStore store = table.getColumnFamilyStore("Standard1");
 
@@ -190,7 +194,7 @@ public class CompactionsTest extends CleanupHelper
 
         // perform readonly compaction and confirm that no sstables changed
         ArrayList<SSTableReader> oldsstables = new ArrayList<SSTableReader>(store.getSSTables());
-        store.doReadonlyCompaction(LOCAL);
+        CompactionManager.instance.submitReadonly(store, LOCAL).get();
         assertEquals(oldsstables, new ArrayList<SSTableReader>(store.getSSTables()));
         assertEquals(inserted.size(), table.getColumnFamilyStore("Standard1").getKeyRange("", "", 10000).keys.size());
     }

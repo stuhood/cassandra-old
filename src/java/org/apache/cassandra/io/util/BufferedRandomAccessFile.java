@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.io;
+package org.apache.cassandra.io.util;
 
 import java.io.*;
 import java.util.Arrays;
@@ -33,7 +33,7 @@ import java.util.Arrays;
  * superclass.
  */
 
-public final class BufferedRandomAccessFile extends RandomAccessFile
+public final class BufferedRandomAccessFile extends RandomAccessFile implements FileDataInput
 {
     static final int LogBuffSz_ = 16; // 64K buffer
     public static final int BuffSz_ = (1 << LogBuffSz_);
@@ -164,12 +164,6 @@ public final class BufferedRandomAccessFile extends RandomAccessFile
             getChannel().force(true); // true, because file length counts as "metadata"
             syncNeeded_ = false;
         }
-    }
-
-    public boolean isEOF() throws IOException
-    {
-        assert getFilePointer() <= length();
-        return getFilePointer() == length();
     }
 
     public void close() throws IOException

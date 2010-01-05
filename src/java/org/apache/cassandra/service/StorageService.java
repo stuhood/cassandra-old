@@ -37,11 +37,12 @@ import org.apache.cassandra.gms.*;
 import org.apache.cassandra.locator.*;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.service.AntiEntropyService.TreeRequestVerbHandler;
-import org.apache.cassandra.utils.FileUtils;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.WrappedRunnable;
 import org.apache.cassandra.io.SSTableReader;
 import org.apache.cassandra.io.Streaming;
 import org.apache.cassandra.io.StreamRequestVerbHandler;
+import org.apache.cassandra.io.util.FileUtils;
 
 import org.apache.log4j.Logger;
 import org.apache.log4j.Level;
@@ -137,7 +138,7 @@ public final class StorageService implements IEndPointStateChangeSubscriber, Sto
     private SystemTable.StorageMetadata storageMetadata_;
 
     /* This thread pool does consistency checks when the client doesn't care about consistency */
-    private ExecutorService consistencyManager_ = new DebuggableThreadPoolExecutor(DatabaseDescriptor.getConsistencyThreads(),
+    private ExecutorService consistencyManager_ = new JMXEnabledThreadPoolExecutor(DatabaseDescriptor.getConsistencyThreads(),
                                                                                    DatabaseDescriptor.getConsistencyThreads(),
                                                                                    Integer.MAX_VALUE,
                                                                                    TimeUnit.SECONDS,
@@ -347,17 +348,7 @@ public final class StorageService implements IEndPointStateChangeSubscriber, Sto
     {
         return endPointSnitch_;
     }
-    
-    /*
-     * Given an InetAddress this method will report if the
-     * endpoint is in the same data center as the local
-     * storage endpoint.
-    */
-    public boolean isInSameDataCenter(InetAddress endpoint) throws IOException
-    {
-        return endPointSnitch_.isInSameDataCenter(FBUtilities.getLocalAddress(), endpoint);
-    }
-    
+
     /**
      * This method performs the requisite operations to make
      * sure that the N replicas are in sync. We do this in the
@@ -686,7 +677,7 @@ public final class StorageService implements IEndPointStateChangeSubscriber, Sto
             // find alive sources for our new ranges
             for (Range myNewRange : myNewRanges)
             {
-                List<InetAddress> sources = DatabaseDescriptor.getEndPointSnitch().sortByProximity(myAddress, rangeAddresses.get(myNewRange));
+                List<InetAddress> sources = DatabaseDescriptor.getEndPointSnitch().getSortedListByProximity(myAddress, rangeAddresses.get(myNewRange));
 
                 assert (!sources.contains(myAddress));
 
@@ -791,10 +782,7 @@ public final class StorageService implements IEndPointStateChangeSubscriber, Sto
             for (String cfName : table.getColumnFamilies())
             {
                 ColumnFamilyStore cfs = table.getColumnFamilyStore(cfName);
-                for (SSTableReader sstable : cfs.getSSTables())
-                {
-                    bytes += sstable.bytesOnDisk();
-                }
+                bytes += cfs.getLiveDiskSpaceUsed();
             }
         }
         return bytes;
@@ -1372,22 +1360,15 @@ public final class StorageService implements IEndPointStateChangeSubscriber, Sto
         logger_.info("move sleeping " + Streaming.RING_DELAY);
         Thread.sleep(Streaming.RING_DELAY);
 
-        Runnable finishMoving = new Runnable()
+        Runnable finishMoving = new WrappedRunnable()
         {
-            public void run()
+            public void runMayThrow() throws IOException
             {
-                try
-                {
-                    Token bootstrapToken = token;
-                    if (bootstrapToken == null)
-                        bootstrapToken = BootStrapper.getBalancedToken(tokenMetadata_, StorageLoadBalancer.instance().getLoadInfo());
-                    logger_.info("re-bootstrapping to new token " + bootstrapToken);
-                    startBootstrap(bootstrapToken);
-                }
-                catch (IOException e)
-                {
-                    throw new IOError(e);
-                }
+                Token bootstrapToken = token;
+                if (bootstrapToken == null)
+                    bootstrapToken = BootStrapper.getBalancedToken(tokenMetadata_, StorageLoadBalancer.instance().getLoadInfo());
+                logger_.info("re-bootstrapping to new token " + bootstrapToken);
+                startBootstrap(bootstrapToken);
             }
         };
         unbootstrap(finishMoving);

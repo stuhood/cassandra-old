@@ -33,7 +33,6 @@ import org.apache.cassandra.db.Table;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.SliceBuffer;
-import org.apache.cassandra.io.DataInputBuffer;
 import org.apache.cassandra.io.ICompactSerializer;
 import org.apache.cassandra.io.SSTable;
 import org.apache.cassandra.io.SSTableReader;
@@ -653,7 +652,7 @@ public class AntiEntropyService
             try
             {
                 List<Range> ranges = new ArrayList<Range>(differences);
-                List<SSTableReader> sstables = CompactionManager.instance.submitAnti(cfstore, ranges, remote).get();
+                List<SSTableReader> sstables = CompactionManager.instance.submitAnticompaction(cfstore, ranges, remote).get();
                 Streaming.transferSSTables(remote, sstables, cf.left);
             }
             catch(Exception e)
@@ -708,12 +707,11 @@ public class AntiEntropyService
         public void doVerb(Message message)
         { 
             byte[] bytes = message.getMessageBody();
-            DataInputBuffer buffer = new DataInputBuffer();
-            buffer.reset(bytes, bytes.length);
-
+            
+            ByteArrayInputStream buffer = new ByteArrayInputStream(bytes);
             try
             {
-                CFPair request = this.deserialize(buffer);
+                CFPair request = this.deserialize(new DataInputStream(buffer));
 
                 // trigger readonly-compaction
                 logger.debug("Queueing readonly compaction for request from " + message.getFrom() + " for " + request);
@@ -776,13 +774,12 @@ public class AntiEntropyService
         public void doVerb(Message message)
         { 
             byte[] bytes = message.getMessageBody();
-            DataInputBuffer buffer = new DataInputBuffer();
-            buffer.reset(bytes, bytes.length);
+            ByteArrayInputStream buffer = new ByteArrayInputStream(bytes);
 
             try
             {
                 // deserialize the remote tree, and register it
-                Validator rvalidator = this.deserialize(buffer);
+                Validator rvalidator = this.deserialize(new DataInputStream(buffer));
                 AntiEntropyService.instance().rendezvous(rvalidator.cf, message.getFrom(), rvalidator.tree);
             }
             catch (IOException e)

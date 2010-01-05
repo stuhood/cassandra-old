@@ -28,6 +28,7 @@ import org.apache.cassandra.db.filter.QueryPath;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.dht.*;
 import org.apache.cassandra.io.*;
+import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.locator.TokenMetadata;
 import static org.apache.cassandra.service.AntiEntropyService.*;
 import org.apache.cassandra.utils.FBUtilities;
@@ -42,19 +43,21 @@ import static org.junit.Assert.*;
 
 public class AntiEntropyServiceTest extends CleanupHelper
 {
-    public static InetAddress LOCAL = FBUtilities.getLocalAddress();
-
     // table and column family to test against
     public AntiEntropyService aes;
 
     public static String tablename;
     public static String cfname;
-    public static InetAddress REMOTE;
+    public static InetAddress LOCAL, REMOTE;
 
-    static
+    private static boolean initialized;
+
+    @Before
+    public void prepare() throws Exception
     {
-        try
+        if (!initialized)
         {
+            LOCAL = FBUtilities.getLocalAddress();
             // bump the replication factor so that local overlaps with REMOTE below
             DatabaseDescriptorTest.setReplicationFactor(2);
 
@@ -68,16 +71,8 @@ public class AntiEntropyServiceTest extends CleanupHelper
 
             tablename = DatabaseDescriptor.getTables().get(0);
             cfname = Table.open(tablename).getColumnFamilies().iterator().next();
+            initialized = true;
         }
-        catch(Exception e)
-        {
-            throw new RuntimeException(e);
-        }
-    }
-
-    @Before
-    public void prepare() throws Exception
-    {
         aes = AntiEntropyService.instance();
     }
 

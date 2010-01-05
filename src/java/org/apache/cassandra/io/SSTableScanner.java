@@ -31,6 +31,8 @@ import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.SuperColumn;
+import org.apache.cassandra.io.util.BufferedRandomAccessFile;
+import org.apache.cassandra.io.util.FileDataInput;
 
 import org.apache.log4j.Logger;
 
@@ -56,6 +58,7 @@ public class SSTableScanner implements Closeable
      * Current file and block pointers. The file and block are lazily created
      * for the first positioning call and remain non-null until the scanner is closed.
      */
+    // MERGE-FIXME: use FileDataInput
     private BufferedRandomAccessFile file;
     private Block block;
     private long blockOff;
@@ -167,6 +170,23 @@ public class SSTableScanner implements Closeable
     public boolean seekTo(ColumnKey seekKey) throws IOException
     {
         return seekInternal(seekKey, true);
+    }
+
+    public long getFileLength()
+    {
+        try
+        {
+            return file.length();
+        }
+        catch (IOException e)
+        {
+            throw new IOError(e);
+        }
+    }
+
+    public long getFilePointer()
+    {
+        return file.getFilePointer();
     }
 
     /**

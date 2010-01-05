@@ -43,6 +43,8 @@ import org.apache.commons.cli.*;
  */
 public class SSTableExport
 {
+    private static int INPUT_FILE_BUFFER_SIZE = 8 * 1024 * 1024;
+
     private static final String OUTFILE_OPTION = "f";
     private static final String KEY_OPTION = "k";
     private static Options options;
@@ -147,7 +149,7 @@ public class SSTableExport
     {
         SSTableReader reader = SSTableReader.open(ssTableFile);
         // semi-random access: use a smaller buffer
-        SSTableScanner scanner = reader.getScanner(1 << 14);
+        SSTableScanner scanner = reader.getScanner(INPUT_FILE_BUFFER_SIZE);
         IPartitioner<?> partitioner = DatabaseDescriptor.getPartitioner();    
         int i = 0;
         
@@ -210,7 +212,7 @@ public class SSTableExport
     static void export(SSTableReader reader, PrintStream outs) throws IOException
     {
         // full table scan: large buffer
-        SSTableScanner scanner = reader.getScanner(1 << 18);
+        SSTableScanner scanner = reader.getScanner(INPUT_FILE_BUFFER_SIZE);
         scanner.first();
         
         outs.println("{");

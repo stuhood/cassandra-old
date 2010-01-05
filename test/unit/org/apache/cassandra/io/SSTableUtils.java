@@ -28,6 +28,11 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.db.Column;
+import org.apache.cassandra.db.ColumnFamily;
+import org.apache.cassandra.db.Table;
+import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.io.util.DataOutputBuffer;
 
 public class SSTableUtils
 {

@@ -20,14 +20,17 @@ package org.apache.cassandra.net;
 
 import org.apache.cassandra.concurrent.*;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.gms.FailureDetector;
+import org.apache.cassandra.gms.IFailureDetectionEventListener;
 import org.apache.cassandra.net.io.SerializerType;
 import org.apache.cassandra.net.sink.SinkManager;
 import org.apache.cassandra.utils.*;
+import org.cliffc.high_scale_lib.NonBlockingHashMap;
+
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.net.ServerSocket;
-import java.net.SocketException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -38,10 +41,8 @@ import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.ReentrantLock;
 
-public class MessagingService
+public class MessagingService implements IFailureDetectionEventListener
 {
     private static int version_ = 1;
     //TODO: make this parameter dynamic somehow.  Not sure if config is appropriate.
@@ -53,17 +54,9 @@ public class MessagingService
     /* Stage for responses. */
     public static final String responseStage_ = "RESPONSE-STAGE";
 
-    private enum ReservedVerbs_ {
-    };
-    
-    private static Map<String, String> reservedVerbs_ = new Hashtable<String, String>();
-    
     /* This records all the results mapped by message Id */
     private static ICachetable<String, IAsyncCallback> callbackMap_;
     private static ICachetable<String, IAsyncResult> taskCompletionMap_;
-    
-    /* Manages the table of endpoints it is listening on */
-    private static Set<InetAddress> endPoints_;
     
     /* List of sockets we are listening on */
     private static Map<InetAddress, SelectionKey> listenSockets_ = new HashMap<InetAddress, SelectionKey>();
@@ -83,8 +76,7 @@ public class MessagingService
     /* Thread pool to handle messaging write activities */
     private static ExecutorService streamExecutor_;
     
-    private final static ReentrantLock lock_ = new ReentrantLock();
-    private static Map<String, TcpConnectionManager> poolTable_ = new Hashtable<String, TcpConnectionManager>();
+    private static NonBlockingHashMap<String, TcpConnectionManager> connectionManagers_ = new NonBlockingHashMap<String, TcpConnectionManager>();
     
     private static volatile boolean bShutdown_ = false;
     
@@ -103,18 +95,13 @@ public class MessagingService
     {   
     	if ( bShutdown_ )
     	{
-            lock_.lock();
-            try
+            synchronized (MessagingService.class)
             {
                 if ( bShutdown_ )
                 {
             		messagingService_ = new MessagingService();
             		bShutdown_ = false;
                 }
-            }
-            finally
-            {
-                lock_.unlock();
             }
     	}
         return messagingService_;
@@ -128,12 +115,7 @@ public class MessagingService
 
     protected MessagingService()
     {        
-        for ( ReservedVerbs_ verbs : ReservedVerbs_.values() )
-        {
-            reservedVerbs_.put(verbs.toString(), verbs.toString());
-        }
-        verbHandlers_ = new HashMap<String, IVerbHandler>();        
-        endPoints_ = new HashSet<InetAddress>();
+        verbHandlers_ = new HashMap<String, IVerbHandler>();
         /*
          * Leave callbacks in the cachetable long enough that any related messages will arrive
          * before the callback is evicted from the table. The concurrency level is set at 128
@@ -144,7 +126,7 @@ public class MessagingService
         callbackMap_ = new Cachetable<String, IAsyncCallback>( 2 * DatabaseDescriptor.getRpcTimeout() );
         taskCompletionMap_ = new Cachetable<String, IAsyncResult>( 2 * DatabaseDescriptor.getRpcTimeout() );        
         
-        messageDeserializationExecutor_ = new DebuggableThreadPoolExecutor( maxSize,
+        messageDeserializationExecutor_ = new JMXEnabledThreadPoolExecutor( maxSize,
                 maxSize,
                 Integer.MAX_VALUE,
                 TimeUnit.SECONDS,
@@ -152,7 +134,7 @@ public class MessagingService
                 new NamedThreadFactory("MESSAGING-SERVICE-POOL")
                 );
 
-        messageDeserializerExecutor_ = new DebuggableThreadPoolExecutor( maxSize,
+        messageDeserializerExecutor_ = new JMXEnabledThreadPoolExecutor( maxSize,
                 maxSize,
                 Integer.MAX_VALUE,
                 TimeUnit.SECONDS,
@@ -160,7 +142,7 @@ public class MessagingService
                 new NamedThreadFactory("MESSAGE-DESERIALIZER-POOL")
                 ); 
         
-        streamExecutor_ = new DebuggableThreadPoolExecutor("MESSAGE-STREAMING-POOL");
+        streamExecutor_ = new JMXEnabledThreadPoolExecutor("MESSAGE-STREAMING-POOL");
                 
         protocol_ = hash(HashingSchemes.MD5, "FB-MESSAGING".getBytes());        
         /* register the response verb handler */
@@ -183,7 +165,14 @@ public class MessagingService
         }
         return result;
     }
-    
+
+    /** called by failure detection code to notify that housekeeping should be performed on downed sockets. */
+    public void convict(InetAddress ep)
+    {
+        logger_.debug("Canceling pool for " + ep);
+        getConnectionPool(FBUtilities.getLocalAddress(), ep).reset();
+    }
+
     /**
      * Listen on the specified port.
      * @param localEp InetAddress whose port to listen on.
@@ -199,8 +188,8 @@ public class MessagingService
         SelectionKeyHandler handler = new TcpConnectionHandler(localEp);
 
         SelectionKey key = SelectorManager.getSelectorManager().register(serverChannel, handler, SelectionKey.OP_ACCEPT);          
-        endPoints_.add(localEp);            
-        listenSockets_.put(localEp, key);             
+        listenSockets_.put(localEp, key);
+        FailureDetector.instance().registerFailureDetectionEventListener(this);
     }
     
     /**
@@ -215,7 +204,6 @@ public class MessagingService
         try
         {
             connection.init(localEp);
-            endPoints_.add(localEp);
             udpConnections_.put(localEp, connection);
         }
         catch (IOException e)
@@ -227,23 +215,11 @@ public class MessagingService
     public static TcpConnectionManager getConnectionPool(InetAddress from, InetAddress to)
     {
         String key = from + ":" + to;
-        TcpConnectionManager cp = poolTable_.get(key);
-        if( cp == null )
+        TcpConnectionManager cp = connectionManagers_.get(key);
+        if (cp == null)
         {
-            lock_.lock();
-            try
-            {
-                cp = poolTable_.get(key);
-                if (cp == null )
-                {
-                    cp = new TcpConnectionManager(from, to);
-                    poolTable_.put(key, cp);
-                }
-            }
-            finally
-            {
-                lock_.unlock();
-            }
+            connectionManagers_.putIfAbsent(key, new TcpConnectionManager(from, to));
+            cp = connectionManagers_.get(key);
         }
         return cp;
     }
@@ -252,15 +228,7 @@ public class MessagingService
     {
         return getConnectionPool(from, to).getConnection(msg);
     }
-    
-    private void checkForReservedVerb(String type)
-    {
-    	if ( reservedVerbs_.get(type) != null && verbHandlers_.get(type) != null )
-    	{
-    		throw new IllegalArgumentException( type + " is a reserved verb handler. Scram!");
-    	}
-    }     
-    
+        
     /**
      * Register a verb and the corresponding verb handler with the
      * Messaging Service.
@@ -269,7 +237,7 @@ public class MessagingService
      */
     public void registerVerbHandlers(String type, IVerbHandler verbHandler)
     {
-    	checkForReservedVerb(type);
+    	assert !verbHandlers_.containsKey(type);
     	verbHandlers_.put(type, verbHandler);
     }
     
@@ -411,12 +379,6 @@ public class MessagingService
             connection = MessagingService.getConnection(processedMessage.getFrom(), to, message);
             connection.write(message);
         }
-        catch (SocketException se)
-        {
-            // Shutting down the entire pool. May be too conservative an approach.
-            MessagingService.getConnectionPool(message.getFrom(), to).shutdown();
-            logger_.error("socket error writing to " + to, se);
-        }
         catch (IOException e)
         {
             if (connection != null)
@@ -424,13 +386,6 @@ public class MessagingService
                 connection.errorClose();
             }
             logger_.error("unexpected error writing " + message, e);
-        }
-        finally
-        {
-            if (connection != null)
-            {
-                connection.close();
-            }
         }
     }
     
@@ -493,6 +448,7 @@ public class MessagingService
         logger_.info("Shutting down ...");
         synchronized (MessagingService.class)
         {
+            FailureDetector.instance().unregisterFailureDetectionEventListener(MessagingService.instance());
             /* Stop listening on any TCP socket */
             for (SelectionKey skey : listenSockets_.values())
             {
@@ -526,7 +482,7 @@ public class MessagingService
             /* Interrupt the selector manager thread */
             SelectorManager.getSelectorManager().interrupt();
 
-            poolTable_.clear();
+            connectionManagers_.clear();
             verbHandlers_.clear();
             bShutdown_ = true;
         }

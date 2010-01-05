@@ -18,17 +18,17 @@
 */
 package org.apache.cassandra.io;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.*;
 
 import org.junit.Test;
-import static org.junit.Assert.*;
 
 import org.apache.cassandra.CleanupHelper;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.dht.OrderPreservingPartitioner;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.io.util.BufferedRandomAccessFile;
+import org.apache.cassandra.db.DecoratedKey;
 
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;

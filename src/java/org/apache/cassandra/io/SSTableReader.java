@@ -24,6 +24,8 @@ import java.util.zip.GZIPInputStream;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.PhantomReference;
 import java.lang.ref.Reference;
+import java.nio.channels.FileChannel;
+import java.nio.MappedByteBuffer;
 
 import org.apache.log4j.Logger;
 
@@ -36,6 +38,9 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.io.util.BufferedRandomAccessFile;
+import org.apache.cassandra.io.util.FileDataInput;
+import org.apache.cassandra.io.util.MappedFileDataInput;
 
 import org.cliffc.high_scale_lib.NonBlockingHashMap;
 import com.google.common.base.Predicate;
@@ -86,6 +91,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         };
         new Thread(runnable, "SSTABLE-DELETER").start();
     }};
+    private final int BUFFER_SIZE = Integer.MAX_VALUE;
 
     public static int indexInterval()
     {
@@ -177,6 +183,11 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         return sstable;
     }
 
+    FileDeletingReference phantomReference;
+    private final MappedByteBuffer indexBuffer;
+    private final MappedByteBuffer[] buffers; // jvm can only map up to 2GB at a time
+
+
     private static ConcurrentLinkedHashMap<ColumnKey, IndexEntry> createKeyCache(int size)
     {
         return ConcurrentLinkedHashMap.create(ConcurrentLinkedHashMap.EvictionPolicy.SECOND_CHANCE, size);
@@ -193,6 +204,24 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     {
         super(filename, partitioner);
         this.indexEntries = indexEntries;
+        indexBuffer = mmap(indexFilename());
+        if (DatabaseDescriptor.getDiskAccessMode() == DatabaseDescriptor.DiskAccessMode.mmap)
+        {
+            int bufferCount = 1 + (int) (new File(path).length() / BUFFER_SIZE);
+            buffers = new MappedByteBuffer[bufferCount];
+            long remaining = length();
+            for (int i = 0; i < bufferCount; i++)
+            {
+                buffers[i] = mmap(path, i * BUFFER_SIZE, (int) Math.min(remaining, BUFFER_SIZE));
+                remaining -= BUFFER_SIZE;
+            }
+        }
+        else
+        {
+            assert DatabaseDescriptor.getDiskAccessMode() == DatabaseDescriptor.DiskAccessMode.standard;
+            buffers = null;
+        }
+
         this.bf = bloomFilter;
         phantomReference = new FileDeletingReference(this, finalizerQueue);
         finalizers.add(phantomReference);
@@ -200,7 +229,40 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         this.keyCache = keysToCache < 1 ? null : createKeyCache(keysToCache);
     }
 
-    private SSTableReader(String filename, IPartitioner partitioner)
+    private static MappedByteBuffer mmap(String filename, int start, int size) throws IOException
+    {
+        RandomAccessFile raf;
+        try
+        {
+            raf = new RandomAccessFile(filename, "r");
+        }
+        catch (FileNotFoundException e)
+        {
+            throw new IOError(e);
+        }
+
+        if (size < 0)
+        {
+            if (raf.length() > Integer.MAX_VALUE)
+                throw new UnsupportedOperationException("File " + filename + " is too large to map in its entirety");
+            size = (int) raf.length();
+        }
+        try
+        {
+            return raf.getChannel().map(FileChannel.MapMode.READ_ONLY, start, size);
+        }
+        finally
+        {
+            raf.close();
+        }
+    }
+
+    private static MappedByteBuffer mmap(String filename) throws IOException
+    {
+        return mmap(filename, 0, -1);
+    }
+
+    private SSTableReader(String filename, IPartitioner partitioner) throws IOException
     {
         this(filename, partitioner, new ArrayList<IndexEntry>(), null, 0);
     }
@@ -225,27 +287,23 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
     void loadIndexFile() throws IOException
     {
-        BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(), "r");
-        try
+        indexEntries.clear();
+        
+        FileDataInput input = new MappedFileDataInput(indexBuffer, indexFilename());
+        int i = 0;
+        long indexSize = input.length();
+        while (true)
         {
-            indexEntries.clear();
-
-            int i = 0;
-            long indexSize = input.length();
-            while (true)
+            long indexPosition = input.getFilePointer();
+            if (indexPosition == indexSize)
             {
-                long indexPosition = input.getFilePointer();
-                if (indexPosition == indexSize)
-                    break;
-
-                IndexEntry entry = IndexEntry.deserialize(input);
-                if (i++ % INDEX_INTERVAL == 0)
-                    indexEntries.add(entry);
+                break;
             }
-        }
-        finally
-        {
-            input.close();
+            IndexEntry entry = IndexEntry.deserialize(input);
+            if (i++ % INDEX_INTERVAL == 0)
+            {
+                indexEntries.add(entry);
+            }
         }
     }
 
@@ -290,7 +348,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         IndexEntry indexEntry = indexEntries.get(greaterThan - 1);
 
         // scan the index file from the entry we found
-        BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(path), "r");
+        FileDataInput input = new MappedFileDataInput(indexBuffer, indexFilename());
         input.seek(indexEntry.indexOffset);
         int i = 0;
         IndexEntry previous = null;
@@ -352,7 +410,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         IndexEntry indexEntry = indexEntries.get(greaterThan);
 
         // scan the index file from the entry we found
-        BufferedRandomAccessFile input = new BufferedRandomAccessFile(indexFilename(path), "r");
+        FileDataInput input = new MappedFileDataInput(indexBuffer, indexFilename());
         input.seek(indexEntry.indexOffset);
         int i = 0;
         IndexEntry previous = indexEntry;
@@ -406,7 +464,10 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         if (logger.isDebugEnabled())
             logger.debug("Marking " + path + " compacted");
         openedFiles.remove(path);
-        new File(compactedFilename()).createNewFile();
+        if (!new File(compactedFilename()).createNewFile())
+        {
+            throw new IOException("Unable to create compaction marker");
+        }
         phantomReference.deleteOnCleanup();
     }
 
@@ -444,6 +505,29 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         {
             throw new IOException("Could not open scanner for " + path, e);
         }
+    }
+
+    /**
+     * MERGE-FIXME: all use of this method is likely to be broken: FileDataInput needs to be plugged into the scanner
+     */
+    public FileDataInput getFileDataInput(DecoratedKey decoratedKey, int bufferSize) throws IOException
+    {
+        PositionSize info = getPosition(decoratedKey);
+        if (info == null)
+            return null;
+
+        if (buffers == null || (bufferIndex(info.position) != bufferIndex(info.position + info.size)))
+        {
+            BufferedRandomAccessFile file = new BufferedRandomAccessFile(path, "r", bufferSize);
+            file.seek(info.position);
+            return file;
+        }
+        return new MappedFileDataInput(buffers[bufferIndex(info.position)], path, (int) (info.position % BUFFER_SIZE));
+    }
+
+    private int bufferIndex(long position)
+    {
+        return (int) (position / BUFFER_SIZE);
     }
 
     /**
@@ -641,7 +725,36 @@ class FileDeletingReference extends PhantomReference<SSTableReader>
     {
         if (deleteOnCleanup)
         {
-            SSTable.delete(path);
+            // this is tricky because the mmapping might not have been finalized yet,
+            // and delete will until it is.  additionally, we need to make sure to
+            // delete the data file first, so on restart the others will be recognized as GCable
+            // even if the compaction file deletion occurs next.
+            new Thread(new Runnable()
+            {
+                public void run()
+                {
+                    File datafile = new File(path);
+                    for (int i = 0; i < DeletionService.MAX_RETRIES; i++)
+                    {
+                        if (datafile.delete())
+                            break;
+                        try
+                        {
+                            Thread.sleep(10000);
+                        }
+                        catch (InterruptedException e)
+                        {
+                            throw new AssertionError(e);
+                        }
+                    }
+                    if (datafile.exists())
+                        throw new RuntimeException("Unable to delete " + path);
+                    SSTable.logger.info("Deleted " + path);
+                    DeletionService.submitDeleteWithRetry(SSTable.indexFilename(path));
+                    DeletionService.submitDeleteWithRetry(SSTable.filterFilename(path));
+                    DeletionService.submitDeleteWithRetry(SSTable.compactedFilename(path));
+                }
+            }).start();
         }
     }
 }

@@ -280,6 +280,16 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
             throw e;
     }
 
+    public long getTotalBytes()
+    {
+        return totalBytes;
+    }
+
+    public long getBytesRead()
+    {
+        return bytesRead;
+    }
+
     /**
      * Compares Slices using their key, but declares intersecting slices equal
      * so that we can resolve them.

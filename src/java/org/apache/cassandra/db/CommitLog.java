@@ -19,11 +19,11 @@
 package org.apache.cassandra.db;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.io.BufferedRandomAccessFile;
-import org.apache.cassandra.io.DataInputBuffer;
-import org.apache.cassandra.io.DataOutputBuffer;
+import org.apache.cassandra.io.util.BufferedRandomAccessFile;
+import org.apache.cassandra.io.util.DataOutputBuffer;
+import org.apache.cassandra.io.DeletionService;
 import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.FileUtils;
+import org.apache.cassandra.utils.WrappedRunnable;
 import org.apache.cassandra.concurrent.StageManager;
 
 import org.apache.commons.lang.StringUtils;
@@ -188,18 +188,11 @@ public class CommitLog
 
         if (DatabaseDescriptor.getCommitLogSync() == DatabaseDescriptor.CommitLogSync.periodic)
         {
-            final Runnable syncer = new Runnable()
+            final Runnable syncer = new WrappedRunnable()
             {
-                public void run()
+                public void runMayThrow() throws IOException
                 {
-                    try
-                    {
-                        sync();
-                    }
-                    catch (IOException e)
-                    {
-                        throw new RuntimeException(e);
-                    }
+                    sync();
                 }
             };
 
@@ -216,7 +209,7 @@ public class CommitLog
                         }
                         catch (InterruptedException e)
                         {
-                            throw new RuntimeException(e);
+                            throw new AssertionError(e);
                         }
                     }
                 }
@@ -285,8 +278,6 @@ public class CommitLog
         Set<Table> tablesRecovered = new HashSet<Table>();
         assert StageManager.getStage(StageManager.mutationStage_).getCompletedTasks() == 0;
         int rows = 0;
-
-        DataInputBuffer bufIn = new DataInputBuffer();
         for (File file : clogs)
         {
             int bufferSize = (int)Math.min(file.length(), 32 * 1024 * 1024);
@@ -302,7 +293,7 @@ public class CommitLog
                 logger_.debug("Replaying " + file + " starting at " + lowPos);
 
             /* read the logs populate RowMutation and apply */
-            while (!reader.isEOF())
+            while (reader.getFilePointer() < reader.length())
             {
                 if (logger_.isDebugEnabled())
                     logger_.debug("Reading mutation at " + reader.getFilePointer());
@@ -320,7 +311,8 @@ public class CommitLog
                     // last CL entry didn't get completely written.  that's ok.
                     break;
                 }
-                bufIn.reset(bytes, bytes.length);
+
+                ByteArrayInputStream bufIn = new ByteArrayInputStream(bytes);
                 Checksum checksum = new CRC32();
                 checksum.update(bytes, 0, bytes.length);
                 if (claimedCRC32 != checksum.getValue())
@@ -331,7 +323,7 @@ public class CommitLog
                 }
 
                 /* deserialize the commit log entry */
-                final RowMutation rm = RowMutation.serializer().deserialize(bufIn);
+                final RowMutation rm = RowMutation.serializer().deserialize(new DataInputStream(bufIn));
                 if (logger_.isDebugEnabled())
                     logger_.debug(String.format("replaying mutation for %s.%s: %s",
                                                 rm.getTable(),
@@ -341,9 +333,9 @@ public class CommitLog
                 tablesRecovered.add(table);
                 final Collection<ColumnFamily> columnFamilies = new ArrayList<ColumnFamily>(rm.getColumnFamilies());
                 final long entryLocation = reader.getFilePointer();
-                Runnable runnable = new Runnable()
+                Runnable runnable = new WrappedRunnable()
                 {
-                    public void run()
+                    public void runMayThrow() throws IOException
                     {
                         /* remove column families that have already been flushed before applying the rest */
                         for (ColumnFamily columnFamily : columnFamilies)
@@ -356,14 +348,7 @@ public class CommitLog
                         }
                         if (!rm.isEmpty())
                         {
-                            try
-                            {
-                                rm.apply(false);
-                            }
-                            catch (IOException e)
-                            {
-                                throw new IOError(e);
-                            }
+                            Table.open(rm.getTable()).apply(rm, null, false);
                         }
                     }
                 };
@@ -453,7 +438,7 @@ public class CommitLog
      * of any problems. This way we can assume that the subsequent commit log
      * entry will override the garbage left over by the previous write.
     */
-    void add(RowMutation rowMutation, DataOutputBuffer serializedRow) throws IOException
+    void add(RowMutation rowMutation, Object serializedRow) throws IOException
     {
         Callable<CommitLogContext> task = new LogRecordAdder(rowMutation, serializedRow);
 
@@ -572,7 +557,7 @@ public class CommitLog
             if (header.isSafeToDelete())
             {
                 logger_.info("Deleting obsolete commit log:" + oldFile);
-                FileUtils.deleteAsync(oldFile);
+                DeletionService.submitDelete(oldFile);
                 clHeaders_.remove(oldFile);
             }
             else
@@ -621,7 +606,7 @@ public class CommitLog
         final RowMutation rowMutation;
         final Object serializedRow;
 
-        LogRecordAdder(RowMutation rm, DataOutputBuffer serializedRow)
+        LogRecordAdder(RowMutation rm, Object serializedRow)
         {
             this.rowMutation = rm;
             this.serializedRow = serializedRow;

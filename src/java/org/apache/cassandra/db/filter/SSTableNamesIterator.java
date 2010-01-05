@@ -27,6 +27,8 @@ import java.util.*;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.io.*;
+import org.apache.cassandra.io.util.BufferedRandomAccessFile;
+import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.config.DatabaseDescriptor;
 
 import com.google.common.collect.AbstractIterator;

@@ -30,15 +30,18 @@ import java.io.IOException;
 
 import org.apache.log4j.Logger;
 
-import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
+import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.gms.FailureDetector;
+import org.apache.cassandra.gms.Gossiper;
+
 import java.net.InetAddress;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.*;
 import org.apache.cassandra.db.filter.IdentityQueryFilter;
 import org.apache.cassandra.db.filter.QueryPath;
+import org.apache.cassandra.utils.WrappedRunnable;
 
 
 /**
@@ -77,8 +80,8 @@ public class HintedHandOffManager
     private static volatile HintedHandOffManager instance_;
     private static final Lock lock_ = new ReentrantLock();
     private static final Logger logger_ = Logger.getLogger(HintedHandOffManager.class);
-    final static long INTERVAL_IN_MS = 3600 * 1000;
-    private final ExecutorService executor_ = new DebuggableThreadPoolExecutor("HINTED-HANDOFF-POOL");
+    final static long INTERVAL_IN_MS = 3600 * 1000; // check for ability to deliver hints this often
+    private final ExecutorService executor_ = new JMXEnabledThreadPoolExecutor("HINTED-HANDOFF-POOL");
     final Timer timer = new Timer("HINTED-HANDOFF-TIMER");
     public static final String HINTS_CF = "HintsColumnFamily";
 
@@ -103,6 +106,11 @@ public class HintedHandOffManager
 
     private static boolean sendMessage(InetAddress endPoint, String tableName, String key) throws IOException
     {
+        if (!Gossiper.instance().isKnownEndpoint(endPoint))
+        {
+            logger_.warn("Hints found for endpoint " + endPoint + " which is not part of the gossip network.  discarding.");
+            return true;
+        }
         if (!FailureDetector.instance().isAlive(endPoint))
         {
             return false;
@@ -187,7 +195,14 @@ public class HintedHandOffManager
             }
         }
         hintStore.forceFlush();
-        hintStore.doMajorCompaction(0);
+        try
+        {
+            CompactionManager.instance.submitMajor(hintStore).get();
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException(e);
+        }
 
         if (logger_.isDebugEnabled())
           logger_.debug("Finished deliverAllHints");
@@ -240,27 +255,21 @@ public class HintedHandOffManager
 
     public void scheduleHandoffsFor(final ColumnFamilyStore columnFamilyStore)
     {
-        final Runnable r = new Runnable()
+        final Runnable r = new WrappedRunnable()
         {
-            public void run()
+            public void runMayThrow() throws Exception
             {
-                try
-                {
-                    deliverAllHints(columnFamilyStore);
-                }
-                catch (Exception e)
-                {
-                    throw new RuntimeException(e);
-                }
+                deliverAllHints(columnFamilyStore);
             }
         };
-        timer.schedule(new TimerTask()
+        TimerTask task = new TimerTask()
         {
             public void run()
             {
                 executor_.execute(r);
             }
-        }, INTERVAL_IN_MS, INTERVAL_IN_MS);
+        };
+        timer.schedule(task, INTERVAL_IN_MS, INTERVAL_IN_MS);
     }
 
     /*
@@ -270,18 +279,11 @@ public class HintedHandOffManager
     */
     public void deliverHints(final InetAddress to)
     {
-        Runnable r = new Runnable()
+        Runnable r = new WrappedRunnable()
         {
-            public void run()
+            public void runMayThrow() throws Exception
             {
-                try
-                {
-                    deliverHintsToEndpoint(to);
-                }
-                catch (Exception e)
-                {
-                    throw new RuntimeException(e);
-                }
+                deliverHintsToEndpoint(to);
             }
         };
     	executor_.submit(r);

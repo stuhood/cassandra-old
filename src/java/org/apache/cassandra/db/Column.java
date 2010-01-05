@@ -27,8 +27,8 @@ import org.apache.log4j.Logger;
 import org.apache.commons.lang.ArrayUtils;
 
 import org.apache.cassandra.db.marshal.AbstractType;
-import org.apache.cassandra.io.DataOutputBuffer;
 import org.apache.cassandra.io.Slice;
+import org.apache.cassandra.io.util.DataOutputBuffer;
 
 
 /**

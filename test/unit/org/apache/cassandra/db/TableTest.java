@@ -30,6 +30,7 @@ import org.junit.Test;
 
 import static junit.framework.Assert.*;
 import org.apache.cassandra.CleanupHelper;
+import org.apache.cassandra.utils.WrappedRunnable;
 import static org.apache.cassandra.Util.column;
 import static org.apache.cassandra.Util.getBytes;
 import org.apache.cassandra.db.filter.NamesQueryFilter;
@@ -37,19 +38,15 @@ import org.apache.cassandra.db.filter.QueryPath;
 import org.apache.cassandra.db.filter.SliceQueryFilter;
 import org.apache.cassandra.db.marshal.LongType;
 import org.apache.cassandra.io.SSTableReader;
-import org.apache.cassandra.io.BufferedRandomAccessFile;
+import org.apache.cassandra.io.util.BufferedRandomAccessFile;
+import org.apache.cassandra.io.SSTable;
 
 public class TableTest extends CleanupHelper
 {
     private static final String KEY2 = "key2";
     private static final String TEST_KEY = "key1";
 
-    public interface Runner
-    {
-        public void run() throws Exception;
-    }
-
-    public static void reTest(ColumnFamilyStore cfs, Runner verify) throws Exception
+    public static void reTest(ColumnFamilyStore cfs, Runnable verify) throws Exception
     {
         verify.run();
         cfs.forceBlockingFlush();
@@ -68,9 +65,9 @@ public class TableTest extends CleanupHelper
         rm.add(cf);
         rm.apply();
 
-        Runner verify = new Runner()
+        Runnable verify = new WrappedRunnable()
         {
-            public void run() throws Exception
+            public void runMayThrow() throws Exception
             {
                 ColumnFamily cf;
 
@@ -101,9 +98,9 @@ public class TableTest extends CleanupHelper
         rm.add(cf);
         rm.apply();
 
-        Runner verify = new Runner()
+        Runnable verify = new WrappedRunnable()
         {
-            public void run() throws Exception
+            public void runMayThrow() throws Exception
             {
                 ColumnFamily cf;
 
@@ -183,9 +180,9 @@ public class TableTest extends CleanupHelper
         rm.add(cf);
         rm.apply();
 
-        Runner verify = new Runner()
+        Runnable verify = new WrappedRunnable()
         {
-            public void run() throws Exception
+            public void runMayThrow() throws Exception
             {
                 ColumnFamily cf;
 
@@ -261,9 +258,9 @@ public class TableTest extends CleanupHelper
         rm.delete(new QueryPath("Standard1", null, "col4".getBytes()), 2L);
         rm.apply();
 
-        Runner verify = new Runner()
+        Runnable verify = new WrappedRunnable()
         {
-            public void run() throws Exception
+            public void runMayThrow() throws Exception
             {
                 ColumnFamily cf;
 
@@ -322,9 +319,9 @@ public class TableTest extends CleanupHelper
         rm.add(cf);
         rm.apply();
 
-        Runner verify = new Runner()
+        Runnable verify = new WrappedRunnable()
         {
-            public void run() throws Exception
+            public void runMayThrow() throws Exception
             {
                 ColumnFamily cf;
 
@@ -358,19 +355,20 @@ public class TableTest extends CleanupHelper
         // compact so we have a big row with more than the minimum index count
         if (cfStore.getSSTables().size() > 1)
         {
-            cfStore.doCompaction(2, cfStore.getSSTables().size());
+            CompactionManager.instance.submitMajor(cfStore).get();
         }
         SSTableReader sstable = cfStore.getSSTables().iterator().next();
         DecoratedKey decKey = sstable.getPartitioner().decorateKey(key);
 
-        // FIXME: long position = sstable.getPosition(decKey);
+        // FIXME: needs porting to Slice API
+        // long position = sstable.getPosition(decKey);
         long position = 0;
 
         BufferedRandomAccessFile file = new BufferedRandomAccessFile(sstable.getFilename(), "r");
-        file.seek(position);
+        file.seek(info.position);
         assert file.readUTF().equals(key);
         file.readInt();
-        /** FIXME
+        /** FIXME: needs porting to Slice API
         IndexHelper.skipBloomFilter(file);
         ArrayList<IndexHelper.IndexInfo> indexes = IndexHelper.deserializeIndex(file);
         assert indexes.size() > 2;
@@ -439,9 +437,9 @@ public class TableTest extends CleanupHelper
         rm.add(cf);
         rm.apply();
 
-        Runner verify = new Runner()
+        Runnable verify = new WrappedRunnable()
         {
-            public void run() throws Exception
+            public void runMayThrow() throws Exception
             {
                 ColumnFamily cf = cfStore.getColumnFamily(ROW, new QueryPath("Super1"), ArrayUtils.EMPTY_BYTE_ARRAY, ArrayUtils.EMPTY_BYTE_ARRAY, false, 10);
                 assertColumns(cf, "sc1");

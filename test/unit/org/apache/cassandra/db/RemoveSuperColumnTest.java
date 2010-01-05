@@ -33,9 +33,10 @@ import org.apache.cassandra.db.filter.QueryPath;
 import static org.apache.cassandra.Util.addMutation;
 import static org.apache.cassandra.Util.getBytes;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.CleanupHelper;
 import static junit.framework.Assert.assertNotNull;
 
-public class RemoveSuperColumnTest
+public class RemoveSuperColumnTest extends CleanupHelper
 {
     @Test
     public void testRemoveSuperColumn() throws IOException, ExecutionException, InterruptedException
@@ -59,8 +60,7 @@ public class RemoveSuperColumnTest
         store.forceBlockingFlush();
         validateRemoveTwoSources();
 
-        Future<Integer> ft = CompactionManager.instance.submitMinor(store, 2, 32);
-        ft.get();
+        CompactionManager.instance.submitMajor(store).get();
         assertEquals(1, store.getSSTables().size());
         validateRemoveCompacted();
     }
@@ -144,8 +144,7 @@ public class RemoveSuperColumnTest
         store.forceBlockingFlush();
         validateRemoveWithNewData();
 
-        Future<Integer> ft = CompactionManager.instance.submitMinor(store, 2, 32);
-        ft.get();
+        CompactionManager.instance.submitMajor(store).get();
         assertEquals(1, store.getSSTables().size());
         validateRemoveWithNewData();
     }

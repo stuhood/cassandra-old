@@ -31,8 +31,8 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnKey;
 import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.BloomFilter;
-import org.apache.cassandra.utils.FileUtils;
 import org.apache.cassandra.utils.Pair;
 
 /**
@@ -47,7 +47,7 @@ import org.apache.cassandra.utils.Pair;
  */
 public abstract class SSTable
 {
-    private static final Logger logger = Logger.getLogger(SSTable.class);
+    static final Logger logger = Logger.getLogger(SSTable.class);
 
     /**
      * The version of the SSTable file format that can be read and written using
@@ -140,7 +140,11 @@ public abstract class SSTable
     {
         if (new File(compactedFilename(dataFilename)).exists())
         {
-            delete(dataFilename);
+            FileUtils.deleteWithConfirm(new File(dataFilename));
+            FileUtils.deleteWithConfirm(new File(SSTable.indexFilename(dataFilename)));
+            FileUtils.deleteWithConfirm(new File(SSTable.filterFilename(dataFilename)));
+            FileUtils.deleteWithConfirm(new File(SSTable.compactedFilename(dataFilename)));
+            logger.info("Deleted " + dataFilename);
             return true;
         }
         return false;
@@ -195,13 +199,14 @@ public abstract class SSTable
         return new File(filename).getParentFile().getName();        
     }
 
-    static void delete(String path) throws IOException
+    public static long getTotalBytes(Iterable<SSTableReader> sstables)
     {
-        FileUtils.deleteWithConfirm(new File(path));
-        FileUtils.deleteWithConfirm(new File(SSTable.indexFilename(path)));
-        FileUtils.deleteWithConfirm(new File(SSTable.filterFilename(path)));
-        FileUtils.deleteWithConfirm(new File(SSTable.compactedFilename(path)));
-        logger.info("Deleted " + path);
+        long sum = 0;
+        for (SSTableReader sstable : sstables)
+        {
+            sum += sstable.length();
+        }
+        return sum;
     }
 
     public long bytesOnDisk()
@@ -326,6 +331,18 @@ public abstract class SSTable
                 "upgraded Cassandra, you will need to run an upgrade command " +
                 "before starting the server.";
             return new BlockHeader(dis.readInt(), dis.readUTF());
+        }
+    }
+
+    public static class PositionSize
+    {
+        public final long position;
+        public final long size;
+
+        public PositionSize(long position, long size)
+        {
+            this.position = position;
+            this.size = size;
         }
     }
 }

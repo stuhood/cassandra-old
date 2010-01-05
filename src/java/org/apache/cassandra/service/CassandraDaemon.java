@@ -38,6 +38,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.db.Table;
 import org.apache.cassandra.db.RecoveryManager;
+import org.apache.cassandra.db.CompactionManager;
 
 /**
  * This class supports two methods for creating a Cassandra node daemon, 
@@ -86,12 +87,12 @@ public class CassandraDaemon
         {
             if (logger.isDebugEnabled())
                 logger.debug("opening keyspace " + table);
-            Table tbl = Table.open(table);
-            tbl.onStart();
+            Table.open(table);
         }
 
-        // replay the log if necessary
+        // replay the log if necessary and check for compaction candidates
         RecoveryManager.doRecovery();
+        CompactionManager.instance.checkAllColumnFamilies();
 
         // start server internals
         StorageService.instance().initServer();

@@ -33,25 +33,21 @@ import org.apache.log4j.Logger;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.dht.IPartitioner;
-import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.io.*;
-import java.net.InetAddress;
+import org.apache.cassandra.io.util.FileUtils;
+
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.service.AntiEntropyService;
 import org.apache.cassandra.utils.*;
-import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
+import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.db.filter.*;
 import org.apache.cassandra.db.marshal.AbstractType;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.commons.collections.IteratorUtils;
-import org.apache.commons.collections.PredicateUtils;
-import org.apache.commons.collections.iterators.FilterIterator;
 
 import org.cliffc.high_scale_lib.NonBlockingHashMap;
 
@@ -80,20 +76,22 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
      */
     private static NonBlockingHashMap<String, Set<Memtable>> memtablesPendingFlush = new NonBlockingHashMap<String, Set<Memtable>>();
     private static ExecutorService flushSorter_
-            = new DebuggableThreadPoolExecutor(1,
+            = new JMXEnabledThreadPoolExecutor(1,
                                                Runtime.getRuntime().availableProcessors(),
                                                Integer.MAX_VALUE,
                                                TimeUnit.SECONDS,
                                                new LinkedBlockingQueue<Runnable>(2 * Runtime.getRuntime().availableProcessors()),
                                                new NamedThreadFactory("FLUSH-SORTER-POOL"));
     private static ExecutorService flushWriter_
-            = new DebuggableThreadPoolExecutor(DatabaseDescriptor.getAllDataFileLocations().length,
+            = new JMXEnabledThreadPoolExecutor(DatabaseDescriptor.getAllDataFileLocations().length,
                                                DatabaseDescriptor.getAllDataFileLocations().length,
                                                Integer.MAX_VALUE,
                                                TimeUnit.SECONDS,
                                                new LinkedBlockingQueue<Runnable>(),
                                                new NamedThreadFactory("FLUSH-WRITER-POOL"));
-    private static ExecutorService commitLogUpdater_ = new DebuggableThreadPoolExecutor("MEMTABLE-POST-FLUSHER");
+    private static ExecutorService commitLogUpdater_ = new JMXEnabledThreadPoolExecutor("MEMTABLE-POST-FLUSHER");
+
+    private static final int KEY_RANGE_FILE_BUFFER_SIZE = 256 * 1024;
 
     private final String table_;
     public final String columnFamily_;
@@ -173,6 +171,22 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return cfs;
     }
 
+    private Set<File> files()
+    {
+        Set<File> fileSet = new HashSet<File>(3 * ssTables_.size() + 6); // 6 is fudge factor so we don't have to double if there's a couple uncompacted ones around
+        for (String directory : DatabaseDescriptor.getAllDataFileLocationsForTable(table_))
+        {
+            File[] files = new File(directory).listFiles();
+            for (File file : files)
+            {
+                String cfName = getColumnFamilyFromFileName(file.getName());
+                if (cfName.equals(columnFamily_))
+                    fileSet.add(file);
+            }
+        }
+        return fileSet;
+    }
+
     void onStart() throws IOException
     {
         if (logger_.isDebugEnabled())
@@ -180,43 +194,32 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // scan for data files corresponding to this CF
         List<File> sstableFiles = new ArrayList<File>();
         Pattern auxFilePattern = Pattern.compile("(.*)(-Filter\\.db$|-Index\\.db$)");
-        String[] dataFileDirectories = DatabaseDescriptor.getAllDataFileLocationsForTable(table_);
-        for (String directory : dataFileDirectories)
+        for (File file : files())
         {
-            File fileDir = new File(directory);
-            File[] files = fileDir.listFiles();
-            for (File file : files)
+            String filename = file.getName();
+
+            /* look for and remove orphans. An orphan is a -Filter.db or -Index.db with no corresponding -Data.db. */
+            Matcher matcher = auxFilePattern.matcher(file.getAbsolutePath());
+            if (matcher.matches())
             {
-                String filename = file.getName();
-                String cfName = getColumnFamilyFromFileName(filename);
-
-                // skip files that are not from this column family
-                if (!cfName.equals(columnFamily_))
-                    continue;
-
-                /* look for and remove orphans. An orphan is a -Filter.db or -Index.db with no corresponding -Data.db. */
-                Matcher matcher = auxFilePattern.matcher(file.getAbsolutePath());
-                if (matcher.matches())
+                String basePath = matcher.group(1);
+                if (!new File(basePath + "-Data.db").exists())
                 {
-                    String basePath = matcher.group(1);
-                    if (!new File(basePath + "-Data.db").exists())
-                    {
-                        logger_.info(String.format("Removing orphan %s", file.getAbsolutePath()));
-                        FileUtils.deleteWithConfirm(file);
-                        continue;
-                    }
-                }
-
-                if (((file.length() == 0 && !filename.endsWith("-Compacted")) || (filename.contains("-" + SSTable.TEMPFILE_MARKER))))
-                {
+                    logger_.info(String.format("Removing orphan %s", file.getAbsolutePath()));
                     FileUtils.deleteWithConfirm(file);
                     continue;
                 }
+            }
 
-                if (filename.contains("-Data.db"))
-                {
-                    sstableFiles.add(file.getAbsoluteFile());
-                }
+            if (((file.length() == 0 && !filename.endsWith("-Compacted")) || (filename.contains("-" + SSTable.TEMPFILE_MARKER))))
+            {
+                FileUtils.deleteWithConfirm(file);
+                continue;
+            }
+
+            if (filename.contains("-Data.db"))
+            {
+                sstableFiles.add(file.getAbsoluteFile());
             }
         }
         Collections.sort(sstableFiles, new FileUtils.FileComparator());
@@ -242,9 +245,6 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             sstables.add(sstable);
         }
         ssTables_.onStart(sstables);
-
-        // submit initial check-for-compaction request
-        CompactionManager.instance.submitMinor(ColumnFamilyStore.this);
 
         // schedule hinted handoff
         if (table_.equals(Table.SYSTEM_TABLE) && columnFamily_.equals(HintedHandOffManager.HINTS_CF))
@@ -288,31 +288,6 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         sb.append("--------------------------------------");
         sb.append(newLineSeparator);
         return sb.toString();
-    }
-    
-    /*
-     * This method forces a compaction of the SSTables on disk. We wait
-     * for the process to complete by waiting on a future pointer.
-    */
-    List<SSTableReader> forceAntiCompaction(Collection<Range> ranges, InetAddress target)
-    {
-        assert ranges != null;
-        Future<List<SSTableReader>> futurePtr = CompactionManager.instance.submitAnti(ColumnFamilyStore.this,
-                                                                                        ranges, target);
-
-        List<SSTableReader> result;
-        try
-        {
-            /* Waiting for the compaction to complete. */
-            result = futurePtr.get();
-            if (logger_.isDebugEnabled())
-              logger_.debug("Done forcing compaction ...");
-        }
-        catch (Exception ex)
-        {
-            throw new RuntimeException(ex);
-        }
-        return result;
     }
 
     /**
@@ -378,7 +353,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
          *  all ongoing updates to memtables have completed. We can get the tail
          *  of the log and use it as the starting position for log replay on recovery.
          */
-        Table.flusherLock_.writeLock().lock();
+        Table.flusherLock.writeLock().lock();
         try
         {
             final CommitLog.CommitLogContext ctx = CommitLog.open().getContext(); // this is harmless if !writeCommitLog
@@ -393,30 +368,23 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             memtable_ = new Memtable(table_, columnFamily_);
             // a second executor that makes sure the onMemtableFlushes get called in the right order,
             // while keeping the wait-for-flush (future.get) out of anything latency-sensitive.
-            return commitLogUpdater_.submit(new Runnable()
+            return commitLogUpdater_.submit(new WrappedRunnable()
             {
-                public void run()
+                public void runMayThrow() throws InterruptedException, IOException
                 {
-                    try
+                    condition.await();
+                    if (writeCommitLog)
                     {
-                        condition.await();
-                        if (writeCommitLog)
-                        {
-                            // if we're not writing to the commit log, we are replaying the log, so marking
-                            // the log header with "you can discard anything written before the context" is not valid
-                            onMemtableFlush(ctx);
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        throw new RuntimeException(e);
+                        // if we're not writing to the commit log, we are replaying the log, so marking
+                        // the log header with "you can discard anything written before the context" is not valid
+                        onMemtableFlush(ctx);
                     }
                 }
             });
         }
         finally
         {
-            Table.flusherLock_.writeLock().unlock();
+            Table.flusherLock.writeLock().unlock();
             if (memtableSwitchCount == Integer.MAX_VALUE)
             {
                 memtableSwitchCount = 0;
@@ -498,12 +466,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
      */
     static ColumnFamily removeDeleted(ColumnFamily cf)
     {
-        return removeDeleted(cf, getDefaultGCBefore());
-    }
-
-    public static int getDefaultGCBefore()
-    {
-        return (int)(System.currentTimeMillis() / 1000) - DatabaseDescriptor.getGcGraceInSeconds();
+        return removeDeleted(cf, CompactionManager.getDefaultGCBefore());
     }
 
     public static ColumnFamily removeDeleted(ColumnFamily cf, int gcBefore)
@@ -598,111 +561,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
     public void addSSTable(SSTableReader sstable)
     {
         ssTables_.add(sstable);
-        CompactionManager.instance.submitMinor(this);
-    }
-
-    /*
-     * Group files of similar size into buckets.
-     */
-    static Set<List<SSTableReader>> getCompactionBuckets(Iterable<SSTableReader> files, long min)
-    {
-        Map<List<SSTableReader>, Long> buckets = new HashMap<List<SSTableReader>, Long>();
-        for (SSTableReader sstable : files)
-        {
-            long size = sstable.length();
-
-            boolean bFound = false;
-            // look for a bucket containing similar-sized files:
-            // group in the same bucket if it's w/in 50% of the average for this bucket,
-            // or this file and the bucket are all considered "small" (less than `min`)
-            for (List<SSTableReader> bucket : buckets.keySet())
-            {
-                long averageSize = buckets.get(bucket);
-                if ((size > averageSize / 2 && size < 3 * averageSize / 2)
-                    || (size < min && averageSize < min))
-                {
-                    // remove and re-add because adding changes the hash
-                    buckets.remove(bucket);
-                    averageSize = (averageSize + size) / 2;
-                    bucket.add(sstable);
-                    buckets.put(bucket, averageSize);
-                    bFound = true;
-                    break;
-                }
-            }
-            // no similar bucket found; put it in a new one
-            if (!bFound)
-            {
-                ArrayList<SSTableReader> bucket = new ArrayList<SSTableReader>();
-                bucket.add(sstable);
-                buckets.put(bucket, size);
-            }
-        }
-
-        return buckets.keySet();
-    }
-
-    /*
-     * Break the files into buckets and then compact.
-     */
-    int doCompaction(int minThreshold, int maxThreshold) throws IOException
-    {
-        int filesCompacted = 0;
-        if (minThreshold > 0 && maxThreshold > 0)
-        {
-            logger_.debug("Checking to see if compaction of " + columnFamily_ + " would be useful");
-            for (List<SSTableReader> sstables : getCompactionBuckets(ssTables_, 50L * 1024L * 1024L))
-            {
-                if (sstables.size() < minThreshold)
-                {
-                    continue;
-                }
-                // if we have too many to compact all at once, compact older ones first -- this avoids
-                // re-compacting files we just created.
-                Collections.sort(sstables);
-                boolean major = sstables.size() == ssTables_.size();
-                filesCompacted += doFileCompaction(sstables.subList(0, Math.min(sstables.size(), maxThreshold)));
-            }
-            logger_.debug(filesCompacted + " files compacted");
-        }
-        else
-        {
-            logger_.debug("Compaction is currently disabled.");
-        }
-        return filesCompacted;
-    }
-
-    void doMajorCompaction(long skip) throws IOException
-    {
-        doMajorCompactionInternal(skip);
-    }
-
-    /*
-     * Compact all the files irrespective of the size.
-     * skip : is the amount in GB of the files to be skipped
-     * all files greater than skip GB are skipped for this compaction.
-     * Except if skip is 0 , in that case this is ignored and all files are taken.
-     */
-    void doMajorCompactionInternal(long skip) throws IOException
-    {
-        Collection<SSTableReader> sstables;
-        if (skip > 0)
-        {
-            sstables = new ArrayList<SSTableReader>();
-            for (SSTableReader sstable : ssTables_)
-            {
-                if (sstable.length() < skip * 1024L * 1024L * 1024L)
-                {
-                    sstables.add(sstable);
-                }
-            }
-        }
-        else
-        {
-            sstables = ssTables_.getSSTables();
-        }
-
-        doFileCompaction(sstables);
+        CompactionManager.instance.submitMinorIfNeeded(this);
     }
 
     /*
@@ -738,274 +597,41 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return maxFile;
     }
 
-    List<SSTableReader> doAntiCompaction(Collection<Range> ranges, InetAddress target) throws IOException
-    {
-        return doFileAntiCompaction(ssTables_.getSSTables(), ranges, target);
-    }
-
     void forceCleanup()
     {
         CompactionManager.instance.submitCleanup(ColumnFamilyStore.this);
     }
 
-    /**
-     * This function goes over each file and removes the keys that the node is not responsible for
-     * and only keeps keys that this node is responsible for.
-     *
-     * @throws IOException
-     */
-    void doCleanupCompaction() throws IOException
+    public Table getTable()
     {
-        for (SSTableReader sstable : ssTables_)
-        {
-            doCleanup(sstable);
-        }
-        gcAfterRpcTimeout();
-    }
-
-    /**
-     * cleans up one particular file by removing keys that this node is not responsible for.
-     * @throws IOException
-     */
-    /* TODO: Take care of the comments later. */
-    void doCleanup(SSTableReader sstable) throws IOException
-    {
-        assert sstable != null;
-        List<SSTableReader> sstables = doFileAntiCompaction(Arrays.asList(sstable), StorageService.instance().getLocalRanges(), null);
-        if (!sstables.isEmpty())
-        {
-            assert sstables.size() == 1;
-            addSSTable(sstables.get(0));
-        }
-        if (logger_.isDebugEnabled())
-          logger_.debug("Original file : " + sstable + " of size " + sstable.length());
-        ssTables_.markCompacted(Arrays.asList(sstable));
-    }
-
-    /**
-     * This function is used to do the anti compaction process , it spits out the file which has keys that belong to a given range
-     * If the target is not specified it spits out the file as a compacted file with the unecessary ranges wiped out.
-     *
-     * @param sstables
-     * @param ranges
-     * @param target
-     * @return
-     * @throws IOException
-     */
-    List<SSTableReader> doFileAntiCompaction(Collection<SSTableReader> sstables, Collection<Range> ranges, InetAddress target) throws IOException
-    {
-        logger_.info("AntiCompacting [" + StringUtils.join(sstables, ",") + "]");
-        // Calculate the expected compacted filesize
-        long expectedRangeFileSize = getExpectedCompactedFileSize(sstables) / 2;
-        String compactionFileLocation = DatabaseDescriptor.getDataFileLocationForTable(table_, expectedRangeFileSize);
-        if (compactionFileLocation == null)
-        {
-            throw new UnsupportedOperationException("disk full");
-        }
-        if (target != null)
-        {
-            // compacting for streaming: send to subdirectory
-            compactionFileLocation = compactionFileLocation + File.separator + DatabaseDescriptor.STREAMING_SUBDIR + File.separator + table_;
-        }
-        List<SSTableReader> results = new ArrayList<SSTableReader>();
-
-        long startTime = System.currentTimeMillis();
-        long totalColsWritten = 0;
-
-        int expectedBloomFilterSize = Math.max(SSTableReader.indexInterval(), (int)(SSTableReader.getApproximateKeyCount(sstables) / 2));
-        if (logger_.isDebugEnabled())
-          logger_.debug("Expected bloom filter size : " + expectedBloomFilterSize);
-
-        SSTableWriter writer = null;
-        CompactionIterator ci = new CompactionIterator(sstables, getDefaultGCBefore(), sstables.size() == ssTables_.size());
-
         try
         {
-            if (!ci.hasNext())
-                return results;
-
-            while (ci.hasNext())
-            {
-                SliceBuffer slice = ci.next();
-                if (Range.isTokenInRanges(slice.key.dk.token, ranges))
-                {
-                    if (writer == null)
-                    {
-                        FileUtils.createDirectory(compactionFileLocation);
-                        String newFilename = new File(compactionFileLocation, getTempSSTableFileName()).getAbsolutePath();
-                        writer = new SSTableWriter(newFilename, expectedBloomFilterSize, StorageService.getPartitioner());
-                    }
-                    writer.append(slice);
-                    totalColsWritten += slice.numCols();
-                }
-            }
+            return Table.open(table_);
         }
-        finally
+        catch (IOException e)
         {
-            ci.close();
+            throw new RuntimeException(e);
         }
-
-        if (writer != null)
-        {
-            results.add(writer.closeAndOpenReader(DatabaseDescriptor.getKeysCachedFraction(table_)));
-            String format = "AntiCompacted to %s.  %d/%d bytes for %d columns.  Time: %dms.";
-            long dTime = System.currentTimeMillis() - startTime;
-            logger_.info(String.format(format, writer.getFilename(), getTotalBytes(sstables), results.get(0).length(), totalColsWritten, dTime));
-        }
-
-        return results;
     }
 
-    private int doFileCompaction(Collection<SSTableReader> sstables) throws IOException
+    void markCompacted(Collection<SSTableReader> sstables) throws IOException
     {
-        return doFileCompaction(sstables, getDefaultGCBefore());
-    }
-
-    /*
-    * This function does the actual compaction for files.
-    * It maintains a priority queue of with the first key from each file
-    * and then removes the top of the queue and adds it to the SStable and
-    * repeats this process while reading the next from each file until its
-    * done with all the files . The SStable to which the keys are written
-    * represents the new compacted file. Before writing if there are keys
-    * that occur in multiple files and are the same then a resolution is done
-    * to get the latest data.
-    *
-    * The collection of sstables passed may be empty (but not null); even if
-    * it is not empty, it may compact down to nothing if all rows are deleted.
-    */
-    int doFileCompaction(Collection<SSTableReader> sstables, int gcBefore) throws IOException
-    {
-        if (DatabaseDescriptor.isSnapshotBeforeCompaction())
-            Table.open(table_).snapshot("compact-" + columnFamily_);
-        logger_.info("Compacting [" + StringUtils.join(sstables, ",") + "]");
-        String compactionFileLocation = DatabaseDescriptor.getDataFileLocationForTable(table_, getExpectedCompactedFileSize(sstables));
-        // If the compaction file path is null that means we have no space left for this compaction.
-        // try again w/o the largest one.
-        if (compactionFileLocation == null)
-        {
-            SSTableReader maxFile = getMaxSizeFile(sstables);
-            List<SSTableReader> smallerSSTables = new ArrayList<SSTableReader>(sstables);
-            smallerSSTables.remove(maxFile);
-            return doFileCompaction(smallerSSTables, gcBefore);
-        }
-
-        // new sstables from flush can be added during a compaction, but only the compaction can remove them,
-        // so in our single-threaded compaction world this is a valid way of determining if we're compacting
-        // all the sstables (that existed when we started)
-        boolean major = sstables.size() == ssTables_.size();
-
-        long startTime = System.currentTimeMillis();
-        long totalcolsWritten = 0;
-
-        // TODO the int cast here is potentially buggy
-        int expectedBloomFilterSize = Math.max(SSTableReader.indexInterval(), (int)SSTableReader.getApproximateKeyCount(sstables));
-        if (logger_.isDebugEnabled())
-          logger_.debug("Expected bloom filter size : " + expectedBloomFilterSize);
-
-        SSTableWriter writer;
-        CompactionIterator ci = new CompactionIterator(sstables, gcBefore, major);
-
-        try
-        {
-            if (!ci.hasNext())
-            {
-                // don't mark compacted in the finally block, since if there _is_ nondeleted data,
-                // we need to sync it (via closeAndOpen) first, so there is no period during which
-                // a crash could cause data loss.
-                ssTables_.markCompacted(sstables);
-                return 0;
-            }
-
-            String newFilename = new File(compactionFileLocation, getTempSSTableFileName()).getAbsolutePath();
-            writer = new SSTableWriter(newFilename, expectedBloomFilterSize, StorageService.getPartitioner());
-
-            // validate the CF as we iterate over it
-            AntiEntropyService.IValidator validator = AntiEntropyService.instance().getValidator(table_, columnFamily_, null, major);
-            validator.prepare();
-            while (ci.hasNext())
-            {
-                SliceBuffer slice = ci.next();
-                writer.append(slice);
-                totalcolsWritten += slice.numCols();
-                validator.add(slice);
-            }
-            validator.complete();
-        }
-        finally
-        {
-            ci.close();
-        }
-
-        SSTableReader ssTable = writer.closeAndOpenReader(DatabaseDescriptor.getKeysCachedFraction(table_));
-        ssTables_.add(ssTable);
         ssTables_.markCompacted(sstables);
-        gcAfterRpcTimeout();
-        CompactionManager.instance.submitMinor(ColumnFamilyStore.this);
-
-        String format = "Compacted to %s.  %d/%d bytes for %d columns.  Time: %dms.";
-        long dTime = System.currentTimeMillis() - startTime;
-        logger_.info(String.format(format, writer.getFilename(), getTotalBytes(sstables), ssTable.length(), totalcolsWritten, dTime));
-        return sstables.size();
     }
 
-    /**
-     * perform a GC to clean out obsolete sstables, sleeping rpc timeout first so that most in-progress ops can complete
-     * (thus, no longer reference the sstables in question)
-     */
-    private void gcAfterRpcTimeout()
+    boolean isCompleteSSTables(Collection<SSTableReader> sstables)
     {
-        new Thread(new Runnable()
-        {
-            public void run()
-            {
-                try
-                {
-                    Thread.sleep(DatabaseDescriptor.getRpcTimeout());
-                }
-                catch (InterruptedException e)
-                {
-                    throw new AssertionError(e);
-                }
-                System.gc();
-            }
-        });
+        return ssTables_.getSSTables().equals(new HashSet<SSTableReader>(sstables));
     }
 
-    /**
-     * Performs a readonly "compaction" of all sstables in order to validate complete rows,
-     * but without writing the merge result.
-     */
-    void doReadonlyCompaction(InetAddress initiator) throws IOException
+    void replaceCompactedSSTables(Collection<SSTableReader> sstables, Iterable<SSTableReader> replacements)
+            throws IOException
     {
-        Collection<SSTableReader> sstables = ssTables_.getSSTables();
-        CompactionIterator ci = new CompactionIterator(sstables, getDefaultGCBefore(), true);
-        try
+        for (SSTableReader sstable : replacements)
         {
-            // validate the CF as we iterate over it
-            AntiEntropyService.IValidator validator = AntiEntropyService.instance().getValidator(table_, columnFamily_, initiator, true);
-            validator.prepare();
-            while (ci.hasNext())
-            {
-                SliceBuffer slice = ci.next();
-                validator.add(slice);
-            }
-            validator.complete();
+            ssTables_.add(sstable);
         }
-        finally
-        {
-            ci.close();
-        }
-    }
-
-    private long getTotalBytes(Iterable<SSTableReader> sstables)
-    {
-        long sum = 0;
-        for (SSTableReader sstable : sstables)
-        {
-            sum += sstable.length();
-        }
-        return sum;
+        ssTables_.markCompacted(sstables);
     }
 
     public static List<Memtable> getUnflushedMemtables(String cfName)
@@ -1050,18 +676,11 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             public void run()
             {
                 final List sortedKeys = flushable.getSortedKeys();
-                flushWriter_.submit(new Runnable()
+                flushWriter_.submit(new WrappedRunnable()
                 {
-                    public void run()
+                    public void runMayThrow() throws IOException
                     {
-                        try
-                        {
-                            addSSTable(flushable.writeSortedContents(sortedKeys));
-                        }
-                        catch (IOException e)
-                        {
-                            throw new RuntimeException(e);
-                        }
+                        addSSTable(flushable.writeSortedContents(sortedKeys));
                         if (flushable instanceof Memtable)
                         {
                             getMemtablesPendingFlushNotNull(columnFamily_).remove(flushable);
@@ -1106,27 +725,27 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
      */
     private Memtable getMemtableThreadSafe()
     {
-        Table.flusherLock_.readLock().lock();
+        Table.flusherLock.readLock().lock();
         try
         {
             return memtable_;
         }
         finally
         {
-            Table.flusherLock_.readLock().unlock();
+            Table.flusherLock.readLock().unlock();
         }
     }
 
     public Iterator<DecoratedKey> memtableKeyIterator() throws ExecutionException, InterruptedException
     {
-        Table.flusherLock_.readLock().lock();
+        Table.flusherLock.readLock().lock();
         try
         {
              return memtable_.getKeyIterator();
         }
         finally
         {
-            Table.flusherLock_.readLock().unlock();
+            Table.flusherLock.readLock().unlock();
         }
     }
 
@@ -1148,7 +767,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
     // TODO this actually isn't a good meature of pending tasks
     public int getPendingTasks()
     {
-        return Table.flusherLock_.getQueueLength();
+        return Table.flusherLock.getQueueLength();
     }
 
     /**
@@ -1172,7 +791,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     public ColumnFamily getColumnFamily(QueryFilter filter) throws IOException
     {
-        return getColumnFamily(filter, getDefaultGCBefore());
+        return getColumnFamily(filter, CompactionManager.getDefaultGCBefore());
     }
 
     /**
@@ -1221,7 +840,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             ColumnIterator iter;
 
             /* add the current memtable */
-            Table.flusherLock_.readLock().lock();
+            Table.flusherLock.readLock().lock();
             try
             {
                 iter = filter.getMemColumnIterator(memtable_, getComparator());
@@ -1229,7 +848,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
             }
             finally
             {
-                Table.flusherLock_.readLock().unlock();
+                Table.flusherLock.readLock().unlock();
             }
             iterators.add(iter);
 
@@ -1317,9 +936,11 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // sstables
         for (SSTableReader sstable : ssTables_)
         {
-            final SSTableScanner scanner = sstable.getScanner(1 << 14);
+            final SSTableScanner scanner = sstable.getScanner(KEY_RANGE_FILE_BUFFER_SIZE);
             scanner.seekNear(startWithDK);
-            iterators.add(new DecoratedKeyIterator(scanner));
+            Iterator<DecoratedKey> iter = new DecoratedKeyIterator(scanner);
+            assert iter instanceof Closeable; // otherwise we leak FDs
+            iterators.add(iter);
         }
 
         Iterator<DecoratedKey> collated = IteratorUtils.collatedIterator(DecoratedKey.comparator, iterators);
@@ -1414,7 +1035,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // sstables
         for (SSTableReader sstable : ssTables_)
         {
-            final SSTableScanner scanner = sstable.getScanner(1 << 14);
+            final SSTableScanner scanner = sstable.getScanner(KEY_RANGE_FILE_BUFFER_SIZE);
             scanner.seekNear(startWith);
             Iterator<DecoratedKey> iter = new DecoratedKeyIterator(scanner);
             assert iter instanceof Closeable; // otherwise we leak FDs
@@ -1548,6 +1169,31 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 logger_.debug("Snapshot for " + table_ + " table data file " + sourceFile.getAbsolutePath() +
                     " created as " + targetLink.getAbsolutePath());
         }
+    }
+
+    public long getTotalDiskSpaceUsed()
+    {
+        long n = 0;
+        for (File file : files())
+        {
+            n += file.length();
+        }
+        return n;
+    }
+
+    public long getLiveDiskSpaceUsed()
+    {
+        long n = 0;
+        for (SSTableReader sstable : ssTables_)
+        {
+            n += sstable.bytesOnDisk();
+        }
+        return n;
+    }
+
+    public int getLiveSSTableCount()
+    {
+        return ssTables_.size();
     }
 
     /**
