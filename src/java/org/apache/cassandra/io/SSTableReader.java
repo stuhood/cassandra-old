@@ -506,10 +506,13 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     final class Block
     {
         public final BufferedRandomAccessFile file;
-        // offset from the beginning of the data file
+        // offset from the beginning of the data file to the block header
         public final long offset;
+
         // the currently opened stream for this block, or null;
-        private DataInputStream stream;
+        private DataInputStream stream = null;
+        // block header, or null: lazily created for stream() or header()
+        private BlockHeader header = null;
 
         /**
          * To construct a Block, use SSTReader.getBlock().
@@ -518,7 +521,20 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         {
             this.file = file;
             this.offset = offset;
-            stream = null;
+        }
+
+        private void readHeader() throws IOException
+        {
+            file.seek(offset);
+            header = BlockHeader.deserialize(file);
+        }
+
+        public BlockHeader header() throws IOException
+        {
+            if (header != null)
+                return header;
+            readHeader();
+            return header;
         }
 
         /**
@@ -537,10 +553,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
          * beginning of the block. Calling stream() additional times will return the
          * same stream object until reset() is called.
          *
-         * TODO: This stream is unbounded, so for an uncompressed block, a bad caller
-         * could read past a BLOCK_END slicemark into the next block. For a compressed
-         * stream, the compression format will prevent this.
-         *
          * @return An InputStream appropriate for reading the content of this block
          * from disk.
          */
@@ -550,12 +562,10 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                 // return the existing stream
                 return stream;
 
-            file.seek(offset);
-            // read the block header
-            BlockHeader mark = BlockHeader.deserialize(file);
+            readHeader();
 
             // TODO: handle setting up an appropriate decompression stream here
-            stream = new DataInputStream(new GZIPInputStream(file.inputStream(mark.blockLen)));
+            stream = new DataInputStream(new BoundedInputStream(file.inputStream(), header.blockLen));
             return stream;
         }
     }

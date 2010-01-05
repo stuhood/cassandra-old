@@ -59,6 +59,7 @@ public class SSTableScanner implements Closeable
      * will be null whenever the Scanner is not in a valid position.
      */
     private Block block;
+    private long blockOff;
     private SliceMark slice;
     private SliceBuffer sliceCols;
 
@@ -71,6 +72,14 @@ public class SSTableScanner implements Closeable
         comparator = sstable.getComparator();
 
         file = new BufferedRandomAccessFile(sstable.getFilename(), "r", bufferSize);
+    }
+
+    private void loadBlock(long position) throws IOException
+    {
+        block = sstable.getBlock(file, position);
+        // read the header, record the block content offset
+        block.header();
+        blockOff = file.getFilePointer();
     }
 
     /**
@@ -107,7 +116,7 @@ public class SSTableScanner implements Closeable
     {
         if (file.length() < 1)
             return false;
-        block = sstable.getBlock(file, 0);
+        loadBlock(0);
         slice = SliceMark.deserialize(block.stream());
         return true;
     }
@@ -176,7 +185,7 @@ public class SSTableScanner implements Closeable
 
         if (block == null || position != block.offset)
             // acquire the new block
-            block = sstable.getBlock(file, position);
+            loadBlock(position);
         else
             block.reset();
 
@@ -345,20 +354,17 @@ public class SSTableScanner implements Closeable
             return false;
         }
 
-        // skip the remainder of the current slice
         SliceMark oldSlice = slice; // heh
         if (sliceCols == null)
-            // NB: because we don't know the disk length of the block, we have to
-            // skip on the stream, rather than on the file, meaning that we may
-            // decompress the last slice of a block unnecessarily
+            // skip the remainder of the current slice
             block.stream().skip(oldSlice.length);
 
         // seek to the next slice
         if (oldSlice.status == SliceMark.BLOCK_END)
-            // positioned at the beginning of a new block
-            block = sstable.getBlock(file, file.getFilePointer());
+            // get next block
+            loadBlock(blockOff + block.header().blockLen);
         
-        // finally, read the slice
+        // finally, read the new slice
         slice = SliceMark.deserialize(block.stream());
         sliceCols = null;
         return true;

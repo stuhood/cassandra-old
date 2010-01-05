@@ -487,7 +487,7 @@ public class SSTableWriter extends SSTable
                 assert rawBlock == null && blockStream == null;
                 rawBlock = new DataOutputBuffer(TARGET_MAX_BLOCK_BYTES);
                 // FIXME: plug in block compression here
-                blockStream = new DataOutputStream(new GZIPOutputStream(rawBlock));
+                blockStream = new DataOutputStream(rawBlock);
             }
 
             int sliceLen = sliceBuffer.getLength();
