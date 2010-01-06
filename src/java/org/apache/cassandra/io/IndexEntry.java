@@ -44,12 +44,14 @@ public class IndexEntry extends ColumnKey
 {
     public final long indexOffset;
     public final long dataOffset;
+    public final int blockLen;
 
-    IndexEntry(DecoratedKey key, byte[][] names, long indexOffset, long dataOffset)
+    IndexEntry(DecoratedKey key, byte[][] names, long indexOffset, long dataOffset, int blockLen)
     {
         super(key, names);
         this.indexOffset = indexOffset;
         this.dataOffset = dataOffset;
+        this.blockLen = blockLen;
     }
 
     /**
@@ -62,6 +64,7 @@ public class IndexEntry extends ColumnKey
         // indexOffset is not serialized to disk, because in order to deserialize
         // an IndexEntry, we need to know indexOffset anyway
         dos.writeLong(dataOffset);
+        dos.writeInt(blockLen);
     }
 
     /**
@@ -72,14 +75,15 @@ public class IndexEntry extends ColumnKey
         long indexOffset = dis.getFilePointer();
         ColumnKey key = ColumnKey.deserialize(dis);
         long dataOffset = dis.readLong();
-        return new IndexEntry(key.dk, key.names, indexOffset, dataOffset);
+        int blockLen = dis.readInt();
+        return new IndexEntry(key.dk, key.names, indexOffset, dataOffset, blockLen);
     }
 
     public String toString()
     {
         StringBuilder buff = new StringBuilder();
         buff.append("#<IndexEntry ").append(super.toString());
-        buff.append(" boff=").append(dataOffset).append(">");
-        return buff.toString();
+        buff.append(" boff=").append(dataOffset).append(" blen=").append(blockLen);
+        return buff.append(">").toString();
     }
 }

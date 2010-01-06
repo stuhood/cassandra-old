@@ -79,6 +79,9 @@ public class SSTableScanner implements Closeable
         comparator = sstable.getComparator();
     }
 
+    /**
+     * Loads the block at the given position, lazily (re)opening the file if necessary.
+     */
     private void loadBlock(long position) throws IOException
     {
         if (file == null)

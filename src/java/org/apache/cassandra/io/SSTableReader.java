@@ -508,6 +508,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     /**
      * MERGE-FIXME: all use of this method is likely to be broken: FileDataInput needs to be plugged into the scanner
      */
+    /*
     public FileDataInput getFileDataInput(DecoratedKey decoratedKey, int bufferSize) throws IOException
     {
         PositionSize info = getPosition(decoratedKey);
@@ -527,6 +528,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     {
         return (int) (position / BUFFER_SIZE);
     }
+    */
 
     /**
      * Deprecated: should remove in favor of the ColumnKey.Comparator every SSTable
@@ -549,35 +551,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                ? Column.serializer()
                : SuperColumn.serializer(getColumnComparator());
     }
-
-    /**
-     * An iterator over entries in the index file. The index file is lazily opened
-     * when the second entry is requested.
-     */
-    /**
-    final class IndexIterator extends AbstractIterator<IndexEntry> implements Closeable
-    {
-        private BufferedRandomAccessFile ifile;
-        private IndexEntry first;
-        public IndexIterator(IndexEntry first)
-        {
-            this.first = first;
-        }
-
-        @Override
-        public IndexEntry computeNext()
-        {
-            if (ifile)
-        }
-
-        public void close() throws IOException
-        {
-            if (ifile != null)
-                ifile.close();
-            ifile = null;
-        }
-    }
-    */
 
     /**
      * A block in the SSTable, with a method to open a stream for the block.
@@ -609,6 +582,8 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         {
             file.seek(offset);
             header = BlockHeader.deserialize(file);
+            assert (file.length() - file.getFilePointer()) <= header.blockLen :
+                "Block crosses file or buffer boundaries.";
         }
 
         public BlockHeader header() throws IOException

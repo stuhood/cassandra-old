@@ -444,10 +444,9 @@ public class SSTableWriter extends SSTable
             long nextBlockPos = dataFile.getFilePointer();
 
             // build an IndexEntry to mark the closed block
-            int blockLen = (int)(nextBlockPos - currentBlockPos);
             IndexEntry entry = new IndexEntry(blockKey.dk, blockKey.names,
                                               indexFile.getFilePointer(),
-                                              currentBlockPos);
+                                              currentBlockPos, rawBlock.getLength());
 
             // reset for the next block
             rawBlock = null;
