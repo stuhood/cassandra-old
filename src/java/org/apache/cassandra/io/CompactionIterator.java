@@ -78,6 +78,11 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
     // buffers garbage collected
     private long gcCount = 0;
 
+    // total bytes in all input scanners
+    private long totalBytes = 0;
+    // bytes read from input scanners
+    private long bytesRead = 0;
+
     /**
      * TODO: add a range-based filter like #607, but use it to seek() on the Scanners.
      */
@@ -102,6 +107,7 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
         {
             SSTableScanner scanner = sstable.getScanner(bufferPer);
             scanner.first();
+            totalBytes += scanner.getFileLength();
             scanners.add(scanner);
         }
         mergeBuff = new LinkedList<SliceBuffer>();
@@ -287,6 +293,7 @@ public class CompactionIterator extends AbstractIterator<SliceBuffer> implements
 
     public long getBytesRead()
     {
+        // FIXME: not implemented
         return bytesRead;
     }
 

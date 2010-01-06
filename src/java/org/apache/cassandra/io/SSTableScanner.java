@@ -180,17 +180,14 @@ public class SSTableScanner implements Closeable
     {
         try
         {
+            if (file == null)
+                return new File(sstable.getFilename()).length();
             return file.length();
         }
         catch (IOException e)
         {
             throw new IOError(e);
         }
-    }
-
-    public long getFilePointer()
-    {
-        return file.getFilePointer();
     }
 
     /**
