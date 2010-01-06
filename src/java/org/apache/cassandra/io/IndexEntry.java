@@ -26,6 +26,7 @@ import org.apache.cassandra.db.ColumnKey;
 import org.apache.cassandra.db.ColumnSerializer;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.service.StorageService;
 
 
@@ -70,7 +71,7 @@ public class IndexEntry extends ColumnKey
     /**
      * Deserializes an IndexEntry from the index file.
      */
-    public static IndexEntry deserialize(RandomAccessFile dis) throws IOException
+    public static IndexEntry deserialize(FileDataInput dis) throws IOException
     {
         long indexOffset = dis.getFilePointer();
         ColumnKey key = ColumnKey.deserialize(dis);

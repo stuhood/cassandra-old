@@ -198,11 +198,12 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     /**
      * Package protected: to open an SSTableReader, use the open(*) factory methods.
      */
-    SSTableReader(String filename, IPartitioner partitioner, List<IndexEntry> indexEntries, BloomFilter bloomFilter, int keysToCache)
+    SSTableReader(String filename, IPartitioner partitioner, List<IndexEntry> indexEntries, BloomFilter bloomFilter, int keysToCache) throws IOException
     {
         super(filename, partitioner);
         this.indexEntries = indexEntries;
         indexBuffer = mmap(indexFilename());
+        /* MERGE-FIXME: mmap disabled for now
         if (DatabaseDescriptor.getDiskAccessMode() == DatabaseDescriptor.DiskAccessMode.mmap)
         {
             int bufferCount = 1 + (int) (new File(path).length() / BUFFER_SIZE);
@@ -219,6 +220,8 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             assert DatabaseDescriptor.getDiskAccessMode() == DatabaseDescriptor.DiskAccessMode.standard;
             buffers = null;
         }
+        */
+        buffers = null;
 
         this.bf = bloomFilter;
         phantomReference = new FileDeletingReference(this, finalizerQueue);
@@ -287,13 +290,15 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     {
         indexEntries.clear();
         
+        // FIXME: 669 will allow indexes longer than this buffer, which means
+        // we will no longer be able to trust getFilePointer: we need to change
+        // the contract for FileDataInput to include offset info
         FileDataInput input = new MappedFileDataInput(indexBuffer, indexFilename());
         int i = 0;
         long indexSize = input.length();
         while (true)
         {
-            long indexPosition = input.getFilePointer();
-            if (indexPosition == indexSize)
+            if (input.getFilePointer() == indexSize)
             {
                 break;
             }
