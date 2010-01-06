@@ -340,7 +340,9 @@ public class CompactionManager implements CompactionManagerMBean
         if (target != null)
         {
             // compacting for streaming: send to subdirectory
-            compactionFileLocation = compactionFileLocation + File.separator + DatabaseDescriptor.STREAMING_SUBDIR;
+            // NB: SSTable creation depends on having the table/cf name in the path
+            compactionFileLocation = compactionFileLocation + File.separator +
+                DatabaseDescriptor.STREAMING_SUBDIR + File.separator + cfs.table_;
         }
         List<SSTableReader> results = new ArrayList<SSTableReader>();
 

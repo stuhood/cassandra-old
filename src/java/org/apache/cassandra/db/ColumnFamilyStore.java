@@ -93,7 +93,7 @@ public final class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     private static final int KEY_RANGE_FILE_BUFFER_SIZE = 256 * 1024;
 
-    private final String table_;
+    public final String table_;
     public final String columnFamily_;
     private final boolean isSuper_;
 
