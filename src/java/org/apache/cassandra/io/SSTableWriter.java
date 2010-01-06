@@ -44,11 +44,10 @@ import com.reardencommerce.kernel.collections.shared.evictable.ConcurrentLinkedH
  * An SSTable is made up of an 'index', 'filter' and 'data' file.
  *
  * The index file contains a sequence of IndexEntries which point to the positions
- * of blocks in the data file.
+ * of Blocks in the data file.
  *
  * The data file contains a sequence of blocks. Blocks contain series of Columns,
- * which are separated by SliceMark objects which can be used for skipping through the
- * block.
+ * which are separated into Slices which can be used for skipping through the block.
  *
  * SliceMark objects are written _at_least_ at the beginning of every 'natural'
  * subrange: for instance, for a column family of type super, there are SliceMarks
@@ -56,7 +55,20 @@ import com.reardencommerce.kernel.collections.shared.evictable.ConcurrentLinkedH
  * the end of a block (of target size MAX_BLOCK_BYTES), an additional 'artificial'
  * SliceMark will mark the beginning of the next block. See shouldFlushSlice().
  *
- * TODO: absolutely, positutely need an ascii diagram here.
+ * ----------------------------------------------------------------------------
+ * [ Block                                                                    ]
+ * ----------------------------------------------------------------------------
+ * [ BlockHeader , SliceMark(CONT...) , Column[] , SliceMark(END.) , Column[] ]
+ * ----------------------------------------------------------------------------
+ *
+ * In the example above, a Block contains two Slices of Columns. The header contains
+ * the disk length of the block, and indicates the compression type for the block.
+ * The first SliceMark has status BLOCK_CONTINUE to indicate that there is another
+ * SliceMark in the block, while the second uses BLOCK_END to indicate that it is the
+ * last slice in the block.
+ *
+ * If the Block above was to be the last in the file, the second/final SliceMark
+ * would have nextKey == null to indicate that it marked the last Slice in the file.
  */
 public class SSTableWriter extends SSTable
 {
@@ -64,8 +76,9 @@ public class SSTableWriter extends SSTable
 
     /**
      * The target decompressed size of a block. An entire block might need to be
-     * read from disk in order to read a single column. If a column is large
-     * enough, the block containing it might be stretched to larger than this value.
+     * read from disk in order to read a single column, and an entire block will be
+     * buffered during writes. If a column is large enough, the block containing it
+     * might be stretched to larger than this value.
      * FIXME: tune and make configurable
      */
     public static final int TARGET_MAX_BLOCK_BYTES = 1 << 16;
@@ -138,9 +151,10 @@ public class SSTableWriter extends SSTable
      * 2. the new key has different metadata than the current slice,
      * 3. the slice size threshold has been reached.
      *
-     * At a natural boundary, the least significant name in the key will be NAME_BEGIN,
-     * which rounds the beginning of the slice down to the beginning of the subrange,
-     * and causes the Metadata to cover all of the subrange.
+     * At a natural boundary, the start and end keys for a Slice will be NAME_BEGIN
+     * and NAME_END, respectively, which rounds the beginning of the slice down to
+     * the beginning of the subrange, and causes the Metadata to cover all of the
+     * subrange.
      *
      * NB: Ordering is important here: natural boundaries must always be created
      * when the parent changes, otherwise, slice keys may be out of order on disk.
