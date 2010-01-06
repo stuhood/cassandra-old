@@ -37,6 +37,9 @@
 package org.apache.cassandra.db;
 
 import org.apache.cassandra.concurrent.StageManager;
+
+import static org.apache.cassandra.service.ThriftGlue.createColumnParent;
+
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.ICompactSerializer;
 import org.apache.cassandra.net.Message;
@@ -164,7 +167,7 @@ class SliceCommandSerializer implements ICompactSerializer<RangeSliceCommand>
         DecoratedKey finishKey = DecoratedKey.serializer().deserialize(dis);
         int max_keys = dis.readInt();
         return new RangeSliceCommand(keyspace,
-                                     new ColumnParent(column_family, super_column),
+                                     createColumnParent(column_family, super_column),
                                      pred,
                                      startKey,
                                      finishKey,

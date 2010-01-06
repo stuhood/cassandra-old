@@ -20,12 +20,14 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.QueryPath;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.service.*;
+import static org.apache.cassandra.service.ThriftGlue.createColumnPath;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.TimeoutException;
 
 public class ClientOnlyExample
 {
@@ -47,7 +49,7 @@ public class ClientOnlyExample
         for (int i = 0; i < 100; i++)
         {
             RowMutation change = new RowMutation("Keyspace1", "key" + i);
-            ColumnPath cp = new ColumnPath("Standard1", null, ("colb").getBytes());
+            ColumnPath cp = createColumnPath("Standard1", null, ("colb").getBytes());
             change.add(new QueryPath(cp), ("value" + i).getBytes(), 0);
 
             // don't call change.apply().  The reason is that is makes a static call into Table, which will perform
@@ -111,7 +113,7 @@ public class ClientOnlyExample
             {
                 throw new RuntimeException(e);
             }
-            catch (TimedOutException e)
+            catch (TimeoutException e)
             {
                 throw new RuntimeException(e);
             }
