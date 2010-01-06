@@ -365,7 +365,7 @@ public class TableTest extends CleanupHelper
         long position = 0;
 
         BufferedRandomAccessFile file = new BufferedRandomAccessFile(sstable.getFilename(), "r");
-        file.seek(info.position);
+        file.seek(position);
         assert file.readUTF().equals(key);
         file.readInt();
         /** FIXME: needs porting to Slice API

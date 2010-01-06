@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.util.*;
 
 import org.junit.Test;
+import static junit.framework.Assert.*;
 
 import org.apache.cassandra.CleanupHelper;
 import org.apache.cassandra.db.*;

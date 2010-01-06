@@ -587,7 +587,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         {
             file.seek(offset);
             header = BlockHeader.deserialize(file);
-            assert (file.length() - file.getFilePointer()) <= header.blockLen :
+            assert (file.length() - file.getFilePointer()) >= header.blockLen :
                 "Block crosses file or buffer boundaries.";
         }
 
