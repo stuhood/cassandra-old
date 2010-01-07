@@ -45,24 +45,22 @@ public class ColumnKey implements Named
     public final byte[][] names;
 
     /**
-     * Creates a column key of the given depth, and the given names. Any names
+     * Creates a column key of the given depth, with the given names. Any names
      * not specified will be NAME_BEGIN.
      */
     public ColumnKey(DecoratedKey dk, int depth, byte[]... names)
     {
         assert 0 < depth && depth < Byte.MAX_VALUE;
         this.dk = dk;
-        if (names == null || names.length != depth)
+        if (names.length != depth)
         {
             this.names = new byte[depth][];
-            for (int i = 0; i < names.length; i++)
-                this.names[i] = NAME_BEGIN;
-
-            if (names != null)
-            {
-                assert this.names.length > names.length;
+            if (names.length > 0)
+                // copy the given names to the beginning
                 System.arraycopy(names, 0, this.names, 0, names.length);
-            }
+            for (int i = names.length; i < this.names.length; i++)
+                // remaining names as NAME_BEGIN
+                this.names[i] = NAME_BEGIN;
         }
         else
         {
