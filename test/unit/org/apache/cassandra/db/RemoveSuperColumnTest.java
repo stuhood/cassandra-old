@@ -84,7 +84,6 @@ public class RemoveSuperColumnTest extends CleanupHelper
         rm.apply();
 
         validateRemoveSubColumn();
-
         store.forceBlockingFlush();
         validateRemoveSubColumn();
     }

@@ -56,7 +56,7 @@ public class ColumnKey implements Named
         {
             this.names = new byte[depth][];
             if (names.length > 0)
-                // copy the given names to the beginning
+                // copy the given names
                 System.arraycopy(names, 0, this.names, 0, names.length);
             for (int i = names.length; i < this.names.length; i++)
                 // remaining names as NAME_BEGIN

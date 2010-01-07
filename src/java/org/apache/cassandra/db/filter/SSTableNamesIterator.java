@@ -23,6 +23,7 @@ package org.apache.cassandra.db.filter;
 
 import java.io.IOError;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.*;
 
 import org.apache.cassandra.db.*;
@@ -94,9 +95,6 @@ public class SSTableNamesIterator extends AbstractIterator<IColumn> implements C
                 keys.next();
                 continue;
             }
-            if (comparator.compare(keys.peek(), scanner.get().key, 0) != 0)
-                // no slices with our decorated key
-                break;
 
             if (cf == null)
             {
@@ -108,41 +106,74 @@ public class SSTableNamesIterator extends AbstractIterator<IColumn> implements C
 
             // positioned at a slice that might contain some of our keys
             if (scanner.sstable().getColumnDepth() == 1)
-            {
-                // standard CF
-                Slice slice = scanner.get();
-                List<Column> slicecols = scanner.getColumns();
-                while (keys.hasNext())
-                {
-                    // search for current key in the slice
-                    int idx = Collections.binarySearch(slicecols, keys.peek(),
-                                                       ncomparator);
-                    if (0 <= idx)
-                    {
-                        // found key
-                        buffer.add(slicecols.get(idx));
-                        keys.next();
-                    }
-                    else
-                    {
-                        // key not in current slice
-                        if (ncomparator.compare(slice.end, keys.peek()) <= 0)
-                            // possibly in another slice
-                            break; // inner
-                        else
-                            // doesn't exist
-                            keys.next();
-                    }
-                }
-            }
+                collectStandard();
             else
-            {
-                // super CF: multiple slices may go into each returned super column
-                throw new RuntimeException("Not implemented"); // FIXME
-            }
+                collectSuper();
         }
         
         return buffer.isEmpty() ? endOfData() : buffer.poll();
+    }
+
+    /**
+     * Assumes a successful seek call: at a slice that may contain some of our columns.
+     */
+    private void collectStandard() throws IOException
+    {
+        Slice slice = scanner.get();
+        List<Column> slicecols = scanner.getColumns();
+        while (keys.hasNext())
+        {
+            // search for current key in the slice
+            int idx = Collections.binarySearch(slicecols, keys.peek(),
+                                               ncomparator);
+            if (0 <= idx)
+            {
+                // found key
+                buffer.add(slicecols.get(idx));
+                keys.next();
+            }
+            else
+            {
+                // key not in current slice
+                if (ncomparator.compare(slice.end, keys.peek()) <= 0)
+                    // possibly in another slice
+                    break; // inner
+                else
+                    // doesn't exist
+                    keys.next();
+            }
+        }
+    }
+
+    /**
+     * Assumes a successful seek call: at a matching slice.
+     */
+    private void collectSuper() throws IOException
+    {
+        Slice slice = scanner.get();
+        SuperColumn sc = new SuperColumn(slice.key.name(1),
+                                         scanner.sstable().getColumnComparator());
+        // all slices should have the same metadata
+        sc.markForDeleteAt(slice.meta.localDeletionTime,
+                           slice.meta.markedForDeleteAt);
+        // collect consecutive slices into this super column 
+        while (scanner.get() != null)
+        {
+            for (Column col : scanner.getColumns())
+                sc.addColumn(col);
+
+            // see if we should collect from the next slice
+            if (comparator.compareAt(ColumnKey.NAME_END, slice.end.name(2), 2) != 0)
+                // we share parents with the next slice
+                scanner.next();
+            else
+            {
+                // we've collected all for this sc: seek to the next key
+                keys.next();
+                break; // inner
+            }
+        }
+        buffer.add(sc);
     }
 
     @Override
