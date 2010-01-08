@@ -218,6 +218,11 @@ public class SSTableScanner implements Closeable
         while (slice.nextKey != null && comparator.compare(seekKey, slice.nextKey) >= 0)
             assert next();
 
+        // confirm that the key would be contained in this slice
+        if (exact && !(comparator.compare(slice.key, seekKey) <= 0 && comparator.compare(seekKey, slice.end) <= 0))
+            // key does not fall into the range defined by this slice
+            return false;
+
         return true;
     }
 
