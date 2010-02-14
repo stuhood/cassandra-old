@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 
 import org.apache.commons.lang.ArrayUtils;
 
@@ -39,6 +40,8 @@ import org.apache.cassandra.thrift.SliceRange;
 
 public class Util
 {
+    public static final int TIMEOUT = 10000;
+
     public static Column column(String name, String value, long timestamp)
     {
         return new Column(name.getBytes(), value.getBytes(), timestamp);
@@ -92,7 +95,14 @@ public class Util
         for (RowMutation rm : rms)
             rm.apply();
 
-        store.forceBlockingFlush();
+        try
+        {
+            store.forceBlockingFlush(TIMEOUT);
+        }
+        catch (TimeoutException e)
+        {
+            throw new AssertionError(e);
+        }
         return store;
     }
 }

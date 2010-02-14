@@ -46,11 +46,12 @@ public class TableTest extends CleanupHelper
 {
     private static final String KEY2 = "key2";
     private static final String TEST_KEY = "key1";
+    private static final int TIMEOUT = 10000;
 
     public static void reTest(ColumnFamilyStore cfs, Runnable verify) throws Exception
     {
         verify.run();
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlush(TIMEOUT);
         verify.run();
     }
 
@@ -154,7 +155,7 @@ public class TableTest extends CleanupHelper
         rm.apply();
 
         validateGetSliceNoMatch(table);
-        table.getColumnFamilyStore("Standard2").forceBlockingFlush();
+        table.getColumnFamilyStore("Standard2").forceBlockingFlush(TIMEOUT);
         validateGetSliceNoMatch(table);
 
         Collection<SSTableReader> ssTables = table.getColumnFamilyStore("Standard2").getSSTables();
@@ -310,7 +311,7 @@ public class TableTest extends CleanupHelper
         cf.addColumn(column("col6", "val6", 1L));
         rm.add(cf);
         rm.apply();
-        cfStore.forceBlockingFlush();
+        cfStore.forceBlockingFlush(TIMEOUT);
 
         rm = new RowMutation("Keyspace1", ROW);
         cf = ColumnFamily.create("Keyspace1", "Standard1");
@@ -350,7 +351,7 @@ public class TableTest extends CleanupHelper
             cf.addColumn(column("col" + i, ("v" + i), 1L));
         rm.add(cf);
         rm.apply();
-        cfStore.forceBlockingFlush();
+        cfStore.forceBlockingFlush(TIMEOUT);
 
         validateSliceLarge(cfStore);
         // compact so we have a big row with more than the minimum index count

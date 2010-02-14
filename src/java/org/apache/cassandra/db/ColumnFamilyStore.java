@@ -426,9 +426,21 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     public void forceBlockingFlush() throws IOException, ExecutionException, InterruptedException
     {
+        try
+        {
+            forceBlockingFlush(Long.MAX_VALUE);
+        }
+        catch(TimeoutException e)
+        {
+            throw new AssertionError(e);
+        }
+    }
+
+    public void forceBlockingFlush(long timeout) throws IOException, ExecutionException, InterruptedException, TimeoutException
+    {
         Future<?> future = forceFlush();
         if (future != null)
-            future.get();
+            future.get(timeout, TimeUnit.MILLISECONDS);
     }
 
     public void forceFlushBinary()
