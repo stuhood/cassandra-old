@@ -97,11 +97,23 @@
        ~ Do not use this on ColumnFamilies with large rows, or
        ~ ColumnFamilies with high write:read ratios.  As with key caching,
        ~ valid values are from 0 to 1.  The default 0 disables it entirely.
+       ~
+       ~ The optional MergeFactor attribute is used to tune read vs write
+       ~ performance for a ColumnFamily. The default value is 10. A lower
+       ~ MergeFactor (minimum 2) will cause the ColumnFamily to be compacted
+       ~ more frequently, leading to improved read performance at the cost of
+       ~ decreased write performance. Accordingly, a higher MergeFactor (max 256)
+       ~ will improve write performance, at the expense of read performance. For
+       ~ example, a MergeFactor of 8 indicates that compaction should only happen
+       ~ when more than 8 sstables of a similar size are present. MergeFactor
+       ~ is directly tied to the number of file handles required by Cassandra: a
+       ~ higher MergeFactor means more file handles.
       -->
       <ColumnFamily CompareWith="BytesType" 
                     Name="Standard1" 
                     RowsCached="10%"
-                    KeysCachedFraction="0"/>
+                    KeysCachedFraction="0"
+                    MergeFactor="4"/>
       <ColumnFamily CompareWith="UTF8Type" Name="Standard2"/>
       <ColumnFamily CompareWith="TimeUUIDType" Name="StandardByUUID1"/>
       <ColumnFamily ColumnType="Super"
@@ -110,6 +122,7 @@
                     Name="Super1"
                     RowsCached="1000"
                     KeysCachedFraction="0"
+                    MergeFactor="8"
                     Comment="A column family with supercolumns, whose column and subcolumn names are UTF8 strings"/>
 
       <!--

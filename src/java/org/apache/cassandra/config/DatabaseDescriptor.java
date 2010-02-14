@@ -580,6 +580,13 @@ public class DatabaseDescriptor
                         }
                     }
 
+                    int mergeFactor = 10;
+                    if ((value = XMLUtils.getAttributeValue(columnFamily, "MergeFactor")) != null)
+                    {
+                        mergeFactor = Integer.parseInt(value);
+                    }
+                    
+
                     // Parse out user-specified logical names for the various dimensions
                     // of a the column family from the config.
                     String cfComment = xmlUtils.getNodeValue(xqlCF + "Comment");
@@ -596,8 +603,7 @@ public class DatabaseDescriptor
                     cfMetaData.comparator = columnComparator;
                     cfMetaData.subcolumnComparator = subcolumnComparator;
 
-                    // FIXME: configurable per cf, + validation
-                    cfMetaData.mergeFactor = 4;
+                    cfMetaData.mergeFactor = mergeFactor;
 
                     tableToCFMetaDataMap_.get(tName).put(cfName, cfMetaData);
                 }
