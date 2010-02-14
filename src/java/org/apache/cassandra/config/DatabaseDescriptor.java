@@ -596,6 +596,9 @@ public class DatabaseDescriptor
                     cfMetaData.comparator = columnComparator;
                     cfMetaData.subcolumnComparator = subcolumnComparator;
 
+                    // FIXME: configurable per cf, + validation
+                    cfMetaData.mergeFactor = 4;
+
                     tableToCFMetaDataMap_.get(tName).put(cfName, cfMetaData);
                 }
             }
@@ -824,27 +827,26 @@ public class DatabaseDescriptor
 
     /*
      * Given a table name & column family name, get the column family
-     * meta data. If the table name or column family name is not valid
-     * this function returns null.
+     * meta data. Asserts that the table name or column family name are valid.
      */
     public static CFMetaData getCFMetaData(String tableName, String cfName)
     {
         assert tableName != null;
         Map<String, CFMetaData> cfInfo = tableToCFMetaDataMap_.get(tableName);
-        if (cfInfo == null)
-            return null;
-        
-        return cfInfo.get(cfName);
+        assert cfInfo != null;
+        CFMetaData cfm = cfInfo.get(cfName);
+        assert cfm != null;
+        return cfm;
     }
     
     public static String getColumnType(String tableName, String cfName)
     {
-        assert tableName != null;
-        CFMetaData cfMetaData = getCFMetaData(tableName, cfName);
-        
-        if (cfMetaData == null)
-            return null;
-        return cfMetaData.columnType;
+        return getCFMetaData(tableName, cfName).columnType;
+    }
+
+    public static int getMergeFactor(String tableName, String cfName)
+    {
+        return getCFMetaData(tableName, cfName).mergeFactor;
     }
 
     public static Set<String> getTables()

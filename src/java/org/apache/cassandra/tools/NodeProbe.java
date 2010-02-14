@@ -356,32 +356,6 @@ public class NodeProbe
         }
     }
 
-    /**
-     * Get the compaction threshold
-     *
-     * @param outs the stream to write to
-     */
-    public void getCompactionThreshold(PrintStream outs)
-    {
-        outs.println("Current compaction threshold: Min=" +  mcmProxy.getMinimumCompactionThreshold() +
-            ", Max=" +  mcmProxy.getMaximumCompactionThreshold());
-    }
-
-    /**
-     * Set the compaction threshold
-     *
-     * @param minimumCompactionThreshold minimum compaction threshold
-     * @param maximumCompactionThreshold maximum compaction threshold
-     */
-    public void setCompactionThreshold(int minimumCompactionThreshold, int maximumCompactionThreshold)
-    {
-        mcmProxy.setMinimumCompactionThreshold(minimumCompactionThreshold);
-        if (maximumCompactionThreshold >= 0)
-        {
-             mcmProxy.setMaximumCompactionThreshold(maximumCompactionThreshold);
-        }
-    }
-
     public void setCacheCapacities(String tableName, String cfName, int keyCacheCapacity, int rowCacheCapacity)
     {
         try

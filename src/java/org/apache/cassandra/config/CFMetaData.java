@@ -28,6 +28,7 @@ public class CFMetaData
     public AbstractType comparator;       // name sorted, time stamp sorted etc.
     public AbstractType subcolumnComparator; // like comparator, for supercolumns
     public String comment; // for humans only
+    public int mergeFactor;             // tunable for read vs write performance
 
     // a quick and dirty pretty printer for describing the column family...
     public String pretty()

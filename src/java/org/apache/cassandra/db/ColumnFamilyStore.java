@@ -298,6 +298,14 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     }
 
     /**
+     * @return the name of the table
+     */
+    public String getTableName()
+    {
+        return table_;
+    }
+
+    /**
      * @return the name of the column family
      */
     public String getColumnFamilyName()

@@ -52,11 +52,11 @@ public class CompactionManager implements CompactionManagerMBean
     private static final Logger logger = Logger.getLogger(CompactionManager.class);
     public static final CompactionManager instance;
 
-    private int minimumCompactionThreshold = 4; // compact this many sstables min at a time
-    private int maximumCompactionThreshold = 256; // compact this many sstables max at a time
+    // approximate minimum bucket size in bytes
+    private final static long MIN_BUCKET_SIZE = 50 * 1024 * 1024;
 
-    // TODO: make configurable per CF
-    private static final int MERGE_FACTOR = 10;
+    // compact this many sstables max at a time (mutable for testing only)
+    private int maximumCompactionThreshold = 256;
 
     static
     {
@@ -75,6 +75,13 @@ public class CompactionManager implements CompactionManagerMBean
     private CompactionExecutor executor = new CompactionExecutor();
     private Map<ColumnFamilyStore, Integer> estimatedCompactions = new NonBlockingHashMap<ColumnFamilyStore, Integer>();
 
+    private int getMergeFactor(ColumnFamilyStore cfs)
+    {
+        return Math.min(maximumCompactionThreshold-1,
+                        DatabaseDescriptor.getMergeFactor(cfs.getTableName(),
+                                                          cfs.getColumnFamilyName()));
+    }
+
     /**
      * Call this whenever a compaction might be needed on the given columnfamily.
      * It's okay to over-call (within reason) since the compactions are single-threaded,
@@ -86,18 +93,20 @@ public class CompactionManager implements CompactionManagerMBean
         {
             public Integer call() throws IOException
             {
-                if (minimumCompactionThreshold <= 0 || maximumCompactionThreshold <= 0)
+                if (maximumCompactionThreshold <= 0)
                 {
                     logger.debug("Compaction is currently disabled.");
                     return 0;
                 }
-                logger.debug("Checking to see if compaction of " + cfs.columnFamily_ + " would be useful");
-                NavigableMap<Integer, List<SSTableReader>> buckets = getCompactionBuckets(cfs.getSSTables(), 50L * 1024L * 1024L);
-                updateEstimateFor(cfs, buckets.values());
+
+                int mergeFactor = getMergeFactor(cfs);
+                logger.debug("Checking to see if compaction of " + cfs.columnFamily_ + " would be useful (mergeFactor: " + mergeFactor + ")");
+                NavigableMap<Integer, List<SSTableReader>> buckets = getCompactionBuckets(cfs.getSSTables(), mergeFactor);
+                updateEstimateFor(cfs, buckets.values(), mergeFactor);
                 
                 for (List<SSTableReader> sstables : buckets.values())
                 {
-                    if (sstables.size() >= minimumCompactionThreshold)
+                    if (sstables.size() >= mergeFactor)
                     {
                         // if we have too many to compact all at once, compact older ones first -- this avoids
                         // re-compacting files we just created.
@@ -111,14 +120,14 @@ public class CompactionManager implements CompactionManagerMBean
         return executor.submit(callable);
     }
 
-    private void updateEstimateFor(ColumnFamilyStore cfs, Collection<List<SSTableReader>> buckets)
+    private void updateEstimateFor(ColumnFamilyStore cfs, Collection<List<SSTableReader>> buckets, int mergeFactor)
     {
         int n = 0;
         for (List<SSTableReader> sstables : buckets)
         {
-            if (sstables.size() >= minimumCompactionThreshold)
+            if (sstables.size() >= mergeFactor)
             {
-                n += 1 + sstables.size() / (maximumCompactionThreshold - minimumCompactionThreshold);
+                n += 1 + sstables.size() / (maximumCompactionThreshold - mergeFactor);
             }
         }
         estimatedCompactions.put(cfs, n);
@@ -198,40 +207,10 @@ public class CompactionManager implements CompactionManagerMBean
     }
 
     /**
-     * Gets the minimum number of sstables in queue before compaction kicks off
+     * For testing only.
      */
-    public int getMinimumCompactionThreshold()
+    void disableAutoCompaction()
     {
-        return minimumCompactionThreshold;
-    }
-
-    /**
-     * Sets the minimum number of sstables in queue before compaction kicks off
-     */
-    public void setMinimumCompactionThreshold(int threshold)
-    {
-        minimumCompactionThreshold = threshold;
-    }
-
-    /**
-     * Gets the maximum number of sstables in queue before compaction kicks off
-     */
-    public int getMaximumCompactionThreshold()
-    {
-        return maximumCompactionThreshold;
-    }
-
-    /**
-     * Sets the maximum number of sstables in queue before compaction kicks off
-     */
-    public void setMaximumCompactionThreshold(int threshold)
-    {
-        maximumCompactionThreshold = threshold;
-    }
-
-    public void disableAutoCompaction()
-    {
-        minimumCompactionThreshold = 0;
         maximumCompactionThreshold = 0;
     }
 
@@ -444,15 +423,15 @@ public class CompactionManager implements CompactionManagerMBean
      * Group files of similar size into buckets.
      * @return A map of bucket level (relative size of individual sstables in the bucket) to the bucket itself.
      */
-    static NavigableMap<Integer,List<SSTableReader>> getCompactionBuckets(Iterable<SSTableReader> files, long min)
+    static NavigableMap<Integer,List<SSTableReader>> getCompactionBuckets(Iterable<SSTableReader> files, int mergeFactor)
     {
         // gather into buckets by log size
         NavigableMap<Integer, List<SSTableReader>> buckets = new TreeMap<Integer, List<SSTableReader>>();
-        int minlevel = (int)(Math.log(min) / Math.log(MERGE_FACTOR));
+        int minlevel = 1+(int)(Math.log(MIN_BUCKET_SIZE) / Math.log(mergeFactor));
         for (SSTableReader sstable : files)
         {
-            // level = log base MERGE_FACTOR of the filesize
-            int level = Math.max((int)(Math.log(sstable.length()) / Math.log(MERGE_FACTOR)),
+            // level = log base mergeFactor of the filesize
+            int level = Math.max((int)(Math.log(sstable.length()) / Math.log(mergeFactor)),
                                  minlevel);
 
             List<SSTableReader> bucket = buckets.get(level);
@@ -525,9 +504,10 @@ public class CompactionManager implements CompactionManagerMBean
             {
                 public void run ()
                 {
+                    int mergeFactor = getMergeFactor(cfs);
                     logger.debug("Estimating compactions for " + cfs.columnFamily_);
-                    Collection<List<SSTableReader>> buckets = getCompactionBuckets(cfs.getSSTables(), 50L * 1024L * 1024L).values();
-                    updateEstimateFor(cfs, buckets);
+                    Collection<List<SSTableReader>> buckets = getCompactionBuckets(cfs.getSSTables(), mergeFactor).values();
+                    updateEstimateFor(cfs, buckets, mergeFactor);
                 }
             };
             executor.submit(runnable);

@@ -490,40 +490,6 @@ public class NodeCmd {
             int rowCacheCapacity = Integer.valueOf(cmd.getArgs()[4]);
             probe.setCacheCapacities(tableName, cfName, keyCacheCapacity, rowCacheCapacity);
         }
-        else if (cmdName.equals("getcompactionthreshold"))
-        {
-            probe.getCompactionThreshold(System.out);
-        }
-        else if (cmdName.equals("setcompactionthreshold"))
-        {
-            if (arguments.length < 2)
-            {
-                System.err.println("Missing threshold value(s)");
-                printUsage();
-                System.exit(1);
-            }
-            int minthreshold = Integer.parseInt(arguments[1]);
-            int maxthreshold = CompactionManager.instance.getMaximumCompactionThreshold();
-            if (arguments.length > 2)
-            {
-                maxthreshold = Integer.parseInt(arguments[2]);
-            }
-
-            if (minthreshold > maxthreshold)
-            {
-                System.err.println("Min threshold can't be greater than Max threshold");
-                printUsage();
-                System.exit(1);
-            }
-
-            if (minthreshold < 2 && maxthreshold != 0)
-            {
-                System.err.println("Min threshold must be at least 2");
-                printUsage();
-                System.exit(1);
-            }
-            probe.setCompactionThreshold(minthreshold, maxthreshold);
-        }
         else if (cmdName.equals("streams"))
         {
             String otherHost = arguments.length > 1 ? arguments[1] : null;
