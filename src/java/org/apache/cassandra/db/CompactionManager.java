@@ -493,9 +493,10 @@ public class CompactionManager implements CompactionManagerMBean
                 }
             };
             CollatingIterator iter = FBUtilities.<IteratingRow>getCollatingIterator();
+            int perFileBuffer = FILE_BUFFER_SIZE / Math.max(1, sstables.size());
             for (SSTableReader sstable : sstables)
             {
-                SSTableScanner scanner = sstable.getScanner(FILE_BUFFER_SIZE);
+                SSTableScanner scanner = sstable.getScanner(perFileBuffer);
                 iter.addIterator(new FilterIterator(scanner, rangesPredicate));
             }
             return iter;

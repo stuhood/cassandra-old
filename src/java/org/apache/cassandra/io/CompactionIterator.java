@@ -24,9 +24,7 @@ package org.apache.cassandra.io;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.IOError;
-import java.util.List;
-import java.util.ArrayList;
-import java.util.Iterator;
+import java.util.*;
 
 import org.apache.log4j.Logger;
 import org.apache.commons.collections.iterators.CollatingIterator;
@@ -42,7 +40,7 @@ public class CompactionIterator extends ReducingIterator<IteratingRow, Compactio
 {
     private static Logger logger = Logger.getLogger(CompactionIterator.class);
 
-    protected static final int FILE_BUFFER_SIZE = 1024 * 1024;
+    protected static final int FILE_BUFFER_SIZE = 32 * 1024 * 1024;
 
     private final List<IteratingRow> rows = new ArrayList<IteratingRow>();
     private final int gcBefore;
@@ -52,7 +50,7 @@ public class CompactionIterator extends ReducingIterator<IteratingRow, Compactio
     private long bytesRead;
     private long row;
 
-    public CompactionIterator(Iterable<SSTableReader> sstables, int gcBefore, boolean major) throws IOException
+    public CompactionIterator(Collection<SSTableReader> sstables, int gcBefore, boolean major) throws IOException
     {
         this(getCollatingIterator(sstables), gcBefore, major);
     }
@@ -72,12 +70,13 @@ public class CompactionIterator extends ReducingIterator<IteratingRow, Compactio
     }
 
     @SuppressWarnings("unchecked")
-    protected static CollatingIterator getCollatingIterator(Iterable<SSTableReader> sstables) throws IOException
+    protected static CollatingIterator getCollatingIterator(Collection<SSTableReader> sstables) throws IOException
     {
         CollatingIterator iter = FBUtilities.<IteratingRow>getCollatingIterator();
+        int perFileBuffer = FILE_BUFFER_SIZE / Math.max(1, sstables.size());
         for (SSTableReader sstable : sstables)
         {
-            iter.addIterator(sstable.getScanner(FILE_BUFFER_SIZE));
+            iter.addIterator(sstable.getScanner(perFileBuffer));
         }
         return iter;
     }
