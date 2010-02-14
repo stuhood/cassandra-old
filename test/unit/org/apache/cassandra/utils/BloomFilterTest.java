@@ -26,12 +26,10 @@ import org.junit.Test;
 public class BloomFilterTest
 {
     public BloomFilter bf;
-    public BloomCalculations.BloomSpecification spec = BloomCalculations.computeBucketsAndK(0.0001);
-    static final int ELEMENTS = 10000;
 
     public BloomFilterTest()
     {
-        bf = new BloomFilter(ELEMENTS, spec.bucketsPerElement);
+        bf = BloomFilter.getFilter(FilterTest.ELEMENTS, FilterTest.MAX_FAILURE_RATE);
         assert bf != null;
     }
 
@@ -39,6 +37,20 @@ public class BloomFilterTest
     public void clear()
     {
         bf.clear();
+    }
+
+    @Test
+    public void testBloomLimits()
+    {
+        int maxBuckets = BloomCalculations.probs.length-1;
+        int maxK = BloomCalculations.probs[maxBuckets].length-1;
+
+        // impossible
+        assert null == BloomCalculations.computeBloomSpec(maxBuckets,
+                                                          BloomCalculations.probs[maxBuckets][maxK]/2);
+        // possible
+        assert null != BloomCalculations.computeBloomSpec(maxBuckets,
+                                                          BloomCalculations.probs[maxBuckets][maxK]);
     }
 
     @Test
@@ -68,7 +80,7 @@ public class BloomFilterTest
         {
             return;
         }
-        BloomFilter bf2 = new BloomFilter(KeyGenerator.WordGenerator.WORDS / 2, FilterTest.spec.bucketsPerElement);
+        BloomFilter bf2 = BloomFilter.getFilter(KeyGenerator.WordGenerator.WORDS / 2, FilterTest.MAX_FAILURE_RATE);
         int skipEven = KeyGenerator.WordGenerator.WORDS % 2 == 0 ? 0 : 2;
         FilterTest.testFalsePositives(bf2,
                                       new KeyGenerator.WordGenerator(skipEven, 2),

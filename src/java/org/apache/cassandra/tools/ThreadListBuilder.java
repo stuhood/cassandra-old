@@ -46,7 +46,7 @@ public class ThreadListBuilder
         File directory = new File(args[0]);
         File[] files = directory.listFiles();
         List<DataOutputBuffer> buffers = new ArrayList<DataOutputBuffer>();
-        BloomFilter bf = new BloomFilter(count_, 8);        
+        BloomFilter bf = BloomFilter.getFilter(count_, 8);        
         int keyCount = 0;
         
         /* Process the list of files. */
@@ -65,7 +65,7 @@ public class ThreadListBuilder
                     BloomFilter.serializer().serialize(bf, bufOut);
                     System.out.println("Finished serializing the bloom filter");
                     buffers.add(bufOut);
-                    bf = new BloomFilter(count_, 8);
+                    bf = BloomFilter.getFilter(count_, 8);
                 }
                 line = line.trim();                
                 bf.add(line);

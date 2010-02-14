@@ -25,9 +25,14 @@ import java.util.BitSet;
 
 import org.apache.cassandra.io.ICompactSerializer;
 
+import org.apache.log4j.Logger;
+
 public class BloomFilter extends Filter
 {
+    private static final Logger logger = Logger.getLogger(BloomFilter.class);
     static ICompactSerializer<BloomFilter> serializer_ = new BloomFilterSerializer();
+
+    private static final int EXCESS = 20;
 
     public static ICompactSerializer<BloomFilter> serializer()
     {
@@ -36,26 +41,65 @@ public class BloomFilter extends Filter
 
     private BitSet filter_;
 
-    public BloomFilter(int numElements, int bucketsPerElement)
-    {
-        this(BloomCalculations.computeBestK(bucketsPerElement), new BitSet(numElements * bucketsPerElement + 20));
-    }
-
-    public BloomFilter(int numElements, double maxFalsePosProbability)
-    {
-        BloomCalculations.BloomSpecification spec = BloomCalculations
-                .computeBucketsAndK(maxFalsePosProbability);
-        filter_ = new BitSet(numElements * spec.bucketsPerElement + 20);
-        hashCount = spec.K;
-    }
-
-    /*
-     * This version is only used by the deserializer.
+    /**
+     * Use the factory functions.
      */
     BloomFilter(int hashes, BitSet filter)
     {
         hashCount = hashes;
         filter_ = filter;
+    }
+
+    private static BitSet bucketsFor(long numElements, int bucketsPer)
+    {
+        long numBits = numElements * bucketsPer + EXCESS;
+        return new BitSet((int)Math.min(Integer.MAX_VALUE, numBits));
+    }
+
+    /**
+     * Calculates the maximum number of buckets per element that this implementation
+     * can support.
+     */
+    private static double maxBucketsPerElem(long numElements)
+    {
+        numElements = Math.max(1, numElements);
+        return (Integer.MAX_VALUE - EXCESS) / (double)numElements;
+    }
+
+    /**
+     * @return A BloomFilter with the lowest practical false positive probability
+     * for the given number of elements.
+     */
+    public static BloomFilter getFilter(long numElements, int targetBucketsPerElem)
+    {
+        int maxBucketsPerElem = Math.max(1, (int)Math.floor(maxBucketsPerElem(numElements)));
+        int bucketsPerElem = Math.min(targetBucketsPerElem, maxBucketsPerElem);
+        if (bucketsPerElem < targetBucketsPerElem)
+        {
+            logger.warn("Cannot provide an optimal BloomFilter for " + numElements + " elements (" +
+                bucketsPerElem + "/" + targetBucketsPerElem + " buckets per element).");
+        }
+        BloomCalculations.BloomSpecification spec = BloomCalculations
+                .computeBloomSpec(bucketsPerElem);
+        return new BloomFilter(spec.K, bucketsFor(numElements, spec.bucketsPerElement));
+    }
+
+    /**
+     * @return The smallest BloomFilter that can provide the given false positive
+     * probability rate for the given number of elements.
+     *
+     * Asserts that the given probability can be satisfied using this filter.
+     */
+    public static BloomFilter getFilter(long numElements, double maxFalsePosProbability)
+    {
+        double maxBucketsPerElem = maxBucketsPerElem(numElements);
+        assert maxFalsePosProbability <= 1.0 : "Invalid probability";
+        assert maxBucketsPerElem >= 1.0 : "Cannot compute probabilities for " + numElements + " elements.";
+        BloomCalculations.BloomSpecification spec = BloomCalculations
+                .computeBloomSpec((int)maxBucketsPerElem,
+                                  maxFalsePosProbability);
+        assert spec != null : "Cannot provide maxFalsePosProbability " + maxFalsePosProbability;
+        return new BloomFilter(spec.K, bucketsFor(numElements, spec.bucketsPerElement));
     }
 
     public void clear()
