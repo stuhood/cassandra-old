@@ -53,7 +53,10 @@ public class CompactionManager implements CompactionManagerMBean
     public static final CompactionManager instance;
 
     private int minimumCompactionThreshold = 4; // compact this many sstables min at a time
-    private int maximumCompactionThreshold = 32; // compact this many sstables max at a time
+    private int maximumCompactionThreshold = 256; // compact this many sstables max at a time
+
+    // TODO: make configurable per CF
+    private static final int MERGE_FACTOR = 10;
 
     static
     {
@@ -89,10 +92,10 @@ public class CompactionManager implements CompactionManagerMBean
                     return 0;
                 }
                 logger.debug("Checking to see if compaction of " + cfs.columnFamily_ + " would be useful");
-                Set<List<SSTableReader>> buckets = getCompactionBuckets(cfs.getSSTables(), 50L * 1024L * 1024L);
-                updateEstimateFor(cfs, buckets);
+                NavigableMap<Integer, List<SSTableReader>> buckets = getCompactionBuckets(cfs.getSSTables(), 50L * 1024L * 1024L);
+                updateEstimateFor(cfs, buckets.values());
                 
-                for (List<SSTableReader> sstables : buckets)
+                for (List<SSTableReader> sstables : buckets.values())
                 {
                     if (sstables.size() >= minimumCompactionThreshold)
                     {
@@ -108,7 +111,7 @@ public class CompactionManager implements CompactionManagerMBean
         return executor.submit(callable);
     }
 
-    private void updateEstimateFor(ColumnFamilyStore cfs, Set<List<SSTableReader>> buckets)
+    private void updateEstimateFor(ColumnFamilyStore cfs, Collection<List<SSTableReader>> buckets)
     {
         int n = 0;
         for (List<SSTableReader> sstables : buckets)
@@ -437,46 +440,31 @@ public class CompactionManager implements CompactionManagerMBean
         }
     }
 
-    /*
-    * Group files of similar size into buckets.
-    */
-    static Set<List<SSTableReader>> getCompactionBuckets(Iterable<SSTableReader> files, long min)
+    /**
+     * Group files of similar size into buckets.
+     * @return A map of bucket level (relative size of individual sstables in the bucket) to the bucket itself.
+     */
+    static NavigableMap<Integer,List<SSTableReader>> getCompactionBuckets(Iterable<SSTableReader> files, long min)
     {
-        Map<List<SSTableReader>, Long> buckets = new HashMap<List<SSTableReader>, Long>();
+        // gather into buckets by log size
+        NavigableMap<Integer, List<SSTableReader>> buckets = new TreeMap<Integer, List<SSTableReader>>();
+        int minlevel = (int)(Math.log(min) / Math.log(MERGE_FACTOR));
         for (SSTableReader sstable : files)
         {
-            long size = sstable.length();
+            // level = log base MERGE_FACTOR of the filesize
+            int level = Math.max((int)(Math.log(sstable.length()) / Math.log(MERGE_FACTOR)),
+                                 minlevel);
 
-            boolean bFound = false;
-            // look for a bucket containing similar-sized files:
-            // group in the same bucket if it's w/in 50% of the average for this bucket,
-            // or this file and the bucket are all considered "small" (less than `min`)
-            for (Entry<List<SSTableReader>, Long> entry : buckets.entrySet())
+            List<SSTableReader> bucket = buckets.get(level);
+            if (bucket == null)
             {
-                List<SSTableReader> bucket = entry.getKey();
-                long averageSize = entry.getValue();
-                if ((size > averageSize / 2 && size < 3 * averageSize / 2)
-                    || (size < min && averageSize < min))
-                {
-                    // remove and re-add because adding changes the hash
-                    buckets.remove(bucket);
-                    averageSize = (averageSize + size) / 2;
-                    bucket.add(sstable);
-                    buckets.put(bucket, averageSize);
-                    bFound = true;
-                    break;
-                }
+                bucket = new ArrayList<SSTableReader>();
+                buckets.put(level, bucket);
             }
-            // no similar bucket found; put it in a new one
-            if (!bFound)
-            {
-                ArrayList<SSTableReader> bucket = new ArrayList<SSTableReader>();
-                bucket.add(sstable);
-                buckets.put(bucket, size);
-            }
+            bucket.add(sstable);
         }
 
-        return buckets.keySet();
+        return buckets;
     }
 
     public static int getDefaultGCBefore()
@@ -537,7 +525,7 @@ public class CompactionManager implements CompactionManagerMBean
                 public void run ()
                 {
                     logger.debug("Estimating compactions for " + cfs.columnFamily_);
-                    final Set<List<SSTableReader>> buckets = getCompactionBuckets(cfs.getSSTables(), 50L * 1024L * 1024L);
+                    Collection<List<SSTableReader>> buckets = getCompactionBuckets(cfs.getSSTables(), 50L * 1024L * 1024L).values();
                     updateEstimateFor(cfs, buckets);
                 }
             };
