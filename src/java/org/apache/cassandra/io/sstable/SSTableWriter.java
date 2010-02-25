@@ -84,7 +84,7 @@ public class SSTableWriter extends SSTable
         if (logger.isTraceEnabled())
             logger.trace("wrote index of " + decoratedKey + " at " + indexPosition);
 
-        boolean spannedEntry = SSTableReader.bufferIndex(indexPosition) != SSTableReader.bufferIndex(indexFile.getFilePointer());
+        boolean spannedEntry = RowIndexedReader.bufferIndex(indexPosition) != RowIndexedReader.bufferIndex(indexFile.getFilePointer());
         if (keysWritten++ % INDEX_INTERVAL == 0 || spannedEntry)
         {
             if (indexPositions == null)
@@ -153,15 +153,16 @@ public class SSTableWriter extends SSTable
         // main data
         dataFile.close(); // calls force
 
-        String newpath = getFilename();
+        Descriptor newdesc = desc;
         if (!temporary)
         {
             rename(indexFilename());
             rename(filterFilename());
-            newpath = rename(newpath);
+            rename(getFilename());
+            newdesc = desc.asTemporary(false);
         }
 
-        return new SSTableReader(newpath, partitioner, indexPositions, spannedIndexDataPositions, bf);
+        return new RowIndexedReader(newdesc, partitioner, indexPositions, spannedIndexDataPositions, bf);
     }
 
     static String rename(String tmpFilename)
@@ -183,8 +184,7 @@ public class SSTableWriter extends SSTable
         SSTableWriter.rename(indexFilename(dataFileName));
         SSTableWriter.rename(filterFilename(dataFileName));
         dataFileName = SSTableWriter.rename(dataFileName);
-        return SSTableReader.open(dataFileName,
-                                  StorageService.getPartitioner());
+        return SSTableReader.open(dataFileName);
     }
 
 }
