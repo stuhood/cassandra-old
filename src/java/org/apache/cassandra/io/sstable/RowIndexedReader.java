@@ -323,7 +323,7 @@ class RowIndexedReader extends SSTableReader
     }
 
     /** like getPosition, but if key is not found will return the location of the first key _greater_ than the desired one, or -1 if no such key exists. */
-    public long getNearestPosition(DecoratedKey decoratedKey) throws IOException
+    long getNearestPosition(DecoratedKey decoratedKey) throws IOException
     {
         KeyPosition sampledPosition = getIndexScanPosition(decoratedKey);
         if (sampledPosition == null)

@@ -40,9 +40,9 @@ public class IteratingRow extends AbstractIterator<IColumn> implements Comparabl
     private final DecoratedKey key;
     private final long finishedAt;
     private final BufferedRandomAccessFile file;
-    private SSTableReader sstable;
-    private long dataStart;
-
+    private final SSTableReader sstable;
+    private final long dataStart;
+    
     public IteratingRow(BufferedRandomAccessFile file, SSTableReader sstable) throws IOException
     {
         this.file = file;

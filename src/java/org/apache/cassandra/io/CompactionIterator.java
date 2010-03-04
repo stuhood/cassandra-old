@@ -40,6 +40,9 @@ import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.sstable.SSTableScanner;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 
+import com.google.common.base.Function;
+import com.google.common.collect.Iterables;
+
 public class CompactionIterator extends ReducingIterator<IteratingRow, CompactionIterator.CompactedRow> implements Closeable
 {
     private static Logger logger = Logger.getLogger(CompactionIterator.class);
@@ -79,7 +82,9 @@ public class CompactionIterator extends ReducingIterator<IteratingRow, Compactio
         CollatingIterator iter = FBUtilities.<IteratingRow>getCollatingIterator();
         for (SSTableReader sstable : sstables)
         {
-            iter.addIterator(sstable.getScanner(FILE_BUFFER_SIZE));
+            SSTableScanner scanner = sstable.getScanner(FILE_BUFFER_SIZE);
+            scanner.first();
+            iter.addIterator(scanner.getIterator());
         }
         return iter;
     }
@@ -170,7 +175,13 @@ public class CompactionIterator extends ReducingIterator<IteratingRow, Compactio
 
     protected Iterable<SSTableScanner> getScanners()
     {
-        return ((CollatingIterator)source).getIterators();
+        return Iterables.transform(((CollatingIterator)source).getIterators(),
+                                   new Function<SSTableScanner.RowIterator,SSTableScanner>(){
+                                       public SSTableScanner apply(SSTableScanner.RowIterator rowiter)
+                                       {
+                                           return rowiter.scanner;
+                                       }
+                                   });
     }
 
     public long getTotalBytes()

@@ -517,7 +517,8 @@ public class CompactionManager implements CompactionManagerMBean
             for (SSTableReader sstable : sstables)
             {
                 SSTableScanner scanner = sstable.getScanner(FILE_BUFFER_SIZE);
-                iter.addIterator(new FilterIterator(scanner, rangesPredicate));
+                scanner.first();
+                iter.addIterator(new FilterIterator(scanner.getIterator(), rangesPredicate));
             }
             return iter;
         }
@@ -529,7 +530,7 @@ public class CompactionManager implements CompactionManagerMBean
                 scanners = new HashSet<SSTableScanner>();
                 for (Object o : ((CollatingIterator)source).getIterators())
                 {
-                    scanners.add((SSTableScanner)((FilterIterator)o).getIterator());
+                    scanners.add(((SSTableScanner.RowIterator)((FilterIterator)o).getIterator()).scanner);
                 }
             }
             return scanners;

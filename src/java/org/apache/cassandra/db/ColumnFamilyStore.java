@@ -859,17 +859,18 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // sstables
         for (SSTableReader sstable : ssTables_)
         {
-            final SSTableScanner scanner = sstable.getScanner(KEY_RANGE_FILE_BUFFER_SIZE);
-            scanner.seekTo(startWith);
+            SSTableScanner scanner = sstable.getScanner(KEY_RANGE_FILE_BUFFER_SIZE);
+            scanner.seekNear(startWith);
+            final SSTableScanner.RowIterator rowiter = scanner.getIterator();
             Iterator<DecoratedKey> iter = new CloseableIterator<DecoratedKey>()
             {
                 public boolean hasNext()
                 {
-                    return scanner.hasNext();
+                    return rowiter.hasNext();
                 }
                 public DecoratedKey next()
                 {
-                    return scanner.next().getKey();
+                    return rowiter.next().getKey();
                 }
                 public void remove()
                 {
@@ -877,7 +878,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 }
                 public void close() throws IOException
                 {
-                    scanner.close();
+                    rowiter.close();
                 }
             };
             assert iter instanceof Closeable; // otherwise we leak FDs

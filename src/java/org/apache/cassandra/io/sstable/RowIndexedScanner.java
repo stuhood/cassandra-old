@@ -19,67 +19,112 @@
 
 package org.apache.cassandra.io.sstable;
 
-import java.io.IOException;
-import java.io.Closeable;
-import java.io.IOError;
-import java.util.Iterator;
-import java.util.Arrays;
+import java.io.*;
+import java.util.*;
 
+import org.apache.cassandra.db.Column;
+import org.apache.cassandra.db.ColumnKey;
+import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.io.IteratingRow;
+import org.apache.cassandra.io.Slice;
+import org.apache.cassandra.io.SliceBuffer;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
 import org.apache.cassandra.io.util.FileDataInput;
+import org.apache.cassandra.utils.Pair;
 
 import org.apache.log4j.Logger;
 
-
 public class RowIndexedScanner extends SSTableScanner
 {
-    private static Logger logger = Logger.getLogger(RowIndexedScanner.class);
+    private static final Logger logger = Logger.getLogger(RowIndexedScanner.class);
 
-    private final BufferedRandomAccessFile file;
-    private final SSTableReader sstable;
-    private IteratingRow row;
-    private boolean exhausted = false;
-    private Iterator<IteratingRow> iterator;
+    private final RowIndexedReader reader;
+    private final int bufferSize;
+    private BufferedRandomAccessFile file;
+    private final ColumnFamily emptycf; // always empty: just a metadata holder
 
     /**
-     * @param sstable SSTable to scan.
+     * State related to the current row.
      */
-    RowIndexedScanner(SSTableReader sstable, int bufferSize) throws IOException
+    private IteratingRow row;
+    private Slice.Metadata rowmeta;
+    private long rowoffset;
+    private int rowlength;
+    private DecoratedKey rowkey;
+    private List<IndexHelper.IndexInfo> rowindex;
+
+    // for standard cfs, the current slice is the current index chunk
+    private int chunkpos; // position of current chunk in the rowindex
+
+    /**
+     * @param reader SSTable to scan.
+     * @param bufferSize Buffer size for the file backing the scanner (if supported).
+     */
+    RowIndexedScanner(RowIndexedReader reader, int bufferSize) throws IOException
     {
-        this.file = new BufferedRandomAccessFile(sstable.getFilename(), "r", bufferSize);
-        this.sstable = sstable;
+        super();
+        this.reader = reader;
+        this.bufferSize = bufferSize;
+        emptycf = reader.makeColumnFamily();
+        assert !emptycf.isSuper() : "FIXME: Use Scanner specific to super cfs.";
     }
 
+    @Override
+    public RowIndexedReader reader()
+    {
+        return reader;
+    }
+
+    /**
+     * Moves to the row at the given offset, lazily (re)opening the file if necessary.
+     */
+    private void repositionRow(long offset) throws IOException
+    {
+        if (file == null)
+            file = new BufferedRandomAccessFile(reader.getFilename(), "r", bufferSize);
+        file.seek(offset);
+
+        // update mutable state for the row
+        row = null;
+        rowoffset = offset;
+        rowkey = reader.getPartitioner().convertFromDiskFormat(file.readUTF());
+        rowlength = file.readInt();
+        // TODO: selectively load bloom filter?
+        IndexHelper.skipBloomFilter(file);
+        rowindex = IndexHelper.deserializeIndex(file);
+        // row metadata
+        ColumnFamily.serializer().deserializeFromSSTableNoColumns(emptycf, file);
+        rowmeta = new Slice.Metadata(emptycf.getMarkedForDeleteAt(),
+                                     emptycf.getLocalDeletionTime());
+
+        // determine current slice within the cf
+        chunkpos = 0;
+    }
+
+    /**
+     * Un-positions a Scanner, so that it isn't pointed anywhere.
+     */
+    private void clearPosition()
+    {
+        row = null;
+        rowmeta = null;
+    }
+
+    @Override
     public void close() throws IOException
     {
-        file.close();
+        if (file != null)
+            file.close();
     }
 
-    public void seekTo(DecoratedKey seekKey)
-    {
-        try
-        {
-            long position = sstable.getNearestPosition(seekKey);
-            if (position < 0)
-            {
-                exhausted = true;
-                return;
-            }
-            file.seek(position);
-            row = null;
-        }
-        catch (IOException e)
-        {
-            throw new RuntimeException("corrupt sstable", e);
-        }
-    }
-
+    @Override
     public long getFileLength()
     {
         try
         {
+            if (file == null)
+                first();
             return file.length();
         }
         catch (IOException e)
@@ -88,64 +133,171 @@ public class RowIndexedScanner extends SSTableScanner
         }
     }
 
+    @Override
     public long getFilePointer()
     {
+        if (file == null)
+            return 0;
         return file.getFilePointer();
     }
 
+    @Override
+    public void first() throws IOException
+    {
+        repositionRow(0);
+    }
+
+    @Override
+    public boolean seekNear(DecoratedKey seekKey) throws IOException
+    {
+        long position = reader.getNearestPosition(seekKey);
+        if (position < 0)
+        {
+            clearPosition();
+            return false;
+        }
+        repositionRow(position);
+        // FIXME: load supercolumn
+        return true;
+    }
+
+    @Override
+    public boolean seekNear(ColumnKey seekKey) throws IOException
+    {
+        if (!seekNear(seekKey.dk))
+            return false;
+        // positioned at row: seek within rowindex
+        chunkpos = IndexHelper.indexFor(seekKey.name(1), rowindex,
+                                        reader.getColumnComparator(), false);
+        // FIXME: load supercolumn
+        return true;
+    }
+
+    @Override
+    public boolean seekTo(DecoratedKey seekKey) throws IOException
+    {
+        SSTable.PositionSize position = reader.getPosition(seekKey);
+        if (position == null)
+        {
+            clearPosition();
+            return false;
+        }
+        repositionRow(position.position);
+        // FIXME: load supercolumn
+        return true;
+    }
+
+    @Override
+    public boolean seekTo(ColumnKey seekKey) throws IOException
+    {
+        if (!seekTo(seekKey.dk))
+            return false;
+        // positioned at row: seek within rowindex
+        chunkpos = IndexHelper.indexFor(seekKey.name(1), rowindex,
+                                        reader.getColumnComparator(), false);
+        // FIXME: load supercolumn
+        return true;
+    }
+
+    @Override
     public boolean hasNext()
     {
-        if (iterator == null)
-            iterator = exhausted ? Arrays.asList(new IteratingRow[0]).iterator() : new KeyScanningIterator();
-        return iterator.hasNext();
+        if (file == null)
+            return false;
+
+        // FIXME: needs to support super columns
+        // if (moreColumns)
+            // more columns in the current index chunk
+        if (chunkpos+1 < rowindex.size())
+            // more index chunks in the current row
+            return true;
+        if (rowoffset + rowlength < getFileLength())
+            // more rows in the file
+            return true;
+        return false;
     }
 
-    public IteratingRow next()
+    @Override
+    public boolean next() throws IOException
     {
-        if (iterator == null)
-            iterator = exhausted ? Arrays.asList(new IteratingRow[0]).iterator() : new KeyScanningIterator();
-        return iterator.next();
+        assert file != null : "A Scanner must be positioned before use.";
+        // FIXME: needs to support super columns
+        // if (moreColumns)
+            // more columns in the current index chunk
+        if (++chunkpos < rowindex.size())
+            // more index chunks in the current row
+            return true;
+        if (rowoffset + rowlength < getFileLength())
+        {
+            // more rows in the file
+            repositionRow(rowoffset + rowlength);
+            return true;
+        }
+        return false;
     }
 
-    public void remove()
+    @Override
+    public Slice get()
     {
-        throw new UnsupportedOperationException();
+        if (rowmeta == null)
+            return null;
+        
+        // slices are inclusive,exclusive, but row indexes are inclusive,inclusive
+        byte[] start = (chunkpos == 0) ?
+            // first column of the chunk (rounded down to NAME_BEGIN for first chunk)
+            ColumnKey.NAME_BEGIN : rowindex.get(chunkpos).firstName;
+        byte[] end = (chunkpos < rowindex.size()-1) ?
+            // first column of next chunk (rounded up to NAME_END for last chunk)
+            rowindex.get(chunkpos+1).lastName : ColumnKey.NAME_END;
+        return new Slice(rowmeta, new ColumnKey(rowkey, start), new ColumnKey(rowkey, end));
     }
 
-    private class KeyScanningIterator implements Iterator<IteratingRow>
+    @Override
+    public List<Column> getColumns() throws IOException
     {
-        public boolean hasNext()
-        {
-            try
-            {
-                if (row == null)
-                    return !file.isEOF();
-                return row.getEndPosition() < file.length();
-            }
-            catch (IOException e)
-            {
-                throw new RuntimeException(e);
-            }
-        }
+        if (rowmeta == null)
+            return null;
+        
+        // read sequential columns from the chunk
+        ArrayList<Column> columns = new ArrayList<Column>();
+        file.seek(rowoffset + rowindex.get(chunkpos).offset);
+        long chunkend = file.getFilePointer() + rowindex.get(chunkpos).width;
+        while (file.getFilePointer() < chunkend)
+            columns.add((Column)emptycf.getColumnSerializer().deserialize(file));
+        return columns;
+    }
 
-        public IteratingRow next()
-        {
-            try
-            {
-                if (row != null)
-                    row.skipRemaining();
-                assert !file.isEOF();
-                return row = new IteratingRow(file, sstable);
-            }
-            catch (IOException e)
-            {
-                throw new RuntimeException(e);
-            }
-        }
+    @Override
+    public SliceBuffer getBuffer() throws IOException
+    {
+        Slice slice = get();
+        if (slice == null)
+            return null;
 
-        public void remove()
+        // takes the easy way out, and deserializes the columns
+        return new SliceBuffer(slice.meta, slice.begin, slice.end, getColumns());
+    }
+
+    @Override
+    public IteratingRow getIteratingRow() throws IOException
+    {
+        if (file == null)
+            return null;
+        if (row != null)
         {
-            throw new UnsupportedOperationException();
+            row.skipRemaining();
         }
+        else
+        {
+            // after first/seek*(), we won't be positioned at the beginning of the row
+            file.seek(rowoffset);
+        }
+        if (file.getFilePointer() == file.length())
+        {
+            // end of file
+            clearPosition();
+            return null;
+        }
+        return row = new IteratingRow(file, reader);
     }
 }

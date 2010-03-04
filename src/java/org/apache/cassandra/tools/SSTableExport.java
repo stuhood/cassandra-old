@@ -196,36 +196,33 @@ public class SSTableExport
         int i = 0;
         
         outs.println("{");
-        
         for (String key : keys)
         {
             if (excludeSet.contains(key))
                 continue;
             DecoratedKey<?> dk = partitioner.decorateKey(key);
-            scanner.seekTo(dk);
+            // seek to the key
+            if (!scanner.seekTo(dk))
+                // key outside file bounds
+                continue;
             
-            i++;
-            
-            if (scanner.hasNext())
+            IteratingRow row = scanner.getIteratingRow();
+            try
             {
-                IteratingRow row = scanner.next();
-                try
-                {
-                    String jsonOut = serializeRow(row);
-                    if (i != 1)
-                        outs.println(",");
-                    outs.print("  " + jsonOut);
-                }
-                catch (IOException ioexc)
-                {
-                    System.err.println("WARNING: Corrupt row " + key + " (skipping).");
-                    continue;
-                }
-                catch (OutOfMemoryError oom)
-                {
-                    System.err.println("ERROR: Out of memory deserializing row " + key);
-                    continue;
-                }
+                String jsonOut = serializeRow(row);
+                if (i++ != 1)
+                    outs.println(",");
+                outs.print("  " + jsonOut);
+            }
+            catch (IOException ioexc)
+            {
+                System.err.println("WARNING: Corrupt row " + key + " (skipping).");
+                continue;
+            }
+            catch (OutOfMemoryError oom)
+            {
+                System.err.println("ERROR: Out of memory deserializing row " + key);
+                continue;
             }
         }
         
@@ -252,20 +249,22 @@ public class SSTableExport
     static void export(SSTableReader reader, PrintStream outs, String[] excludes) throws IOException
     {
         SSTableScanner scanner = reader.getScanner(INPUT_FILE_BUFFER_SIZE);
+        scanner.first();
         Set<String> excludeSet = new HashSet<String>(Arrays.asList(excludes));
 
         outs.println("{");
-        
-        while(scanner.hasNext())
+       
+        SSTableScanner.RowIterator rowiter = scanner.getIterator();
+        while (rowiter.hasNext())
         {
-            IteratingRow row = scanner.next();
+            IteratingRow row = rowiter.next();
             if (excludeSet.contains(row.getKey().key))
                 continue;
             try
             {
                 String jsonOut = serializeRow(row);
                 outs.print("  " + jsonOut);
-                if (scanner.hasNext())
+                if (rowiter.hasNext())
                     outs.println(",");
                 else
                     outs.println();

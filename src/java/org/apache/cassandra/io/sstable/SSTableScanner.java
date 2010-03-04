@@ -19,25 +19,188 @@
 
 package org.apache.cassandra.io.sstable;
 
-import java.io.IOException;
-import java.io.Closeable;
-import java.io.IOError;
-import java.util.Iterator;
-import java.util.Arrays;
+import java.io.*;
+import java.util.*;
 
+import org.apache.cassandra.db.Column;
+import org.apache.cassandra.db.ColumnKey;
+import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.io.IteratingRow;
-import org.apache.cassandra.io.util.BufferedRandomAccessFile;
-import org.apache.cassandra.io.util.FileDataInput;
+import org.apache.cassandra.io.Slice;
+import org.apache.cassandra.io.SliceBuffer;
+import org.apache.cassandra.utils.Pair;
 
-import org.apache.log4j.Logger;
+import com.google.common.collect.*;
 
-
-public abstract class SSTableScanner implements Iterator<IteratingRow>, Closeable
+/**
+ * A Scanner is an abstraction for reading slices from an SSTable.
+ *
+ * After creation, the Scanner is not positioned at a slice. Call first() or
+ * seek*() to position it at a Slice, and then use next() to iterate.
+ */
+public abstract class SSTableScanner implements Closeable
 {
-    public abstract void seekTo(DecoratedKey seekKey);
+    protected SSTableScanner()
+    {
+    }
 
+    /**
+     * @return The underlying SSTableReader.
+     */
+    public abstract SSTableReader reader();
+
+    /**
+     * Releases any resources associated with this scanner.
+     */
+    public abstract void close() throws IOException;
+
+    /**
+     * @return The total length of the data file.
+     */
     public abstract long getFileLength();
 
+    /**
+     * @return The approximate (due to buffering) position in the data file.
+     */
     public abstract long getFilePointer();
+
+    /**
+     * Positions the Scanner at the first slice in the file. SSTables should never
+     * be empty, so this call should always succeed.
+     */
+    public abstract void first() throws IOException;
+
+    /**
+     * See the contract for seekNear(CK).
+     */
+    public abstract boolean seekNear(DecoratedKey seekKey) throws IOException;
+
+    /**
+     * Seeks to the slice which might contain the given key, without checking the
+     * existence of the key in the filter. If such a slice does not exist, the next
+     * calls to get*() will have undefined results.
+     *
+     * seekKeys with trailing NAME_BEGIN or NAME_END names will properly match
+     * the slices that they begin or end when used with this method.
+     *
+     * @return False if no such Slice was found.
+     */
+    public abstract boolean seekNear(ColumnKey seekKey) throws IOException;
+
+    /**
+     * See the contract for seekTo(CK).
+     */
+    public abstract boolean seekTo(DecoratedKey seekKey) throws IOException;
+
+    /**
+     * Seeks to the slice which might contain the given key. If the key does not
+     * exist, or such a slice does not exist, the next calls to get*() will have
+     * undefined results.
+     *
+     * seekKeys with trailing NAME_BEGIN or NAME_END names will properly match
+     * the slices that they begin or end when used with this method.
+     *
+     * @return False if no such Slice was found.
+     */
+    public abstract boolean seekTo(ColumnKey seekKey) throws IOException;
+
+    /**
+     * @return True if we are positioned at a valid slice and a call to next() will be
+     * successful.
+     */
+    public abstract boolean hasNext() throws IOException;
+
+    /**
+     * Seeks to the next slice, unless the last call to seek*() failed, or we are at
+     * the end of the file.
+     * @return True if we are positioned at the next valid slice.
+     */
+    public abstract boolean next() throws IOException;
+
+    /**
+     * @return The Slice at our current position, or null if the last call to
+     * seekTo failed, or we're at EOF.
+     */
+    public abstract Slice get();
+
+    /**
+     * A list of columns contained in this slice. A slice may be a tombstone,
+     * which only exists to pass along deletion Metadata, in which case the list
+     * will be empty.
+     *
+     * @return A column list for the slice at our current position, or null if
+     * the last call to seek*() failed, or we're at EOF.
+     */
+    public abstract List<Column> getColumns() throws IOException;
+
+    /**
+     * A buffer containing the columns in this slice, preferably still in serialized
+     * form.
+     *
+     * @return A SliceBuffer for the slice at our current position, or null if
+     * the last call to seek*() failed, or we're at EOF.
+     */
+    public abstract SliceBuffer getBuffer() throws IOException;
+
+    /**
+     * Reads the entire ColumnFamily defined by the key of the current Slice. After
+     * the call, the Scanner will be positioned at the beginning of the first Slice
+     * for the next ColumnFamily, or at EOF.
+     *
+     * FIXME: This is here temporarily as we port callers to the Slice API: using this
+     * method in conjunction with next(), get() and friends will definitely not
+     * work as expected.
+     *
+     * @return An IteratingRow for the current ColumnFamily, or null if get() would
+     * return null.
+     */
+    @Deprecated
+    public abstract IteratingRow getIteratingRow() throws IOException;
+
+    /**
+     * FIXME: This is here temporarily as we port callers to the Slice API.
+     *
+     * @return An iterator wrapping this Scanner and starting at the current position
+     * of the Scanner.
+     */
+    @Deprecated
+    public RowIterator getIterator()
+    {
+        return new RowIterator(this);
+    }
+
+    /**
+     * FIXME: This is here temporarily as we port callers to the Slice API.
+     */
+    @Deprecated
+    public static class RowIterator extends AbstractIterator<IteratingRow> implements PeekingIterator<IteratingRow>, Closeable
+    {
+        public final SSTableScanner scanner;
+        RowIterator(SSTableScanner scanner)
+        {
+            this.scanner = scanner;
+        }
+
+        @Override
+        protected IteratingRow computeNext()
+        {
+            try
+            {
+                IteratingRow row = scanner.getIteratingRow();
+                if (row == null)
+                    return endOfData();
+                return row;
+            }
+            catch (IOException e)
+            {
+                throw new IOError(e);
+            }
+        }
+        
+        public void close() throws IOException
+        {
+            scanner.close();
+        }
+    }
 }

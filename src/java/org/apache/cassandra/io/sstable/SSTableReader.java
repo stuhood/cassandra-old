@@ -213,14 +213,6 @@ public abstract class SSTableReader extends SSTable implements Comparable<SSTabl
     public abstract PositionSize getPosition(DecoratedKey decoratedKey) throws IOException;
 
     /**
-     * Like getPosition, but if key is not found will return the location of the
-     * first key _greater_ than the desired one, or -1 if no such key exists.
-     * FIXME: should not be public: use Scanner.
-     */
-    @Deprecated
-    public abstract long getNearestPosition(DecoratedKey decoratedKey) throws IOException;
-
-    /**
      * @return The length in bytes of the data file for this SSTable.
      */
     public abstract long length();
