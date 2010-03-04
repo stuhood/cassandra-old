@@ -30,10 +30,7 @@ import org.apache.cassandra.CleanupHelper;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
 import org.apache.cassandra.db.DecoratedKey;
 
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
-
-public class SSTableTest extends CleanupHelper
+public abstract class RowIndexedTestBase extends CleanupHelper
 {
     @Test
     public void testSingleWrite() throws IOException {
@@ -44,24 +41,15 @@ public class SSTableTest extends CleanupHelper
 
         TreeMap<String, byte[]> map = new TreeMap<String,byte[]>();
         map.put(key, bytes);
-        SSTableReader ssTable = SSTableUtils.writeRawSSTable("Keyspace1", "Standard1", map);
+        RowIndexedReader ssTable = (RowIndexedReader)SSTableUtils.writeRawSSTable("Keyspace1", "Standard1", map);
 
         // verify
         verifySingle(ssTable, bytes, key);
-        ssTable = SSTableReader.open(ssTable.getDescriptor()); // read the index from disk
+        ssTable = (RowIndexedReader)SSTableReader.open(ssTable.getDescriptor()); // read the index from disk
         verifySingle(ssTable, bytes, key);
     }
 
-    private void verifySingle(SSTableReader sstable, byte[] bytes, String key) throws IOException
-    {
-        BufferedRandomAccessFile file = new BufferedRandomAccessFile(sstable.getFilename(), "r");
-        file.seek(sstable.getPosition(sstable.partitioner.decorateKey(key)).position);
-        assert key.equals(file.readUTF());
-        int size = file.readInt();
-        byte[] bytes2 = new byte[size];
-        file.readFully(bytes2);
-        assert Arrays.equals(bytes2, bytes);
-    }
+    protected abstract void verifySingle(RowIndexedReader sstable, byte[] bytes, String key) throws IOException;
 
     @Test
     public void testManyWrites() throws IOException {
@@ -72,27 +60,13 @@ public class SSTableTest extends CleanupHelper
         }
 
         // write
-        SSTableReader ssTable = SSTableUtils.writeRawSSTable("Keyspace1", "Standard2", map);
+        RowIndexedReader ssTable = (RowIndexedReader)SSTableUtils.writeRawSSTable("Keyspace1", "Standard2", map);
 
         // verify
         verifyMany(ssTable, map);
-        ssTable = SSTableReader.open(ssTable.getDescriptor()); // read the index from disk
+        ssTable = (RowIndexedReader)SSTableReader.open(ssTable.getDescriptor()); // read the index from disk
         verifyMany(ssTable, map);
     }
 
-    private void verifyMany(SSTableReader sstable, TreeMap<String, byte[]> map) throws IOException
-    {
-        List<String> keys = new ArrayList<String>(map.keySet());
-        Collections.shuffle(keys);
-        BufferedRandomAccessFile file = new BufferedRandomAccessFile(sstable.getFilename(), "r");
-        for (String key : keys)
-        {
-            file.seek(sstable.getPosition(sstable.partitioner.decorateKey(key)).position);
-            assert key.equals(file.readUTF());
-            int size = file.readInt();
-            byte[] bytes2 = new byte[size];
-            file.readFully(bytes2);
-            assert Arrays.equals(bytes2, map.get(key));
-        }
-    }
+    protected abstract void verifyMany(RowIndexedReader sstable, TreeMap<String, byte[]> map) throws IOException;
 }
