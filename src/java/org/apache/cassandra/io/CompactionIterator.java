@@ -24,164 +24,315 @@ package org.apache.cassandra.io;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.IOError;
-import java.util.List;
-import java.util.ArrayList;
-import java.util.Iterator;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.log4j.Logger;
 import org.apache.commons.collections.iterators.CollatingIterator;
 
-import org.apache.cassandra.utils.ReducingIterator;
-import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.db.ColumnFamily;
-import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.*;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.sstable.SSTableScanner;
+import org.apache.cassandra.io.Scanner;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 
-import com.google.common.base.Function;
-import com.google.common.collect.Iterables;
+import com.google.common.collect.AbstractIterator;
+import com.google.common.collect.Iterators;
 
-public class CompactionIterator extends ReducingIterator<IteratingRow, CompactionIterator.CompactedRow> implements Closeable
+public class CompactionIterator extends AbstractIterator<CompactionIterator.CompactedRow> implements Closeable
 {
     private static Logger logger = Logger.getLogger(CompactionIterator.class);
 
-    protected static final int FILE_BUFFER_SIZE = 1024 * 1024;
+    // shared file buffer size for all input SSTables.
+    public static final int TOTAL_FILE_BUFFER_BYTES = 1 << 22;
 
-    private final List<IteratingRow> rows = new ArrayList<IteratingRow>();
     private final int gcBefore;
     private final boolean major;
 
-    private long totalBytes;
-    private long bytesRead;
-    private long row;
+    /**
+     * The comparators for all SSTables we are compacting.
+     */
+    private final ColumnKey.Comparator comparator;
+    private final SliceComparator scomparator;
 
-    public CompactionIterator(Iterable<SSTableReader> sstables, int gcBefore, boolean major) throws IOException
-    {
-        this(getCollatingIterator(sstables), gcBefore, major);
-    }
+    /**
+     * Scanners are kept sorted by the key of the Slice they are positioned at.
+     */
+    private final PriorityQueue<Scanner> scanners;
 
-    @SuppressWarnings("unchecked")
-    protected CompactionIterator(Iterator iter, int gcBefore, boolean major)
+    /**
+     * Sorted list of Slices which are being prepared for return. As Slices are added
+     * to the list, they are resolved against intersecting slices, resulting in a
+     * buffer of non-intersecting slices.
+     *
+     * NB: This buffer is the source of the majority of memory usage for compactions.
+     * Its maximum size in bytes is roughly equal to:
+     * (CompactionManager.maxCompactThreshold * SSTable.TARGET_MAX_SLICE_BYTES)
+     */
+    private final LinkedList<SliceBuffer> mergeBuff;
+
+    private final ColumnFamily emptycf;
+
+    // total input/output buffers to compaction
+    private long inBufferCount = 0;
+    private long outBufferCount = 0;
+    // buffers that needed to be SB.merge()'d
+    private long inMergeCount = 0;
+    // buffers that resulted from SB.merge()
+    private long outMergeCount = 0;
+    // buffers garbage collected
+    private long gcCount = 0;
+
+    // total bytes in all input scanners
+    private final long totalBytes;
+    // bytes remaining in input scanners
+    private final AtomicLong bytesRemaining = new AtomicLong();
+
+    public CompactionIterator(Collection<SSTableReader> sstables, int gcBefore, boolean major) throws IOException
     {
-        super(iter);
-        row = 0;
-        totalBytes = bytesRead = 0;
-        for (SSTableScanner scanner : getScanners())
-        {
-            totalBytes += scanner.getFileLength();
-        }
+        super();
+        assert !sstables.isEmpty();
+
         this.gcBefore = gcBefore;
         this.major = major;
+
+        // fields shared for all sstables
+        SSTableReader head = sstables.iterator().next();
+        comparator = head.getComparator();
+        scomparator = new SliceComparator(comparator);
+        emptycf = head.makeColumnFamily();
+        assert !emptycf.isSuper() : "FIXME: Need super support!"; // FIXME
+
+        // open all scanners
+        scanners = new PriorityQueue<Scanner>(sstables.size(),
+                                              new ScannerComparator(comparator));
+        scanners.addAll(getScanners(sstables));
+
+        updateBytesRemaining();
+        totalBytes = bytesRemaining.get();
+
+        mergeBuff = new LinkedList<SliceBuffer>();
     }
 
-    @SuppressWarnings("unchecked")
-    protected static CollatingIterator getCollatingIterator(Iterable<SSTableReader> sstables) throws IOException
+    protected Collection<Scanner> getScanners(Collection<SSTableReader> sstables) throws IOException
     {
-        CollatingIterator iter = FBUtilities.<IteratingRow>getCollatingIterator();
+        List<Scanner> ret = new ArrayList<Scanner>(sstables.size());
+        int bufferPer = TOTAL_FILE_BUFFER_BYTES / sstables.size();
         for (SSTableReader sstable : sstables)
         {
-            SSTableScanner scanner = sstable.getScanner(FILE_BUFFER_SIZE);
+            SSTableScanner scanner = sstable.getScanner(bufferPer);
             scanner.first();
-            iter.addIterator(scanner.getIterator());
+            ret.add(scanner);
         }
-        return iter;
+        return ret;
     }
 
-    @Override
-    protected boolean isEqual(IteratingRow o1, IteratingRow o2)
+    /**
+     * Merges the given sorted, non-intersecting SliceBuffers into the merge buffer.
+     *
+     * If a given slice intersects a slice already in the buffer, they are resolved
+     * using SliceBuffer.merge(), and the resulting slices are merged.
+     */
+    void mergeToBuffer(SliceBuffer... slices)
     {
-        return o1.getKey().equals(o2.getKey());
-    }
+        inBufferCount += slices.length;
+        ListIterator<SliceBuffer> buffiter = mergeBuff.listIterator();
+        Iterator<SliceBuffer> rhsiter = Arrays.asList(slices).iterator();
 
-    public void reduce(IteratingRow current)
-    {
-        rows.add(current);
-    }
-
-    protected CompactedRow getReduced()
-    {
-        assert rows.size() > 0;
-        DataOutputBuffer buffer = new DataOutputBuffer();
-        DecoratedKey key = rows.get(0).getKey();
-
-        try
+        SliceBuffer buffcur = null;
+        SliceBuffer rhscur = null;
+        while (true)
         {
-            if (rows.size() > 1 || major)
+            // ensure that items remain
+            if (buffcur == null)
             {
-                ColumnFamily cf = null;
-                for (IteratingRow row : rows)
-                {
-                    ColumnFamily thisCF;
-                    try
-                    {
-                        thisCF = row.getColumnFamily();
-                    }
-                    catch (IOException e)
-                    {
-                        logger.error("Skipping row " + key + " in " + row.getPath(), e);
-                        continue;
-                    }
-                    if (cf == null)
-                    {
-                        cf = thisCF;
-                    }
-                    else
-                    {
-                        cf.addAll(thisCF);
-                    }
-                }
-                ColumnFamily cfPurged = major ? ColumnFamilyStore.removeDeleted(cf, gcBefore) : cf;
-                if (cfPurged == null)
-                    return null;
-                ColumnFamily.serializer().serializeWithIndexes(cfPurged, buffer);
+                if (buffiter.hasNext())
+                    buffcur = buffiter.next();
+                else
+                    break;
+            }
+            if (rhscur == null)
+            {
+                if (rhsiter.hasNext())
+                    rhscur = rhsiter.next();
+                else
+                    break;
+            }
+
+            int comp = scomparator.compare(buffcur, rhscur);
+            if (comp == 0)
+            {
+                // slices intersect: resolve and prepend to rhsiter
+                List<SliceBuffer> resolved = SliceBuffer.merge(comparator,
+                                                               buffcur, rhscur);
+                rhsiter = Iterators.concat(resolved.iterator(), rhsiter);
+                // buffcur and rhscur were consumed
+                buffiter.remove();
+                buffcur = null; rhscur = null;
+                inMergeCount += 2; outMergeCount += resolved.size();
+            }
+            else if (comp > 0)
+            {
+                // insert rhscur before buffcur
+                buffiter.set(rhscur);
+                buffiter.add(buffcur);
+                buffiter.previous();
+                rhscur = null;
             }
             else
-            {
-                assert rows.size() == 1;
-                try
-                {
-                    rows.get(0).echoData(buffer);
-                }
-                catch (IOException e)
-                {
-                    throw new IOError(e);
-                }
-            }
+                // buffcur was the lesser: skip it
+                buffcur = null;
         }
-        finally
+
+        // remaining items from rhsiter go to the end of the buffer
+        if (rhscur != null)
+            mergeBuff.add(rhscur);
+        Iterators.addAll(mergeBuff, rhsiter);
+    }
+
+    /**
+     * Ensure that the minimum slices from all Scanners have been added to the merge
+     * buffer.
+     *
+     * @return False if the merge buffer and all Scanners are empty.
+     */
+    boolean ensureMergeBuffer()
+    {
+        // select the minimum slice
+        Slice minimum;
+        if (mergeBuff.isEmpty())
         {
-            rows.clear();
-            if ((row++ % 1000) == 0)
+            if (scanners.isEmpty())
+                // the merge buffer and scanner queue are empty. we're done!
+                return false;
+            minimum = scanners.peek().get();
+        }
+        else
+            minimum = mergeBuff.peek();
+
+        // remove any scanners with slices less than or intersecting the minimum
+        List<Scanner> selected = null;
+        while (!scanners.isEmpty() && scomparator.compare(scanners.peek().get(), minimum) <= 0)
+        {
+            if (selected == null)
+                // lazily create list of scanners
+                selected = new LinkedList<Scanner>();
+            selected.add(scanners.poll());
+        }
+        if (selected == null)
+            // merge buffer contains minimum slice
+            return true;
+
+        // for each of the minimum scanners
+        for (Scanner scanner : selected)
+        {
+            try
             {
-                bytesRead = 0;
-                for (SSTableScanner scanner : getScanners())
-                {
-                    bytesRead += scanner.getFilePointer();
-                }
+                // merge the first slice to the merge buffer
+                mergeToBuffer(scanner.getBuffer());
+
+                // skip to the next slice
+                if (scanner.next())
+                    // has more slices: add back to the queue to reprioritize
+                    scanners.add(scanner);
+                else
+                    // consumed: close early
+                    scanner.close();
+            }
+            catch (IOException e)
+            {
+                // the iterator interface sucks for IO
+                throw new IOError(e);
             }
         }
-        return new CompactedRow(key, buffer);
+        if (inBufferCount % 1000 == 0)
+            updateBytesRemaining();
+        return true;
+    }
+
+    /**
+     * First, guarantees that the minimum slices for this iteration are contained in
+     * the merge buffer, then pops from the head of the merge buffer, applying
+     * garbage collection for tombstones.
+     *
+     * TODO: To allow for arbitrarily wide rows, CompactionIterator should begin
+     * returning SliceBuffers, which we can write directly back to disk.
+     *
+     * @return The next CompactedRow for this iterator.
+     */
+    @Override
+    public CompactedRow computeNext()
+    {
+        DecoratedKey dkey = null; 
+        ColumnFamily cf = null; 
+        while (ensureMergeBuffer())
+        {
+            // check that the slice is part of the current cf
+            if (dkey != null && !dkey.equals(mergeBuff.peek().begin.dk))
+                // new slice is part of the next cf
+                break;
+            SliceBuffer slice = mergeBuff.poll();
+
+            // garbage collect tombstones: may return null or an identical reference
+            slice = slice.garbageCollect(major, gcBefore);
+            if (slice == null)
+            {
+                gcCount++;
+                continue;
+            }
+
+            // add slice columns
+            outBufferCount++;
+            if (cf == null)
+            {
+                dkey = slice.begin.dk;
+                cf = emptycf.cloneMeShallow();
+                cf.delete(slice.meta.localDeletionTime, slice.meta.markedForDeleteAt);
+            }
+            for (Column col : slice.realized())
+                cf.addColumn(col);
+        }
+
+        if (cf == null)
+            return endOfData();
+        DataOutputBuffer dao = new DataOutputBuffer();
+        ColumnFamily.serializer().serializeWithIndexes(cf, dao);
+        return new CompactedRow(dkey, dao);
     }
 
     public void close() throws IOException
     {
-        for (SSTableScanner scanner : getScanners())
+        IOException e = null;
+        for (Scanner scanner : scanners)
         {
-            scanner.close();
+            try
+            {
+                scanner.close();
+            }
+            catch (IOException ie)
+            {
+                e = ie;
+            }
         }
+        logger.info(String.format("%s: in:%d out:%d merge-in:%d merge-out:%d gcd:%d", 
+                                  this, inBufferCount, outBufferCount, inMergeCount,
+                                  outMergeCount, gcCount));
+        // we can only rethrow one exception, but we want to close all scanners
+        if (e != null)
+            throw e;
     }
 
-    protected Iterable<SSTableScanner> getScanners()
+    /**
+     * Based on unconsumed scanners, calculate bytesRemaining.
+     */
+    private void updateBytesRemaining()
     {
-        return Iterables.transform(((CollatingIterator)source).getIterators(),
-                                   new Function<SSTableScanner.RowIterator,SSTableScanner>(){
-                                       public SSTableScanner apply(SSTableScanner.RowIterator rowiter)
-                                       {
-                                           return rowiter.scanner;
-                                       }
-                                   });
+        long nextRemaining = 0;
+        for (Scanner scanner : scanners)
+        {
+            nextRemaining += scanner.getBytesRemaining();
+        }
+        bytesRemaining.set(nextRemaining);
     }
 
     public long getTotalBytes()
@@ -191,7 +342,43 @@ public class CompactionIterator extends ReducingIterator<IteratingRow, Compactio
 
     public long getBytesRead()
     {
-        return bytesRead;
+        return totalBytes - bytesRemaining.get();
+    }
+
+    /**
+     * Compares Slices using their key, but declares intersecting slices equal
+     * so that we can resolve them.
+     */
+    final class SliceComparator implements Comparator<Slice>
+    {
+        private final ColumnKey.Comparator keycomp;
+        public SliceComparator(ColumnKey.Comparator keycomp)
+        {
+            this.keycomp = keycomp;
+        }
+        
+        public int compare(Slice s1, Slice s2)
+        {
+            if (keycomp.compare(s1.begin, s2.end) < 0 &&
+                keycomp.compare(s2.begin, s1.end) < 0)
+                // intersection
+                return 0;
+            return keycomp.compare(s1.begin, s2.begin);
+        }
+    }
+
+    final class ScannerComparator implements Comparator<Scanner>
+    {
+        private final ColumnKey.Comparator keycomp;
+        public ScannerComparator(ColumnKey.Comparator keycomp)
+        {
+            this.keycomp = keycomp;
+        }
+        
+        public int compare(Scanner s1, Scanner s2)
+        {
+            return keycomp.compare(s1.get().begin, s2.get().begin);
+        }
     }
 
     public static class CompactedRow

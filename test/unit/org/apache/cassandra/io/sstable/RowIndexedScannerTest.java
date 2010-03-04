@@ -68,6 +68,6 @@ public class RowIndexedScannerTest extends RowIndexedTestBase
         }
         while (scanner.next());
 
-        assert !mapiter.hasNext();
+        assert !mapiter.hasNext() : "At least " + mapiter.next() + " remaining in iter.";
     }
 }

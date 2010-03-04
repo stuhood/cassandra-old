@@ -60,6 +60,11 @@ public class DecoratedKey<T extends Token> implements Comparable<DecoratedKey>
     public final T token;
     public final String key;
 
+    public DecoratedKey(T token)
+    {
+        this(token, null);
+    }
+
     public DecoratedKey(T token, String key)
     {
         super();

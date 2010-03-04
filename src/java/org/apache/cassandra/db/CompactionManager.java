@@ -495,45 +495,31 @@ public class CompactionManager implements CompactionManagerMBean
 
     private static class AntiCompactionIterator extends CompactionIterator
     {
-        private Set<SSTableScanner> scanners;
-
+        private final Collection<Range> ranges;
         public AntiCompactionIterator(Collection<SSTableReader> sstables, Collection<Range> ranges, int gcBefore, boolean isMajor)
                 throws IOException
         {
-            super(getCollatedRangeIterator(sstables, ranges), gcBefore, isMajor);
+            super(sstables, gcBefore, isMajor);
+            this.ranges = ranges;
         }
 
-        private static Iterator getCollatedRangeIterator(Collection<SSTableReader> sstables, final Collection<Range> ranges)
+        /**
+         * Wraps a filtering Scanner around each SSTableScanner.
+         */
+        @Override
+        protected Collection<org.apache.cassandra.io.Scanner> getScanners(Collection<SSTableReader> sstables)
                 throws IOException
         {
-            org.apache.commons.collections.Predicate rangesPredicate = new org.apache.commons.collections.Predicate()
+            List<org.apache.cassandra.io.Scanner> ret = new ArrayList<org.apache.cassandra.io.Scanner>(sstables.size());
+            for (org.apache.cassandra.io.Scanner rawscanner : super.getScanners(sstables))
             {
-                public boolean evaluate(Object row)
-                {
-                    return Range.isTokenInRanges(((IteratingRow)row).getKey().token, ranges);
-                }
-            };
-            CollatingIterator iter = FBUtilities.<IteratingRow>getCollatingIterator();
-            for (SSTableReader sstable : sstables)
-            {
-                SSTableScanner scanner = sstable.getScanner(FILE_BUFFER_SIZE);
-                scanner.first();
-                iter.addIterator(new FilterIterator(scanner.getIterator(), rangesPredicate));
+                org.apache.cassandra.io.Scanner scanner = (ranges != null) ?
+                    new FilteredScanner(rawscanner, ranges) : rawscanner;
+                if (!scanner.first())
+                    continue;
+                ret.add(scanner);
             }
-            return iter;
-        }
-
-        public Iterable<SSTableScanner> getScanners()
-        {
-            if (scanners == null)
-            {
-                scanners = new HashSet<SSTableScanner>();
-                for (Object o : ((CollatingIterator)source).getIterators())
-                {
-                    scanners.add(((SSTableScanner.RowIterator)((FilterIterator)o).getIterator()).scanner);
-                }
-            }
-            return scanners;
+            return ret;
         }
     }
 

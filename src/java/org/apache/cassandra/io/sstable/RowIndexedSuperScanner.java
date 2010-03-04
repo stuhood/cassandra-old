@@ -93,17 +93,6 @@ public class RowIndexedSuperScanner extends RowIndexedScanner
     }
 
     @Override
-    public boolean hasNext()
-    {
-        // FIXME: needs to support super columns
-        // if (moreColumns)
-            // more columns in the current index chunk
-        if (super.hasNext())
-            return true;
-        return false;
-    }
-
-    @Override
     public boolean next() throws IOException
     {
         if (supers.poll() != null && supers.peek() != null)

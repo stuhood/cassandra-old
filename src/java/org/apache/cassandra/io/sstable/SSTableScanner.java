@@ -27,6 +27,7 @@ import org.apache.cassandra.db.ColumnKey;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.io.IteratingRow;
+import org.apache.cassandra.io.Scanner;
 import org.apache.cassandra.io.Slice;
 import org.apache.cassandra.io.SliceBuffer;
 import org.apache.cassandra.utils.Pair;
@@ -34,12 +35,12 @@ import org.apache.cassandra.utils.Pair;
 import com.google.common.collect.*;
 
 /**
- * A Scanner is an abstraction for reading slices from an SSTable.
+ * A SSTableScanner is an abstraction for reading slices from an SSTable.
  *
- * After creation, the Scanner is not positioned at a slice. Call first() or
+ * After creation, the scanner is not positioned at a slice. Call first() or
  * seek*() to position it at a Slice, and then use next() to iterate.
  */
-public abstract class SSTableScanner implements Closeable
+public abstract class SSTableScanner implements Scanner
 {
     protected SSTableScanner()
     {
@@ -72,20 +73,16 @@ public abstract class SSTableScanner implements Closeable
     public abstract void close() throws IOException;
 
     /**
-     * @return The total length of the data file.
+     * @return The approximate number of bytes remaining in the scanner.
      */
-    public abstract long getFileLength();
-
-    /**
-     * @return The approximate (due to buffering) position in the data file.
-     */
-    public abstract long getFilePointer();
+    public abstract long getBytesRemaining();
 
     /**
      * Positions the Scanner at the first slice in the file. SSTables should never
      * be empty, so this call should always succeed.
+     * @return True.
      */
-    public abstract void first() throws IOException;
+    public abstract boolean first() throws IOException;
 
     /**
      * See the contract for seekNear(CK).
@@ -120,12 +117,6 @@ public abstract class SSTableScanner implements Closeable
      * @return False if no such Slice was found.
      */
     public abstract boolean seekTo(ColumnKey seekKey) throws IOException;
-
-    /**
-     * @return True if we are positioned at a valid slice and a call to next() will be
-     * successful.
-     */
-    public abstract boolean hasNext() throws IOException;
 
     /**
      * Seeks to the next slice, unless the last call to seek*() failed, or we are at

@@ -119,13 +119,13 @@ public class RowIndexedScanner extends SSTableScanner
     }
 
     @Override
-    public long getFileLength()
+    public long getBytesRemaining()
     {
         try
         {
             if (file == null)
                 first();
-            return file.length();
+            return file.length() - file.getFilePointer();
         }
         catch (IOException e)
         {
@@ -134,17 +134,10 @@ public class RowIndexedScanner extends SSTableScanner
     }
 
     @Override
-    public long getFilePointer()
-    {
-        if (file == null)
-            return 0;
-        return file.getFilePointer();
-    }
-
-    @Override
-    public void first() throws IOException
+    public boolean first() throws IOException
     {
         repositionRow(0);
+        return true;
     }
 
     @Override
@@ -196,21 +189,6 @@ public class RowIndexedScanner extends SSTableScanner
     }
 
     @Override
-    public boolean hasNext()
-    {
-        if (file == null)
-            return false;
-
-        if (chunkpos+1 < rowindex.size())
-            // more index chunks in the current row
-            return true;
-        if (rowdataoffset + rowlength < getFileLength())
-            // more rows in the file
-            return true;
-        return false;
-    }
-
-    @Override
     public boolean next() throws IOException
     {
         assert file != null : "A Scanner must be positioned before use.";
@@ -218,7 +196,7 @@ public class RowIndexedScanner extends SSTableScanner
         if (++chunkpos < rowindex.size())
             // more index chunks in the current row
             return true;
-        if (rowdataoffset + rowlength < getFileLength())
+        if (rowlength < getBytesRemaining())
         {
             // more rows in the file
             repositionRow(rowdataoffset + rowlength);

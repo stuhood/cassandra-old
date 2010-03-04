@@ -28,6 +28,7 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.BloomFilter;
+import org.apache.cassandra.utils.FBUtilities;
 
 import com.google.common.collect.Ordering;
 
@@ -195,6 +196,22 @@ public class ColumnKey implements Named
     public int hashCode()
     {
         return Arrays.hashCode(new int[]{dk.hashCode(), Arrays.hashCode(names)});
+    }
+
+    /**
+     * For a type-aware toString, see ColumnKey.Comparator.getString.
+     */
+    @Override
+    public String toString()
+    {
+        StringBuilder sb = new StringBuilder();
+        sb.append("#<ColumnKey [");
+        sb.append(dk).append(",");
+        sb.append(FBUtilities.bytesToHex(names[0]));
+        for (int i = 1; i < names.length; i++)
+            sb.append(",").append(FBUtilities.bytesToHex(names[i]));
+        sb.append("]>");
+        return sb.toString();
     }
 
     public void serialize(DataOutput dos) throws IOException
