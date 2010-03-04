@@ -42,24 +42,18 @@ import org.apache.cassandra.io.util.DataOutputBuffer;
 public class SSTableUtils
 {
     // first configured table and cf
-    public static String TABLENAME;
-    public static String CFNAME;
-    static
-    {
-        try
-        {
-            TABLENAME = DatabaseDescriptor.getTables().iterator().next();
-            CFNAME = Table.open(TABLENAME).getColumnFamilies().iterator().next();
-        }
-        catch(IOException e)
-        {
-            throw new RuntimeException(e);
-        }
-    }
+    public static String TABLENAME = "Keyspace1";
+    public static String CFNAME = "Standard1";
+    public static String SUPERCFNAME = "Super4";
 
     public static ColumnFamily createCF(long mfda, int ldt, IColumn... cols)
     {
-        ColumnFamily cf = ColumnFamily.create(TABLENAME, CFNAME);
+        return createCF(TABLENAME, CFNAME, mfda, ldt, cols);
+    }
+
+    public static ColumnFamily createCF(String ksname, String cfname, long mfda, int ldt, IColumn... cols)
+    {
+        ColumnFamily cf = ColumnFamily.create(ksname, cfname);
         cf.delete(ldt, mfda);
         for (IColumn col : cols)
             cf.addColumn(col);
@@ -96,6 +90,11 @@ public class SSTableUtils
 
     public static SSTableReader writeSSTable(SortedMap<String, ColumnFamily> entries) throws IOException
     {
+        return writeSSTable(TABLENAME, CFNAME, entries);
+    }
+
+    public static SSTableReader writeSSTable(String ksname, String cfname, SortedMap<String, ColumnFamily> entries) throws IOException
+    {
         TreeMap<String, byte[]> map = new TreeMap<String, byte[]>();
         for (Map.Entry<String, ColumnFamily> entry : entries.entrySet())
         {
@@ -103,7 +102,7 @@ public class SSTableUtils
             ColumnFamily.serializer().serializeWithIndexes(entry.getValue(), buffer);
             map.put(entry.getKey(), buffer.toByteArray());
         }
-        return writeRawSSTable(TABLENAME, CFNAME, map);
+        return writeRawSSTable(ksname, cfname, map);
     }
 
     private static SSTableReader writeRawSSTable(String tablename, String cfname, SortedMap<String, byte[]> entries) throws IOException

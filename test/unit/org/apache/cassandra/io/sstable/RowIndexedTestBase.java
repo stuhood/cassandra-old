@@ -26,6 +26,7 @@ import java.util.*;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.CleanupHelper;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
 import org.apache.cassandra.db.*;
@@ -80,4 +81,32 @@ public abstract class RowIndexedTestBase extends CleanupHelper
     }
 
     protected abstract void verifyMany(RowIndexedReader sstable, TreeMap<String, ColumnFamily> map) throws IOException;
+
+    @Test
+    public void testManySuperWrites() throws IOException {
+        TreeMap<String, ColumnFamily> map = new TreeMap<String,ColumnFamily>();
+        for ( int i = 100; i < 1000; ++i )
+        {
+            byte[] bytes = ("Avinash Lakshman is a good man: " + i).getBytes();
+            int byteHash = Arrays.hashCode(bytes);
+            SuperColumn sc = new SuperColumn(bytes,
+                                             DatabaseDescriptor.getSubComparator(SSTableUtils.TABLENAME,
+                                                                                 SSTableUtils.SUPERCFNAME));
+            for (int k = 0; k < 10; ++k)
+                sc.addColumn(new Column((""+k).getBytes(), bytes, k));
+            ColumnFamily cf = SSTableUtils.createCF(SSTableUtils.TABLENAME, SSTableUtils.SUPERCFNAME, byteHash, byteHash, sc);
+
+            map.put(Integer.toString(i), cf);
+        }
+
+        // write
+        RowIndexedReader ssTable = (RowIndexedReader)SSTableUtils.writeSSTable(SSTableUtils.TABLENAME, SSTableUtils.SUPERCFNAME, map);
+
+        // verify
+        verifyManySuper(ssTable, map);
+        ssTable = (RowIndexedReader)SSTableReader.open(ssTable.getDescriptor()); // read the index from disk
+        verifyManySuper(ssTable, map);
+    }
+
+    protected abstract void verifyManySuper(RowIndexedReader sstable, TreeMap<String, ColumnFamily> map) throws IOException;
 }

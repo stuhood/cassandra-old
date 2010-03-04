@@ -31,6 +31,7 @@ import org.apache.log4j.Logger;
 import org.apache.commons.collections.iterators.CollatingIterator;
 
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.sstable.SSTableScanner;
 import org.apache.cassandra.io.Scanner;
@@ -48,6 +49,7 @@ public class CompactionIterator extends AbstractIterator<CompactionIterator.Comp
 
     private final int gcBefore;
     private final boolean major;
+    private final int depth;
 
     /**
      * The comparators for all SSTables we are compacting.
@@ -101,7 +103,7 @@ public class CompactionIterator extends AbstractIterator<CompactionIterator.Comp
         comparator = head.getComparator();
         scomparator = new SliceComparator(comparator);
         emptycf = head.makeColumnFamily();
-        assert !emptycf.isSuper() : "FIXME: Need super support!"; // FIXME
+        depth = head.getColumnDepth();
 
         // open all scanners
         scanners = new PriorityQueue<Scanner>(sstables.size(),
@@ -256,7 +258,8 @@ public class CompactionIterator extends AbstractIterator<CompactionIterator.Comp
      * garbage collection for tombstones.
      *
      * TODO: To allow for arbitrarily wide rows, CompactionIterator should begin
-     * returning SliceBuffers, which we can write directly back to disk.
+     * returning SliceBuffers, which we can write directly back to disk. Hence, the
+     * way we merge multiple Slices into a ColumnFamily is not very optimized atm.
      *
      * @return The next CompactedRow for this iterator.
      */
@@ -265,10 +268,11 @@ public class CompactionIterator extends AbstractIterator<CompactionIterator.Comp
     {
         DecoratedKey dkey = null; 
         ColumnFamily cf = null; 
+        List<SliceBuffer> cfslices = null;
         while (ensureMergeBuffer())
         {
             // check that the slice is part of the current cf
-            if (dkey != null && !dkey.equals(mergeBuff.peek().begin.dk))
+            if (dkey != null && dkey.compareTo(mergeBuff.peek().begin.dk) != 0)
                 // new slice is part of the next cf
                 break;
             SliceBuffer slice = mergeBuff.poll();
@@ -287,17 +291,45 @@ public class CompactionIterator extends AbstractIterator<CompactionIterator.Comp
             {
                 dkey = slice.begin.dk;
                 cf = emptycf.cloneMeShallow();
+                cfslices = new ArrayList<SliceBuffer>();
                 cf.delete(slice.meta.localDeletionTime, slice.meta.markedForDeleteAt);
             }
-            for (Column col : slice.realized())
-                cf.addColumn(col);
+            cfslices.add(slice);
         }
 
         if (cf == null)
             return endOfData();
+
+        // populate the cf with its list of slices
+        if (depth == 1)
+            populateStandardCF(cf, cfslices);
+        else
+            populateSuperCF(cf, cfslices);
+
+        // serialize to the compacted row
         DataOutputBuffer dao = new DataOutputBuffer();
         ColumnFamily.serializer().serializeWithIndexes(cf, dao);
         return new CompactedRow(dkey, dao);
+    }
+
+    private void populateStandardCF(ColumnFamily cf, List<SliceBuffer> cfslices)
+    {
+        for (SliceBuffer slice : cfslices)
+            for (Column col : slice.realized())
+                cf.addColumn(col);
+    }
+
+    private void populateSuperCF(ColumnFamily cf, List<SliceBuffer> cfslices)
+    {
+        for (SliceBuffer slice : cfslices)
+        {
+            byte[] scname = slice.begin.name(1);
+            SuperColumn sc = (SuperColumn)cf.getColumn(scname);
+            if (sc == null)
+                cf.addColumn(sc = new SuperColumn(scname, comparator.typeAt(2)));
+            for (Column col : slice.realized())
+                sc.addColumn(col);
+        }
     }
 
     public void close() throws IOException

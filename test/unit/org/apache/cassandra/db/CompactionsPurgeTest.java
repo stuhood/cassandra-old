@@ -97,6 +97,50 @@ public class CompactionsPurgeTest extends CleanupHelper
     }
 
     @Test
+    public void testCompactionPurgeSuper() throws IOException, ExecutionException, InterruptedException
+    {
+        CompactionManager.instance.disableAutoCompaction();
+
+        Table table = Table.open(TABLE1);
+        String cfName = "Super4";
+        ColumnFamilyStore cfs = table.getColumnFamilyStore(cfName);
+
+        String key = "key1";
+        RowMutation rm;
+
+        // inserts
+        rm = new RowMutation(TABLE1, key);
+        for (int i = 0; i < 10; i++)
+        {
+            rm.add(new QueryPath(cfName, String.valueOf(i).getBytes(), "col".getBytes()), new byte[0], 0);
+        }
+        rm.apply();
+        cfs.forceBlockingFlush();
+
+        // deletes
+        for (int i = 0; i < 10; i++)
+        {
+            rm = new RowMutation(TABLE1, key);
+            rm.delete(new QueryPath(cfName, String.valueOf(i).getBytes(), "col".getBytes()), 1);
+            rm.apply();
+        }
+        cfs.forceBlockingFlush();
+
+        // resurrect one column
+        rm = new RowMutation(TABLE1, key);
+        rm.add(new QueryPath(cfName, String.valueOf(5).getBytes(), "col".getBytes()), new byte[0], 2);
+        rm.apply();
+        cfs.forceBlockingFlush();
+
+        // major compact and test that all columns but the resurrected one is completely gone
+        CompactionManager.instance.submitMajor(cfs, 0, Integer.MAX_VALUE).get();
+        cfs.invalidateCachedRow(key);
+        ColumnFamily cf = cfs.getColumnFamily(new IdentityQueryFilter(key, new QueryPath(cfName)));
+        assertColumns(cf, "5");
+        assert cf.getColumn(String.valueOf(5).getBytes()) != null;
+    }
+
+    @Test
     public void testCompactionPurgeOneFile() throws IOException, ExecutionException, InterruptedException
     {
         CompactionManager.instance.disableAutoCompaction();

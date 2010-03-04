@@ -70,4 +70,37 @@ public class RowIndexedScannerTest extends RowIndexedTestBase
 
         assert !mapiter.hasNext() : "At least " + mapiter.next() + " remaining in iter.";
     }
+
+    protected void verifyManySuper(RowIndexedReader sstable, TreeMap<String, ColumnFamily> map) throws IOException
+    {
+        RowIndexedScanner scanner = (RowIndexedScanner)sstable.getScanner(1024);
+        scanner.first();
+        Iterator<Map.Entry<String,ColumnFamily>> mapiter = map.entrySet().iterator();
+        do
+        {
+            Map.Entry<String,ColumnFamily> entry = mapiter.next();
+
+            // should contain a single slice
+            assertEquals(entry.getKey(), scanner.get().begin.dk.key);
+            assertEquals(entry.getKey(), scanner.get().end.dk.key);
+
+            Iterator<IColumn> ecoliter = entry.getValue().getSortedColumns().iterator();
+            do
+            {
+                SuperColumn expectedcol = (SuperColumn)ecoliter.next();
+                List<Column> diskcols = scanner.getColumns();
+                assertEquals(expectedcol.getSubColumns().size(), diskcols.size());
+                for (Column diskcol : diskcols)
+                {
+                    IColumn expectedsubcol = expectedcol.getSubColumn(diskcol.name());
+                    assert Arrays.equals(diskcol.value(), expectedsubcol.value());
+                }
+            }
+            while(scanner.next() && ecoliter.hasNext());
+            assert !ecoliter.hasNext();
+        }
+        while (scanner.next());
+
+        assert !mapiter.hasNext() : "At least " + mapiter.next() + " remaining in iter.";
+    }
 }

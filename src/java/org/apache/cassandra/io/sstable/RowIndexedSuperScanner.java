@@ -42,14 +42,21 @@ public class RowIndexedSuperScanner extends RowIndexedScanner
         supers = new ArrayDeque<SuperColumn>();
     }
 
+    @Override
     protected void repositionRow(long offset) throws IOException
     {
         super.repositionRow(offset);
         supers.clear();
+        repositionSlice();
+    }
+
+    protected void repositionSlice() throws IOException
+    {
         for (IColumn col : getRawColumns())
             supers.add((SuperColumn)col);
     }
 
+    @Override
     protected void clearPosition()
     {
         super.clearPosition();
@@ -57,38 +64,14 @@ public class RowIndexedSuperScanner extends RowIndexedScanner
     }
 
     @Override
-    public boolean seekNear(DecoratedKey seekKey) throws IOException
-    {
-        if (!super.seekNear(seekKey))
-            return false;
-        return true;
-    }
-
-    @Override
     public boolean seekNear(ColumnKey seekKey) throws IOException
     {
-        if (!super.seekNear(seekKey))
-            return false;
-        
-        // seek forward in the column list
         throw new RuntimeException("FIXME: Not implemented"); // FIXME
-    }
-
-    @Override
-    public boolean seekTo(DecoratedKey seekKey) throws IOException
-    {
-        if (!super.seekTo(seekKey))
-            return false;
-        return true;
     }
 
     @Override
     public boolean seekTo(ColumnKey seekKey) throws IOException
     {
-        if (!super.seekTo(seekKey))
-            return false;
-        
-        // seek forward in the column list
         throw new RuntimeException("FIXME: Not implemented"); // FIXME
     }
 
@@ -98,7 +81,10 @@ public class RowIndexedSuperScanner extends RowIndexedScanner
         if (supers.poll() != null && supers.peek() != null)
             return true;
         if (super.next())
+        {
+            repositionSlice();
             return true;
+        }
         return false;
     }
 

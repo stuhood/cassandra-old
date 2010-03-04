@@ -28,6 +28,7 @@ import static org.junit.Assert.*;
 
 import org.apache.cassandra.CleanupHelper;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
+import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.utils.Pair;
 
@@ -50,11 +51,10 @@ public class RowIndexedReaderTest extends RowIndexedTestBase
     {
         List<String> keys = new ArrayList<String>(map.keySet());
         Collections.shuffle(keys);
-        BufferedRandomAccessFile file = new BufferedRandomAccessFile(sstable.getFilename(), "r");
         for (String key : keys)
         {
             ColumnFamily expectedcf = map.get(key);
-            file.seek(sstable.getPosition(sstable.partitioner.decorateKey(key)).position);
+            FileDataInput file = sstable.getFileDataInput(sstable.partitioner.decorateKey(key), 1024);
 
             Pair<DecoratedKey,ColumnFamily> row = deserialize(sstable, file);
             ColumnFamily diskcf = row.right;
@@ -69,7 +69,33 @@ public class RowIndexedReaderTest extends RowIndexedTestBase
         }
     }
 
-    private Pair<DecoratedKey,ColumnFamily> deserialize(RowIndexedReader sstable, BufferedRandomAccessFile file) throws IOException
+    protected void verifyManySuper(RowIndexedReader sstable, TreeMap<String, ColumnFamily> map) throws IOException
+    {
+        List<String> keys = new ArrayList<String>(map.keySet());
+        Collections.shuffle(keys);
+        for (String key : keys)
+        {
+            ColumnFamily expectedcf = map.get(key);
+            FileDataInput file = sstable.getFileDataInput(sstable.partitioner.decorateKey(key), 1024);
+
+            Pair<DecoratedKey,ColumnFamily> row = deserialize(sstable, file);
+            ColumnFamily diskcf = row.right;
+
+            assertEquals(row.left.key, key);
+            assertEquals(expectedcf.getSortedColumns().size(), diskcf.getSortedColumns().size());
+            for (IColumn diskcol : diskcf.getSortedColumns())
+            {
+                SuperColumn expectedcol = (SuperColumn)expectedcf.getColumn(diskcol.name());
+                for (IColumn disksubcol : ((SuperColumn)diskcol).getSubColumns())
+                {
+                    Column expectedsubcol = (Column)expectedcol.getSubColumn(disksubcol.name());
+                    assert Arrays.equals(disksubcol.value(), expectedsubcol.value());
+                }
+            }
+        }
+    }
+
+    private Pair<DecoratedKey,ColumnFamily> deserialize(RowIndexedReader sstable, FileDataInput file) throws IOException
     {
         DecoratedKey dk = sstable.getPartitioner().convertFromDiskFormat(file.readUTF());
         file.readInt(); // row data size
