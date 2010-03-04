@@ -24,11 +24,12 @@ package org.apache.cassandra.utils;
 import java.util.Iterator;
 
 import com.google.common.collect.AbstractIterator;
+import com.google.common.collect.PeekingIterator;
 
 /**
  * reduces equal values from the source iterator to a single (optionally transformed) instance.
  */
-public abstract class ReducingIterator<T1, T2> extends AbstractIterator<T2> implements Iterator<T2>, Iterable<T2>
+public abstract class ReducingIterator<T1, T2> extends AbstractIterator<T2> implements Iterator<T2>, Iterable<T2>, PeekingIterator<T2>
 {
     protected Iterator<T1> source;
     protected T1 last;

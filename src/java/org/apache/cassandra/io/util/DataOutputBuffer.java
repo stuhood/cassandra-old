@@ -32,6 +32,11 @@ public class DataOutputBuffer extends DataOutputStream
 {
     private static class Buffer extends ByteArrayOutputStream
     {
+        public Buffer(int size)
+        {
+            super(size);
+        }
+
         public byte[] getData()
         {
             return buf;
@@ -63,18 +68,36 @@ public class DataOutputBuffer extends DataOutputStream
     
     private Buffer buffer;
     
-    /** Constructs a new empty buffer. */
+    /**
+     * Constructs a new empty buffer.
+     */
     public DataOutputBuffer()
     {
-        this(new Buffer());
+        this(128);
     }
     
+    /**
+     * Constructs a new empty buffer with the given initial size.
+     */
+    public DataOutputBuffer(int size)
+    {
+        this(new Buffer(size));
+    }
+   
     private DataOutputBuffer(Buffer buffer)
     {
         super(buffer);
         this.buffer = buffer;
     }
-    
+   
+    /**
+     * @return A copy of the valid content in the buffer.
+     */
+    public byte[] toByteArray()
+    {
+        return buffer.toByteArray();
+    }
+
     /**
      * Returns the current contents of the buffer. Data is only valid to
      * {@link #getLength()}.
