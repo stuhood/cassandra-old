@@ -28,7 +28,7 @@ import static org.junit.Assert.*;
 
 import org.apache.cassandra.CleanupHelper;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
-import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.*;
 
 public abstract class RowIndexedTestBase extends CleanupHelper
 {
@@ -38,10 +38,15 @@ public abstract class RowIndexedTestBase extends CleanupHelper
         String key = Integer.toString(1);
         byte[] bytes = new byte[1024];
         new Random().nextBytes(bytes);
+        int byteHash = Arrays.hashCode(bytes);
 
-        TreeMap<String, byte[]> map = new TreeMap<String,byte[]>();
-        map.put(key, bytes);
-        RowIndexedReader ssTable = (RowIndexedReader)SSTableUtils.writeRawSSTable("Keyspace1", "Standard1", map);
+        ColumnFamily cf = SSTableUtils.createCF(byteHash,
+                                                byteHash,
+                                                new Column(bytes, bytes, byteHash));
+
+        TreeMap<String, ColumnFamily> map = new TreeMap<String,ColumnFamily>();
+        map.put(key, cf);
+        RowIndexedReader ssTable = (RowIndexedReader)SSTableUtils.writeSSTable(map);
 
         // verify
         verifySingle(ssTable, bytes, key);
@@ -53,14 +58,20 @@ public abstract class RowIndexedTestBase extends CleanupHelper
 
     @Test
     public void testManyWrites() throws IOException {
-        TreeMap<String, byte[]> map = new TreeMap<String,byte[]>();
+        TreeMap<String, ColumnFamily> map = new TreeMap<String,ColumnFamily>();
         for ( int i = 100; i < 1000; ++i )
         {
-            map.put(Integer.toString(i), ("Avinash Lakshman is a good man: " + i).getBytes());
+            byte[] bytes = ("Avinash Lakshman is a good man: " + i).getBytes();
+            int byteHash = Arrays.hashCode(bytes);
+            ColumnFamily cf = SSTableUtils.createCF(byteHash,
+                                                    byteHash,
+                                                    new Column(bytes, bytes, byteHash));
+
+            map.put(Integer.toString(i), cf);
         }
 
         // write
-        RowIndexedReader ssTable = (RowIndexedReader)SSTableUtils.writeRawSSTable("Keyspace1", "Standard2", map);
+        RowIndexedReader ssTable = (RowIndexedReader)SSTableUtils.writeSSTable(map);
 
         // verify
         verifyMany(ssTable, map);
@@ -68,5 +79,5 @@ public abstract class RowIndexedTestBase extends CleanupHelper
         verifyMany(ssTable, map);
     }
 
-    protected abstract void verifyMany(RowIndexedReader sstable, TreeMap<String, byte[]> map) throws IOException;
+    protected abstract void verifyMany(RowIndexedReader sstable, TreeMap<String, ColumnFamily> map) throws IOException;
 }

@@ -28,34 +28,46 @@ import static org.junit.Assert.*;
 
 import org.apache.cassandra.CleanupHelper;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
-import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.*;
 
 public class RowIndexedScannerTest extends RowIndexedTestBase
 {
     protected void verifySingle(RowIndexedReader sstable, byte[] bytes, String key) throws IOException
     {
-        BufferedRandomAccessFile file = new BufferedRandomAccessFile(sstable.getFilename(), "r");
-        file.seek(sstable.getPosition(sstable.partitioner.decorateKey(key)).position);
-        assert key.equals(file.readUTF());
-        int size = file.readInt();
-        byte[] bytes2 = new byte[size];
-        file.readFully(bytes2);
-        assert Arrays.equals(bytes2, bytes);
+        RowIndexedScanner scanner = (RowIndexedScanner)sstable.getScanner(1024);
+        scanner.first();
+        // should contain a single slice
+        assertEquals(key, scanner.get().begin.dk.key);
+        assertEquals(key, scanner.get().end.dk.key);
+
+        List<Column> cols = scanner.getColumns();
+        assertEquals(1, cols.size());
+        assert Arrays.equals(cols.get(0).value(), bytes);
     }
 
-    protected void verifyMany(RowIndexedReader sstable, TreeMap<String, byte[]> map) throws IOException
+    protected void verifyMany(RowIndexedReader sstable, TreeMap<String, ColumnFamily> map) throws IOException
     {
-        List<String> keys = new ArrayList<String>(map.keySet());
-        Collections.shuffle(keys);
-        BufferedRandomAccessFile file = new BufferedRandomAccessFile(sstable.getFilename(), "r");
-        for (String key : keys)
+        RowIndexedScanner scanner = (RowIndexedScanner)sstable.getScanner(1024);
+        scanner.first();
+        Iterator<Map.Entry<String,ColumnFamily>> mapiter = map.entrySet().iterator();
+        do
         {
-            file.seek(sstable.getPosition(sstable.partitioner.decorateKey(key)).position);
-            assert key.equals(file.readUTF());
-            int size = file.readInt();
-            byte[] bytes2 = new byte[size];
-            file.readFully(bytes2);
-            assert Arrays.equals(bytes2, map.get(key));
+            Map.Entry<String,ColumnFamily> entry = mapiter.next();
+
+            // should contain a single slice
+            assertEquals(entry.getKey(), scanner.get().begin.dk.key);
+            assertEquals(entry.getKey(), scanner.get().end.dk.key);
+
+            List<Column> diskcols = scanner.getColumns();
+            assertEquals(entry.getValue().getSortedColumns().size(), diskcols.size());
+            for (Column diskcol : diskcols)
+            {
+                IColumn expectedcol = entry.getValue().getColumn(diskcol.name());
+                assert Arrays.equals(diskcol.value(), expectedcol.value());
+            }
         }
+        while (scanner.next());
+
+        assert !mapiter.hasNext();
     }
 }

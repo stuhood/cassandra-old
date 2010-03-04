@@ -73,7 +73,6 @@ public class Slice
      */
     public static final class Metadata
     {
-        // TODO: document the actual meaning of these fields
         public final long markedForDeleteAt;
         public final int localDeletionTime;
 

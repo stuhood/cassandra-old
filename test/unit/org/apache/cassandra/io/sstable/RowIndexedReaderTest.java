@@ -28,7 +28,8 @@ import static org.junit.Assert.*;
 
 import org.apache.cassandra.CleanupHelper;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
-import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.*;
+import org.apache.cassandra.utils.Pair;
 
 public class RowIndexedReaderTest extends RowIndexedTestBase
 {
@@ -36,26 +37,46 @@ public class RowIndexedReaderTest extends RowIndexedTestBase
     {
         BufferedRandomAccessFile file = new BufferedRandomAccessFile(sstable.getFilename(), "r");
         file.seek(sstable.getPosition(sstable.partitioner.decorateKey(key)).position);
-        assert key.equals(file.readUTF());
-        int size = file.readInt();
-        byte[] bytes2 = new byte[size];
-        file.readFully(bytes2);
-        assert Arrays.equals(bytes2, bytes);
+
+        Pair<DecoratedKey,ColumnFamily> row = deserialize(sstable, file);
+
+        assertEquals(row.left.key, key);
+        IColumn col = row.right.getColumn(bytes);
+        assert col != null;
+        assert Arrays.equals(bytes, col.value());
     }
 
-    protected void verifyMany(RowIndexedReader sstable, TreeMap<String, byte[]> map) throws IOException
+    protected void verifyMany(RowIndexedReader sstable, TreeMap<String, ColumnFamily> map) throws IOException
     {
         List<String> keys = new ArrayList<String>(map.keySet());
         Collections.shuffle(keys);
         BufferedRandomAccessFile file = new BufferedRandomAccessFile(sstable.getFilename(), "r");
         for (String key : keys)
         {
+            ColumnFamily expectedcf = map.get(key);
             file.seek(sstable.getPosition(sstable.partitioner.decorateKey(key)).position);
-            assert key.equals(file.readUTF());
-            int size = file.readInt();
-            byte[] bytes2 = new byte[size];
-            file.readFully(bytes2);
-            assert Arrays.equals(bytes2, map.get(key));
+
+            Pair<DecoratedKey,ColumnFamily> row = deserialize(sstable, file);
+            ColumnFamily diskcf = row.right;
+
+            assertEquals(row.left.key, key);
+            assertEquals(expectedcf.getSortedColumns().size(), diskcf.getSortedColumns().size());
+            for (IColumn diskcol : diskcf.getSortedColumns())
+            {
+                IColumn expectedcol = expectedcf.getColumn(diskcol.name());
+                assert Arrays.equals(diskcol.value(), expectedcol.value());
+            }
         }
+    }
+
+    private Pair<DecoratedKey,ColumnFamily> deserialize(RowIndexedReader sstable, BufferedRandomAccessFile file) throws IOException
+    {
+        DecoratedKey dk = sstable.getPartitioner().convertFromDiskFormat(file.readUTF());
+        file.readInt(); // row data size
+        IndexHelper.defreezeBloomFilter(file);
+        IndexHelper.deserializeIndex(file);
+
+        ColumnFamily cf = ColumnFamily.serializer().deserializeFromSSTable(sstable, file);
+        return new Pair<DecoratedKey,ColumnFamily>(dk, cf);
     }
 }

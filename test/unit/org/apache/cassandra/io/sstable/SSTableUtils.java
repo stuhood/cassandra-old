@@ -30,6 +30,7 @@ import java.util.TreeMap;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnFamily;
+import org.apache.cassandra.db.IColumn;
 import org.apache.cassandra.db.Table;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.io.util.DataOutputBuffer;
@@ -54,6 +55,15 @@ public class SSTableUtils
         {
             throw new RuntimeException(e);
         }
+    }
+
+    public static ColumnFamily createCF(long mfda, int ldt, IColumn... cols)
+    {
+        ColumnFamily cf = ColumnFamily.create(TABLENAME, CFNAME);
+        cf.delete(ldt, mfda);
+        for (IColumn col : cols)
+            cf.addColumn(col);
+        return cf;
     }
 
     public static File tempSSTableFile(String tablename, String cfname) throws IOException
@@ -91,12 +101,12 @@ public class SSTableUtils
         {
             DataOutputBuffer buffer = new DataOutputBuffer();
             ColumnFamily.serializer().serializeWithIndexes(entry.getValue(), buffer);
-            map.put(entry.getKey(), buffer.getData());
+            map.put(entry.getKey(), buffer.toByteArray());
         }
         return writeRawSSTable(TABLENAME, CFNAME, map);
     }
 
-    public static SSTableReader writeRawSSTable(String tablename, String cfname, SortedMap<String, byte[]> entries) throws IOException
+    private static SSTableReader writeRawSSTable(String tablename, String cfname, SortedMap<String, byte[]> entries) throws IOException
     {
         File f = tempSSTableFile(tablename, cfname);
         SSTableWriter writer = new SSTableWriter(f.getAbsolutePath(), entries.size(), StorageService.getPartitioner());

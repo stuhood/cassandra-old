@@ -46,6 +46,22 @@ public abstract class SSTableScanner implements Closeable
     }
 
     /**
+     * @return The Comparator for this SSTable.
+     */
+    public int columnDepth()
+    {
+        return reader().getColumnDepth();
+    }
+
+    /**
+     * @return The Comparator for this SSTable.
+     */
+    public ColumnKey.Comparator comparator()
+    {
+        return reader().getComparator();
+    }
+
+    /**
      * @return The underlying SSTableReader.
      */
     public abstract SSTableReader reader();

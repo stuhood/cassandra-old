@@ -22,16 +22,12 @@ package org.apache.cassandra.io.sstable;
 import java.io.*;
 import java.util.*;
 
-import org.apache.cassandra.db.Column;
-import org.apache.cassandra.db.ColumnKey;
-import org.apache.cassandra.db.ColumnFamily;
-import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.*;
 import org.apache.cassandra.io.IteratingRow;
 import org.apache.cassandra.io.Slice;
 import org.apache.cassandra.io.SliceBuffer;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
 import org.apache.cassandra.io.util.FileDataInput;
-import org.apache.cassandra.utils.Pair;
 
 import org.apache.log4j.Logger;
 
@@ -47,11 +43,13 @@ public class RowIndexedScanner extends SSTableScanner
     /**
      * State related to the current row.
      */
+    protected Slice.Metadata rowmeta;
+    protected DecoratedKey rowkey;
     private IteratingRow row;
-    private Slice.Metadata rowmeta;
-    private long rowoffset;
+    private long rowoffset;            // immediately before the key
+    private long rowdataoffset;        // after key and length
+    private long rowcolsoffset;        // at first column
     private int rowlength;
-    private DecoratedKey rowkey;
     private List<IndexHelper.IndexInfo> rowindex;
 
     // for standard cfs, the current slice is the current index chunk
@@ -67,7 +65,6 @@ public class RowIndexedScanner extends SSTableScanner
         this.reader = reader;
         this.bufferSize = bufferSize;
         emptycf = reader.makeColumnFamily();
-        assert !emptycf.isSuper() : "FIXME: Use Scanner specific to super cfs.";
     }
 
     @Override
@@ -79,7 +76,7 @@ public class RowIndexedScanner extends SSTableScanner
     /**
      * Moves to the row at the given offset, lazily (re)opening the file if necessary.
      */
-    private void repositionRow(long offset) throws IOException
+    protected void repositionRow(long offset) throws IOException
     {
         if (file == null)
             file = new BufferedRandomAccessFile(reader.getFilename(), "r", bufferSize);
@@ -90,6 +87,7 @@ public class RowIndexedScanner extends SSTableScanner
         rowoffset = offset;
         rowkey = reader.getPartitioner().convertFromDiskFormat(file.readUTF());
         rowlength = file.readInt();
+        rowdataoffset = file.getFilePointer();
         // TODO: selectively load bloom filter?
         IndexHelper.skipBloomFilter(file);
         rowindex = IndexHelper.deserializeIndex(file);
@@ -98,14 +96,16 @@ public class RowIndexedScanner extends SSTableScanner
         rowmeta = new Slice.Metadata(emptycf.getMarkedForDeleteAt(),
                                      emptycf.getLocalDeletionTime());
 
-        // determine current slice within the cf
+        // current slice within the cf
         chunkpos = 0;
+        file.readInt(); // column count
+        rowcolsoffset = file.getFilePointer();
     }
 
     /**
      * Un-positions a Scanner, so that it isn't pointed anywhere.
      */
-    private void clearPosition()
+    protected void clearPosition()
     {
         row = null;
         rowmeta = null;
@@ -157,7 +157,6 @@ public class RowIndexedScanner extends SSTableScanner
             return false;
         }
         repositionRow(position);
-        // FIXME: load supercolumn
         return true;
     }
 
@@ -169,8 +168,7 @@ public class RowIndexedScanner extends SSTableScanner
         // positioned at row: seek within rowindex
         chunkpos = IndexHelper.indexFor(seekKey.name(1), rowindex,
                                         reader.getColumnComparator(), false);
-        // FIXME: load supercolumn
-        return true;
+        return chunkpos < rowindex.size();
     }
 
     @Override
@@ -183,7 +181,6 @@ public class RowIndexedScanner extends SSTableScanner
             return false;
         }
         repositionRow(position.position);
-        // FIXME: load supercolumn
         return true;
     }
 
@@ -195,8 +192,7 @@ public class RowIndexedScanner extends SSTableScanner
         // positioned at row: seek within rowindex
         chunkpos = IndexHelper.indexFor(seekKey.name(1), rowindex,
                                         reader.getColumnComparator(), false);
-        // FIXME: load supercolumn
-        return true;
+        return chunkpos < rowindex.size();
     }
 
     @Override
@@ -205,13 +201,10 @@ public class RowIndexedScanner extends SSTableScanner
         if (file == null)
             return false;
 
-        // FIXME: needs to support super columns
-        // if (moreColumns)
-            // more columns in the current index chunk
         if (chunkpos+1 < rowindex.size())
             // more index chunks in the current row
             return true;
-        if (rowoffset + rowlength < getFileLength())
+        if (rowdataoffset + rowlength < getFileLength())
             // more rows in the file
             return true;
         return false;
@@ -221,16 +214,14 @@ public class RowIndexedScanner extends SSTableScanner
     public boolean next() throws IOException
     {
         assert file != null : "A Scanner must be positioned before use.";
-        // FIXME: needs to support super columns
-        // if (moreColumns)
-            // more columns in the current index chunk
+
         if (++chunkpos < rowindex.size())
             // more index chunks in the current row
             return true;
-        if (rowoffset + rowlength < getFileLength())
+        if (rowdataoffset + rowlength < getFileLength())
         {
             // more rows in the file
-            repositionRow(rowoffset + rowlength);
+            repositionRow(rowdataoffset + rowlength);
             return true;
         }
         return false;
@@ -240,6 +231,8 @@ public class RowIndexedScanner extends SSTableScanner
     public Slice get()
     {
         if (rowmeta == null)
+            return null;
+        if (chunkpos >= rowindex.size())
             return null;
         
         // slices are inclusive,exclusive, but row indexes are inclusive,inclusive
@@ -252,6 +245,23 @@ public class RowIndexedScanner extends SSTableScanner
         return new Slice(rowmeta, new ColumnKey(rowkey, start), new ColumnKey(rowkey, end));
     }
 
+    /**
+     * protected hook to grab un-typed columns from disk.
+     */
+    protected List<IColumn> getRawColumns() throws IOException
+    {
+        if (rowmeta == null)
+            return null;
+        
+        // read sequential columns from the chunk
+        ArrayList<IColumn> columns = new ArrayList<IColumn>();
+        file.seek(rowcolsoffset + rowindex.get(chunkpos).offset);
+        long chunkend = file.getFilePointer() + rowindex.get(chunkpos).width;
+        while (file.getFilePointer() < chunkend)
+            columns.add(emptycf.getColumnSerializer().deserialize(file));
+        return columns;
+    }
+
     @Override
     public List<Column> getColumns() throws IOException
     {
@@ -260,7 +270,7 @@ public class RowIndexedScanner extends SSTableScanner
         
         // read sequential columns from the chunk
         ArrayList<Column> columns = new ArrayList<Column>();
-        file.seek(rowoffset + rowindex.get(chunkpos).offset);
+        file.seek(rowcolsoffset + rowindex.get(chunkpos).offset);
         long chunkend = file.getFilePointer() + rowindex.get(chunkpos).width;
         while (file.getFilePointer() < chunkend)
             columns.add((Column)emptycf.getColumnSerializer().deserialize(file));

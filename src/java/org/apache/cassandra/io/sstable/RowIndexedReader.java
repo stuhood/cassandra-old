@@ -376,6 +376,8 @@ class RowIndexedReader extends SSTableReader
 
     public SSTableScanner getScanner(int bufferSize) throws IOException
     {
+        if (makeColumnFamily().isSuper())
+            return new RowIndexedSuperScanner(this, bufferSize);
         return new RowIndexedScanner(this, bufferSize);
     }
 
