@@ -124,56 +124,6 @@ public class ColumnKey implements Named
         return new Comparator(DatabaseDescriptor.getComparator(table, cf));
     }
 
-    /**
-     * @return The components of this key that are stored in a bloom filter.
-     */
-    List<byte[]> getBloomComponents()
-    {
-        List<byte[]> components = new ArrayList<byte[]>(1+names.length);
-        DataOutputBuffer buff = new DataOutputBuffer();
-        try
-        {
-            // key only
-            buff.writeUTF(dk.key);
-            components.add(buff.toByteArray());
-            for (int i = 0; i < names.length; i++)
-            {
-                if (names[i] == null || names[i].length < 1)
-                    // beginning of trailing null names
-                    break;
-                buff.write('\u0000');
-                buff.write(names[i]);
-                // with name at depth i+1 appended
-                components.add(buff.toByteArray());
-            }
-        }
-        catch (IOException e)
-        {
-            throw new AssertionError(e);
-        }
-        return components;
-    }
-
-    /**
-     * Adds all components of this column key to the bloom filter.
-     */
-    public void addToBloom(BloomFilter bf)
-    {
-        for (byte[] component : getBloomComponents())
-            bf.add(component);
-    }
-
-    /**
-     * Checks that all components of this column key are contained in the bloom filter.
-     */
-    public boolean isPresentInBloom(BloomFilter bf)
-    {
-        for (byte[] component : getBloomComponents())
-            if (!bf.isPresent(component))
-                return false;
-        return true;
-    }
-
     @Override
     public boolean equals(Object o)
     {
