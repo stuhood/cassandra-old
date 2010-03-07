@@ -35,12 +35,16 @@ import org.apache.cassandra.service.StorageService;
 
 import com.google.common.collect.AbstractIterator;
 
+/**
+ * FIXME: Shim: all classes using IteratingRows to access Scanners should be ported to the Slice API.
+ */
+@Deprecated
 public class IteratingRow implements Comparable<IteratingRow>
 {
-    private final DecoratedKey key;
-    private final ColumnFamily cf;
+    public final DecoratedKey key;
+    public final ColumnFamily cf;
     
-    public IteratingRow(DecoratedKey key, ColumnFamily cf) throws IOException
+    public IteratingRow(DecoratedKey key, ColumnFamily cf)
     {
         this.key = key;
         this.cf = cf;

@@ -271,7 +271,7 @@ public class RowIndexedScanner implements SSTableScanner
     /**
      * @return The slice for the current chunk of the index.
      */
-    private SliceBuffer getChunkSlice()
+    private SliceBuffer getChunkSlice() throws IOException
     {
         assert rowmeta != null;
         assert chunkpos < rowindex.size();

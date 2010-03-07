@@ -30,6 +30,7 @@ import org.apache.cassandra.db.IColumn;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.io.IteratingRow;
+import org.apache.cassandra.io.RowIterator;
 import org.apache.cassandra.io.sstable.SSTable;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.sstable.SSTableScanner;
@@ -203,10 +204,10 @@ public class SSTableExport
             DecoratedKey<?> dk = partitioner.decorateKey(key);
             // seek to the key
             if (!scanner.seekTo(dk))
-                // key outside file bounds
+                // key doesn't exist
                 continue;
             
-            IteratingRow row = new SSTableScanner.RowIterator(scanner).peek();
+            IteratingRow row = new RowIterator(scanner, scanner.reader()).peek();
             try
             {
                 String jsonOut = serializeRow(row);
@@ -254,7 +255,7 @@ public class SSTableExport
 
         outs.println("{");
        
-        SSTableScanner.RowIterator rowiter = new SSTableScanner.RowIterator(scanner);
+        RowIterator rowiter = new RowIterator(scanner, scanner.reader());
         while (rowiter.hasNext())
         {
             IteratingRow row = rowiter.next();

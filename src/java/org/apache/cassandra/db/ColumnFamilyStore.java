@@ -863,7 +863,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             if (!scanner.seekNear(startWith))
                 // nothing greater than or equal to startWith
                 continue;
-            final SSTableScanner.RowIterator rowiter = new SSTableScanner.RowIterator(scanner);
+            final RowIterator rowiter = new RowIterator(scanner, scanner.reader());
             Iterator<DecoratedKey> iter = new CloseableIterator<DecoratedKey>()
             {
                 public boolean hasNext()
