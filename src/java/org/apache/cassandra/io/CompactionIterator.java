@@ -32,7 +32,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.commons.collections.iterators.CollatingIterator;
 
-import org.apache.cassandra.utils.ReducingIterator;
+import org.apache.cassandra.utils.MergingIterator;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.AbstractType;
@@ -43,7 +43,7 @@ import org.apache.cassandra.io.util.DataOutputBuffer;
 
 import com.google.common.collect.Iterators;
 
-public class CompactionIterator extends ReducingIterator<SliceBuffer, SliceBuffer> implements Closeable
+public class CompactionIterator extends MergingIterator<SliceBuffer, SliceBuffer> implements Closeable
 {
     private static Logger logger = LoggerFactory.getLogger(CompactionIterator.class);
 
@@ -216,7 +216,7 @@ public class CompactionIterator extends ReducingIterator<SliceBuffer, SliceBuffe
      * @return The next CompactedRow for this iterator.
      */
     @Override
-    public SliceBuffer getReduced()
+    public Iterator<SliceBuffer> getReduced()
     {
         DecoratedKey dkey = null; 
         ColumnFamily cf = null; 
@@ -234,9 +234,7 @@ public class CompactionIterator extends ReducingIterator<SliceBuffer, SliceBuffe
             outBufferCount++;
         }
         mergeBuff.clear();
-
-        throw new RuntimeException("FIXME: Not implemented"); // FIXME
-        // return toret.iterator();
+        return toret.iterator();
     }
 
     public void close() throws IOException
