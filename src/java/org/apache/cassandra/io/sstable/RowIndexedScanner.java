@@ -23,19 +23,25 @@ import java.io.*;
 import java.util.*;
 
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.io.IteratingRow;
 import org.apache.cassandra.io.Slice;
 import org.apache.cassandra.io.SliceBuffer;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
 import org.apache.cassandra.io.util.FileDataInput;
 
+import com.google.common.collect.AbstractIterator;
+
 import org.apache.log4j.Logger;
 
-public class RowIndexedScanner extends SSTableScanner
+/**
+ * In order to provide lazy behaviour, we implement hasNext and next directly rather than
+ * via AbstractIterator (which eagerly calculates next).
+ */
+public class RowIndexedScanner implements SSTableScanner
 {
     private static final Logger logger = Logger.getLogger(RowIndexedScanner.class);
 
     private final RowIndexedReader reader;
+    private final long length;
     private final int bufferSize;
     private BufferedRandomAccessFile file;
     private final ColumnFamily emptycf; // always empty: just a metadata holder
@@ -45,14 +51,11 @@ public class RowIndexedScanner extends SSTableScanner
      */
     protected Slice.Metadata rowmeta;
     protected DecoratedKey rowkey;
-    private IteratingRow row;
     private long rowoffset;            // immediately before the key
     private long rowdataoffset;        // after key and length
     private long rowcolsoffset;        // at first column
     private int rowlength;
     private List<IndexHelper.IndexInfo> rowindex;
-
-    // for standard cfs, the current slice is the current index chunk
     private int chunkpos; // position of current chunk in the rowindex
 
     /**
@@ -63,8 +66,21 @@ public class RowIndexedScanner extends SSTableScanner
     {
         super();
         this.reader = reader;
+        this.length = reader.length();
         this.bufferSize = bufferSize;
         emptycf = reader.makeColumnFamily();
+    }
+
+    @Override
+    public int columnDepth()
+    {
+        return reader().getColumnDepth();
+    }
+
+    @Override
+    public ColumnKey.Comparator comparator()
+    {
+        return reader().getComparator();
     }
 
     @Override
@@ -83,7 +99,6 @@ public class RowIndexedScanner extends SSTableScanner
         file.seek(offset);
 
         // update mutable state for the row
-        row = null;
         rowoffset = offset;
         rowkey = reader.getPartitioner().convertFromDiskFormat(file.readUTF());
         rowlength = file.readInt();
@@ -97,9 +112,44 @@ public class RowIndexedScanner extends SSTableScanner
                                      emptycf.getLocalDeletionTime());
 
         // current slice within the cf
-        chunkpos = 0;
+        chunkpos = -1;
         file.readInt(); // column count
         rowcolsoffset = file.getFilePointer();
+    }
+
+    /**
+     * Sees whether more index chunks are available.
+     */
+    protected boolean canIncrementChunk()
+    {
+        if (file == null)
+            return false;
+        if (chunkpos < rowindex.size() - 1)
+            return true;
+        if (rowdataoffset + rowlength < length)
+            return true;
+        return false;
+    }
+
+    /**
+     * Moves to the next index chunk: assumes a row is open.
+     */
+    protected boolean incrementChunk() throws IOException
+    {
+        if (chunkpos < rowindex.size() - 1)
+        {
+            // next index chunk in the current row
+            chunkpos++;
+            return true;
+        }
+        if (rowdataoffset + rowlength < length)
+        {
+            // next row in the file
+            repositionRow(rowdataoffset + rowlength);
+            chunkpos++;
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -107,7 +157,6 @@ public class RowIndexedScanner extends SSTableScanner
      */
     protected void clearPosition()
     {
-        row = null;
         rowmeta = null;
     }
 
@@ -121,16 +170,9 @@ public class RowIndexedScanner extends SSTableScanner
     @Override
     public long getBytesRemaining()
     {
-        try
-        {
-            if (file == null)
-                first();
-            return file.length() - file.getFilePointer();
-        }
-        catch (IOException e)
-        {
-            throw new IOError(e);
-        }
+        if (file == null)
+            return length;
+        return length - file.getFilePointer();
     }
 
     @Override
@@ -161,7 +203,11 @@ public class RowIndexedScanner extends SSTableScanner
         // positioned at row: seek within rowindex
         chunkpos = IndexHelper.indexFor(seekKey.name(1), rowindex,
                                         reader.getColumnComparator(), false);
-        return chunkpos < rowindex.size();
+        if (chunkpos >= rowindex.size())
+            return false;
+        // position before matching chunk
+        chunkpos--;
+        return true;
     }
 
     @Override
@@ -185,33 +231,50 @@ public class RowIndexedScanner extends SSTableScanner
         // positioned at row: seek within rowindex
         chunkpos = IndexHelper.indexFor(seekKey.name(1), rowindex,
                                         reader.getColumnComparator(), false);
-        return chunkpos < rowindex.size();
+        if (chunkpos >= rowindex.size())
+            return false;
+        // position before matching chunk
+        chunkpos--;
+        return true;
     }
 
     @Override
-    public boolean next() throws IOException
+    public boolean hasNext()
+    {
+        if (file == null)
+            return false;
+        return canIncrementChunk();
+    }
+
+    @Override
+    public SliceBuffer next()
     {
         assert file != null : "A Scanner must be positioned before use.";
-
-        if (++chunkpos < rowindex.size())
-            // more index chunks in the current row
-            return true;
-        if (rowlength < getBytesRemaining())
+        try
         {
-            // more rows in the file
-            repositionRow(rowdataoffset + rowlength);
-            return true;
+            if (incrementChunk())
+                return getChunkSlice();
         }
-        return false;
+        catch (IOException e)
+        {
+            throw new IOError(e);
+        }
+        throw new NoSuchElementException();
     }
 
     @Override
-    public Slice get()
+    public final void remove()
     {
-        if (rowmeta == null)
-            return null;
-        if (chunkpos >= rowindex.size())
-            return null;
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * @return The slice for the current chunk of the index.
+     */
+    private SliceBuffer getChunkSlice()
+    {
+        assert rowmeta != null;
+        assert chunkpos < rowindex.size();
         
         // slices are inclusive,exclusive, but row indexes are inclusive,inclusive
         byte[] start = (chunkpos == 0) ?
@@ -220,13 +283,13 @@ public class RowIndexedScanner extends SSTableScanner
         byte[] end = (chunkpos < rowindex.size()-1) ?
             // first column of next chunk (rounded up to NAME_END for last chunk)
             rowindex.get(chunkpos+1).lastName : ColumnKey.NAME_END;
-        return new Slice(rowmeta, new ColumnKey(rowkey, start), new ColumnKey(rowkey, end));
+        return new SliceBuffer(rowmeta, new ColumnKey(rowkey, start), new ColumnKey(rowkey, end), (List<Column>)getRawColumns());
     }
 
     /**
-     * protected hook to grab un-typed columns from disk.
+     * @return Un-typed columns from disk for the current chunk of the index.
      */
-    protected List<IColumn> getRawColumns() throws IOException
+    protected List getRawColumns() throws IOException
     {
         if (rowmeta == null)
             return null;
@@ -238,54 +301,5 @@ public class RowIndexedScanner extends SSTableScanner
         while (file.getFilePointer() < chunkend)
             columns.add(emptycf.getColumnSerializer().deserialize(file));
         return columns;
-    }
-
-    @Override
-    public List<Column> getColumns() throws IOException
-    {
-        if (rowmeta == null)
-            return null;
-        
-        // read sequential columns from the chunk
-        ArrayList<Column> columns = new ArrayList<Column>();
-        file.seek(rowcolsoffset + rowindex.get(chunkpos).offset);
-        long chunkend = file.getFilePointer() + rowindex.get(chunkpos).width;
-        while (file.getFilePointer() < chunkend)
-            columns.add((Column)emptycf.getColumnSerializer().deserialize(file));
-        return columns;
-    }
-
-    @Override
-    public SliceBuffer getBuffer() throws IOException
-    {
-        Slice slice = get();
-        if (slice == null)
-            return null;
-
-        // takes the easy way out, and deserializes the columns
-        return new SliceBuffer(slice.meta, slice.begin, slice.end, getColumns());
-    }
-
-    @Override
-    public IteratingRow getIteratingRow() throws IOException
-    {
-        if (file == null)
-            return null;
-        if (row != null)
-        {
-            row.skipRemaining();
-        }
-        else
-        {
-            // after first/seek*(), we won't be positioned at the beginning of the row
-            file.seek(rowoffset);
-        }
-        if (file.getFilePointer() == file.length())
-        {
-            // end of file
-            clearPosition();
-            return null;
-        }
-        return row = new IteratingRow(file, reader);
     }
 }

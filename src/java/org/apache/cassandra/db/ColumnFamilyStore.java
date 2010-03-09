@@ -860,8 +860,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         for (SSTableReader sstable : ssTables_)
         {
             SSTableScanner scanner = sstable.getScanner(KEY_RANGE_FILE_BUFFER_SIZE);
-            scanner.seekNear(startWith);
-            final SSTableScanner.RowIterator rowiter = scanner.getIterator();
+            if (!scanner.seekNear(startWith))
+                // nothing greater than or equal to startWith
+                continue;
+            final SSTableScanner.RowIterator rowiter = new SSTableScanner.RowIterator(scanner);
             Iterator<DecoratedKey> iter = new CloseableIterator<DecoratedKey>()
             {
                 public boolean hasNext()

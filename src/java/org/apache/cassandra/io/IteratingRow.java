@@ -35,23 +35,15 @@ import org.apache.cassandra.service.StorageService;
 
 import com.google.common.collect.AbstractIterator;
 
-public class IteratingRow extends AbstractIterator<IColumn> implements Comparable<IteratingRow>
+public class IteratingRow implements Comparable<IteratingRow>
 {
     private final DecoratedKey key;
-    private final long finishedAt;
-    private final BufferedRandomAccessFile file;
-    private final SSTableReader sstable;
-    private final long dataStart;
+    private final ColumnFamily cf;
     
-    public IteratingRow(BufferedRandomAccessFile file, SSTableReader sstable) throws IOException
+    public IteratingRow(DecoratedKey key, ColumnFamily cf) throws IOException
     {
-        this.file = file;
-        this.sstable = sstable;
-
-        key = StorageService.getPartitioner().convertFromDiskFormat(file.readUTF());
-        int dataSize = file.readInt();
-        dataStart = file.getFilePointer();
-        finishedAt = dataStart + dataSize;
+        this.key = key;
+        this.cf = cf;
     }
 
     public DecoratedKey getKey()
@@ -59,55 +51,9 @@ public class IteratingRow extends AbstractIterator<IColumn> implements Comparabl
         return key;
     }
 
-    public String getPath()
-    {
-        return file.getPath();
-    }
-
-    public void echoData(DataOutput out) throws IOException
-    {
-        file.seek(dataStart);
-        while (file.getFilePointer() < finishedAt)
-        {
-            out.write(file.readByte());
-        }
-    }
-
-    // TODO r/m this and make compaction merge columns iteratively for CASSSANDRA-16
     public ColumnFamily getColumnFamily() throws IOException
     {
-        file.seek(dataStart);
-        IndexHelper.skipBloomFilter(file);
-        IndexHelper.skipIndex(file);
-        return ColumnFamily.serializer().deserializeFromSSTable(sstable, file);
-    }
-
-    public void skipRemaining() throws IOException
-    {
-        file.seek(finishedAt);
-    }
-
-    public long getEndPosition()
-    {
-        return finishedAt;
-    }
-
-    protected IColumn computeNext()
-    {
-        try
-        {
-            assert file.getFilePointer() <= finishedAt;
-            if (file.getFilePointer() == finishedAt)
-            {
-                return endOfData();
-            }
-
-            return sstable.getColumnSerializer().deserialize(file);
-        }
-        catch (IOException e)
-        {
-            throw new RuntimeException(e);
-        }
+        return cf;
     }
 
     public int compareTo(IteratingRow o)

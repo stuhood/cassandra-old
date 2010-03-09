@@ -27,6 +27,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 import org.apache.cassandra.CleanupHelper;
+import org.apache.cassandra.io.SliceBuffer;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
 import org.apache.cassandra.db.*;
 
@@ -37,15 +38,22 @@ public class RowIndexedScannerTest extends RowIndexedTestBase
         RowIndexedScanner scanner = (RowIndexedScanner)sstable.getScanner(1024);
         scanner.first();
         // should contain a single slice
-        assertEquals(key, scanner.get().begin.dk.key);
-        assertEquals(key, scanner.get().end.dk.key);
+        SliceBuffer sb = scanner.next();
+        assertEquals(key, sb.begin.dk.key);
+        assertEquals(key, sb.end.dk.key);
 
-        List<Column> cols = scanner.getColumns();
+        List<Column> cols = sb.realized();
         assertEquals(1, cols.size());
         assert Arrays.equals(cols.get(0).value(), bytes);
     }
 
     protected void verifyMany(RowIndexedReader sstable, TreeMap<String, ColumnFamily> map) throws IOException
+    {
+        verifyManyForward(sstable, map);
+        verifyManyRandom(sstable, map);
+    }
+
+    protected void verifyManyForward(RowIndexedReader sstable, TreeMap<String, ColumnFamily> map) throws IOException
     {
         RowIndexedScanner scanner = (RowIndexedScanner)sstable.getScanner(1024);
         scanner.first();
@@ -55,10 +63,11 @@ public class RowIndexedScannerTest extends RowIndexedTestBase
             Map.Entry<String,ColumnFamily> entry = mapiter.next();
 
             // should contain a single slice
-            assertEquals(entry.getKey(), scanner.get().begin.dk.key);
-            assertEquals(entry.getKey(), scanner.get().end.dk.key);
+            SliceBuffer sb = scanner.next();
+            assertEquals(entry.getKey(), sb.begin.dk.key);
+            assertEquals(entry.getKey(), sb.end.dk.key);
 
-            List<Column> diskcols = scanner.getColumns();
+            List<Column> diskcols = sb.realized();
             assertEquals(entry.getValue().getSortedColumns().size(), diskcols.size());
             for (Column diskcol : diskcols)
             {
@@ -66,40 +75,71 @@ public class RowIndexedScannerTest extends RowIndexedTestBase
                 assert Arrays.equals(diskcol.value(), expectedcol.value());
             }
         }
-        while (scanner.next());
+        while (scanner.hasNext());
+
+        assert !mapiter.hasNext() : "At least " + mapiter.next() + " remaining in iter.";
+    }
+
+    protected void verifyManyRandom(RowIndexedReader sstable, TreeMap<String, ColumnFamily> map) throws IOException
+    {
+        RowIndexedScanner scanner = (RowIndexedScanner)sstable.getScanner(1024);
+        Iterator<Map.Entry<String,ColumnFamily>> mapiter = map.entrySet().iterator();
+        do
+        {
+            Map.Entry<String,ColumnFamily> entry = mapiter.next();
+            assert scanner.seekTo(sstable.getPartitioner().decorateKey(entry.getKey()));
+
+            // should contain a single slice
+            SliceBuffer sb = scanner.next();
+            assertEquals(entry.getKey(), sb.begin.dk.key);
+            assertEquals(entry.getKey(), sb.end.dk.key);
+
+            List<Column> diskcols = sb.realized();
+            assertEquals(entry.getValue().getSortedColumns().size(), diskcols.size());
+            for (Column diskcol : diskcols)
+            {
+                IColumn expectedcol = entry.getValue().getColumn(diskcol.name());
+                assert Arrays.equals(diskcol.value(), expectedcol.value());
+            }
+        }
+        while (scanner.hasNext());
 
         assert !mapiter.hasNext() : "At least " + mapiter.next() + " remaining in iter.";
     }
 
     protected void verifyManySuper(RowIndexedReader sstable, TreeMap<String, ColumnFamily> map) throws IOException
     {
-        RowIndexedScanner scanner = (RowIndexedScanner)sstable.getScanner(1024);
+        RowIndexedSuperScanner scanner = (RowIndexedSuperScanner)sstable.getScanner(1024);
         scanner.first();
         Iterator<Map.Entry<String,ColumnFamily>> mapiter = map.entrySet().iterator();
         do
         {
             Map.Entry<String,ColumnFamily> entry = mapiter.next();
 
-            // should contain a single slice
-            assertEquals(entry.getKey(), scanner.get().begin.dk.key);
-            assertEquals(entry.getKey(), scanner.get().end.dk.key);
-
             Iterator<IColumn> ecoliter = entry.getValue().getSortedColumns().iterator();
             do
             {
+                SliceBuffer sb = scanner.next();
                 SuperColumn expectedcol = (SuperColumn)ecoliter.next();
-                List<Column> diskcols = scanner.getColumns();
-                assertEquals(expectedcol.getSubColumns().size(), diskcols.size());
+
+                // should contain a slice per supercolumn
+                assertEquals(entry.getKey(), sb.begin.dk.key);
+                assertEquals(entry.getKey(), sb.end.dk.key);
+                assert Arrays.equals(expectedcol.name(), sb.begin.name(1));
+                assert Arrays.equals(expectedcol.name(), sb.end.name(1));
+
+                List<Column> diskcols = sb.realized();
+                assertEquals("" + diskcols, expectedcol.getSubColumns().size(), diskcols.size());
                 for (Column diskcol : diskcols)
                 {
                     IColumn expectedsubcol = expectedcol.getSubColumn(diskcol.name());
                     assert Arrays.equals(diskcol.value(), expectedsubcol.value());
                 }
             }
-            while(scanner.next() && ecoliter.hasNext());
+            while(scanner.hasNext() && ecoliter.hasNext());
             assert !ecoliter.hasNext();
         }
-        while (scanner.next());
+        while (scanner.hasNext());
 
         assert !mapiter.hasNext() : "At least " + mapiter.next() + " remaining in iter.";
     }

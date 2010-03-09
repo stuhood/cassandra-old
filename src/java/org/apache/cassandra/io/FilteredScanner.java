@@ -30,15 +30,16 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.service.StorageService;
 
+import com.google.common.collect.AbstractIterator;
+
 /**
- * Filters a scanner using a list of non-intersecting ranges.
+ * Filters a Scanner using a list of non-intersecting ranges.
  */
-public class FilteredScanner implements Scanner
+public class FilteredScanner extends AbstractIterator<SliceBuffer> implements Scanner
 {
     private final Scanner scanner;
     private final ArrayList<Range> ranges;
     private int rangeidx;
-    private boolean valid;
 
     public FilteredScanner(Scanner scanner, Collection<Range> ranges) throws IOException
     {
@@ -56,37 +57,18 @@ public class FilteredScanner implements Scanner
             this.ranges.add(new Range(wrap.left, mintoken));
             this.ranges.set(0, new Range(mintoken, wrap.right));
         }
-        valid = false;
     }
 
-    /**
-     * Checks whether the current range matches the current slice. If not, skips
-     * forward through the ranges and slices looking for the next possible match.
-     *
-     * @return True if we are positioned at a slice that matches the filter.
-     */
-    private boolean matchSlice() throws IOException
+    @Override
+    public int columnDepth()
     {
-        // skip through ranges/slices until we find a range containing a slice
-        for (; rangeidx < ranges.size(); rangeidx++)
-        {
-            if (ranges.get(rangeidx).contains(scanner.get().begin.dk.token))
-            {
-                // range contains slice
-                valid = true;
-                return true;
-            }
-            // see if we should skip this range
-            if (ranges.get(rangeidx).left.compareTo(scanner.get().begin.dk.token) > 0)
-            {
-                // slice is less than current range: seek to the next slice
-                if (!scanner.seekNear(new DecoratedKey(ranges.get(rangeidx).left)))
-                    // no more data for the current slice
-                    break;
-            }
-        }
-        valid = false;
-        return false;
+        return scanner.columnDepth();
+    }
+
+    @Override
+    public ColumnKey.Comparator comparator()
+    {
+        return scanner.comparator();
     }
 
     public void close() throws IOException
@@ -105,13 +87,8 @@ public class FilteredScanner implements Scanner
     {
         // seek to the beginning of the first range
         rangeidx = 0;
-        if (!scanner.seekNear(new DecoratedKey(ranges.get(rangeidx).left)))
-        {
-            valid = false;
-            return false;
-        }
-
-        return matchSlice();
+        scanner.seekNear(new DecoratedKey(ranges.get(rangeidx).left));
+        return hasNext();
     }
 
     @Override
@@ -128,39 +105,44 @@ public class FilteredScanner implements Scanner
         throw new RuntimeException("Not implemented");
     }
 
+    /**
+     * Checks whether the current range matches the current slice. If not, skips
+     * forward through the ranges and slices looking for the next possible match.
+     *
+     * @return The next slice matching the filter.
+     */
     @Override
-    public boolean next() throws IOException
+    public SliceBuffer computeNext()
     {
-        if (!scanner.next())
+        try
         {
-            valid = false;
-            return false;
+            // skip through ranges/slices until we find a slice contained in a range
+            while (scanner.hasNext() && rangeidx < ranges.size())
+            {
+                SliceBuffer slice = scanner.next();
+                if (ranges.get(rangeidx).contains(slice.begin.dk.token))
+                    // range contains slice
+                    return slice;
+
+                if (ranges.get(rangeidx).left.compareTo(slice.begin.dk.token) > 0)
+                {
+                    // slice is less than current range: seek to the nearest slice
+                    if (!scanner.seekNear(new DecoratedKey(ranges.get(rangeidx).left)))
+                        // no more data anywhere after the current range
+                        break;
+                }
+                else
+                {
+                    // range is less than slice: skip to next range
+                    rangeidx++;
+                }
+            }
+        }
+        catch(IOException e)
+        {
+            throw new IOError(e);
         }
         
-        return matchSlice();
-    }
-
-    @Override
-    public Slice get()
-    {
-        if (!valid)
-            return null;
-        return scanner.get();
-    }
-
-    @Override
-    public List<Column> getColumns() throws IOException
-    {
-        if (!valid)
-            return null;
-        return scanner.getColumns();
-    }
-
-    @Override
-    public SliceBuffer getBuffer() throws IOException
-    {
-        if (!valid)
-            return null;
-        return scanner.getBuffer();
+        return endOfData();
     }
 }

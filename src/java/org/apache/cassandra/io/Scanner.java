@@ -20,25 +20,43 @@
 package org.apache.cassandra.io;
 
 import java.io.*;
-import java.util.List;
+import java.util.Iterator;
 
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnKey;
 
+import com.google.common.collect.PeekingIterator;
+
 /**
- * A Scanner is an abstraction for reading Slices in a certain order.
+ * A Scanner is an Iterator for reading slices in a certain order.
+ *
+ * After creation, the Scanner is not positioned at a slice. Call first() or
+ * seek*() to position it immediately before a Slice, and then use next() to iterate.
  */
-public interface Scanner extends Closeable
+public interface Scanner extends Iterator<SliceBuffer>,Closeable
 {
+    /**
+     * @return The depth of the Columns in this SSTable.
+     */
+    public int columnDepth();
+
+    /**
+     * @return The Comparator for the returned Slices.
+     */
+    public ColumnKey.Comparator comparator();
+
+    /**
+     * @return The approximate number of bytes remaining in the Scanner.
+     */
     public long getBytesRemaining();
 
     public boolean first() throws IOException;
     public boolean seekNear(DecoratedKey seekKey) throws IOException;
     public boolean seekNear(ColumnKey seekKey) throws IOException;
-    public boolean next() throws IOException;
 
-    public Slice get();
-    public List<Column> getColumns() throws IOException;
-    public SliceBuffer getBuffer() throws IOException;
+    /**
+     * Releases any resources associated with this scanner.
+     */
+    public void close() throws IOException;
 }

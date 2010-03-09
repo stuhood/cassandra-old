@@ -42,18 +42,10 @@ public class RowIndexedSuperScanner extends RowIndexedScanner
         supers = new ArrayDeque<SuperColumn>();
     }
 
-    @Override
-    protected void repositionRow(long offset) throws IOException
-    {
-        super.repositionRow(offset);
-        supers.clear();
-        repositionSlice();
-    }
-
     protected void repositionSlice() throws IOException
     {
-        for (IColumn col : getRawColumns())
-            supers.add((SuperColumn)col);
+        for (SuperColumn col : (List<SuperColumn>)getRawColumns())
+            supers.add(col);
     }
 
     @Override
@@ -76,42 +68,48 @@ public class RowIndexedSuperScanner extends RowIndexedScanner
     }
 
     @Override
-    public boolean next() throws IOException
+    public boolean hasNext()
     {
-        if (supers.poll() != null && supers.peek() != null)
+        if (!supers.isEmpty())
             return true;
-        if (super.next())
-        {
-            repositionSlice();
-            return true;
-        }
-        return false;
+        return canIncrementChunk();
     }
 
     @Override
-    public Slice get()
+    public SliceBuffer next()
     {
-        if (supers.isEmpty())
-            return null;
-        
+        try
+        {
+            if (!supers.isEmpty())
+                return getSuperSlice();
+            if (incrementChunk())
+            {
+                repositionSlice();
+                return getSuperSlice();
+            }
+        }
+        catch (IOException e)
+        {
+            throw new IOError(e);
+        }
+        throw new NoSuchElementException();
+    }
+
+    /**
+     * Polls the first Slice from the 'supers' queue.
+     */
+    private SliceBuffer getSuperSlice() throws IOException
+    {
         // convert the current supercolumn to a slice
-        SuperColumn supcol = supers.peek();
+        SuperColumn supcol = supers.poll();
         Slice.Metadata supermeta = rowmeta.childWith(supcol.getMarkedForDeleteAt(),
                                                      supcol.getLocalDeletionTime());
-        return new Slice(supermeta,
-                         new ColumnKey(rowkey, supcol.name(), ColumnKey.NAME_BEGIN),
-                         new ColumnKey(rowkey, supcol.name(), ColumnKey.NAME_END));
-    }
-
-    @Override
-    public List<Column> getColumns() throws IOException
-    {
-        if (supers.isEmpty())
-            return null;
-        
         List<Column> subcols = new ArrayList<Column>();
-        for (IColumn subcol : supers.peek().getSubColumns())
-            subcols.add((Column)subcol);
-        return subcols;
+        for (IColumn col : supcol.getSubColumns())
+            subcols.add((Column)col);
+        return new SliceBuffer(supermeta,
+                               new ColumnKey(rowkey, supcol.name(), ColumnKey.NAME_BEGIN),
+                               new ColumnKey(rowkey, supcol.name(), ColumnKey.NAME_END),
+                               subcols);
     }
 }

@@ -206,7 +206,7 @@ public class SSTableExport
                 // key outside file bounds
                 continue;
             
-            IteratingRow row = scanner.getIteratingRow();
+            IteratingRow row = new SSTableScanner.RowIterator(scanner).peek();
             try
             {
                 String jsonOut = serializeRow(row);
@@ -254,7 +254,7 @@ public class SSTableExport
 
         outs.println("{");
        
-        SSTableScanner.RowIterator rowiter = scanner.getIterator();
+        SSTableScanner.RowIterator rowiter = new SSTableScanner.RowIterator(scanner);
         while (rowiter.hasNext())
         {
             IteratingRow row = rowiter.next();

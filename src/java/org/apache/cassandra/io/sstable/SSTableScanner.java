@@ -22,93 +22,55 @@ package org.apache.cassandra.io.sstable;
 import java.io.*;
 import java.util.*;
 
-import org.apache.cassandra.db.Column;
-import org.apache.cassandra.db.ColumnKey;
-import org.apache.cassandra.db.ColumnFamily;
-import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.*;
 import org.apache.cassandra.io.IteratingRow;
 import org.apache.cassandra.io.Scanner;
 import org.apache.cassandra.io.Slice;
 import org.apache.cassandra.io.SliceBuffer;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.ReducingIterator;
 
 import com.google.common.collect.*;
 
-/**
- * A SSTableScanner is an abstraction for reading slices from an SSTable.
- *
- * After creation, the scanner is not positioned at a slice. Call first() or
- * seek*() to position it at a Slice, and then use next() to iterate.
- */
-public abstract class SSTableScanner implements Scanner
+public interface SSTableScanner extends Scanner
 {
-    protected SSTableScanner()
-    {
-    }
-
-    /**
-     * @return The Comparator for this SSTable.
-     */
-    public int columnDepth()
-    {
-        return reader().getColumnDepth();
-    }
-
-    /**
-     * @return The Comparator for this SSTable.
-     */
-    public ColumnKey.Comparator comparator()
-    {
-        return reader().getComparator();
-    }
-
     /**
      * @return The underlying SSTableReader.
      */
-    public abstract SSTableReader reader();
+    public SSTableReader reader();
 
     /**
-     * Releases any resources associated with this scanner.
-     */
-    public abstract void close() throws IOException;
-
-    /**
-     * @return The approximate number of bytes remaining in the scanner.
-     */
-    public abstract long getBytesRemaining();
-
-    /**
-     * Positions the Scanner at the first slice in the file. SSTables should never
-     * be empty, so this call should always succeed.
+     * Positions the Scanner immediately before the first slice in the file.
+     * SSTables should never be empty, so this call should always succeed.
      * @return True.
      */
-    public abstract boolean first() throws IOException;
+    public boolean first() throws IOException;
 
     /**
      * See the contract for seekNear(CK).
      */
-    public abstract boolean seekNear(DecoratedKey seekKey) throws IOException;
+    public boolean seekNear(DecoratedKey seekKey) throws IOException;
 
     /**
      * Seeks to the slice which might contain the given key, without checking the
      * existence of the key in the filter. If such a slice does not exist, the next
-     * calls to get*() will have undefined results.
+     * calls to next() will have undefined results.
      *
      * seekKeys with trailing NAME_BEGIN or NAME_END names will properly match
      * the slices that they begin or end when used with this method.
      *
      * @return False if no such Slice was found.
      */
-    public abstract boolean seekNear(ColumnKey seekKey) throws IOException;
+    public boolean seekNear(ColumnKey seekKey) throws IOException;
 
     /**
      * See the contract for seekTo(CK).
      */
-    public abstract boolean seekTo(DecoratedKey seekKey) throws IOException;
+    public boolean seekTo(DecoratedKey seekKey) throws IOException;
 
     /**
      * Seeks to the slice which might contain the given key. If the key does not
-     * exist, or such a slice does not exist, the next calls to get*() will have
+     * exist, or such a slice does not exist, the next calls to next() will have
      * undefined results.
      *
      * seekKeys with trailing NAME_BEGIN or NAME_END names will properly match
@@ -116,95 +78,82 @@ public abstract class SSTableScanner implements Scanner
      *
      * @return False if no such Slice was found.
      */
-    public abstract boolean seekTo(ColumnKey seekKey) throws IOException;
+    public boolean seekTo(ColumnKey seekKey) throws IOException;
 
     /**
-     * Seeks to the next slice, unless the last call to seek*() failed, or we are at
+     * @return True if the scanner has been successfully positioned, and contains
+     * at least one more Slice.
+     */
+    public boolean hasNext();
+
+    /**
+     * @return The next slice (preferably still in serialized form), unless the last call to seek*() failed, or we are at
      * the end of the file.
-     * @return True if we are positioned at the next valid slice.
      */
-    public abstract boolean next() throws IOException;
+    public SliceBuffer next();
 
     /**
-     * @return The Slice at our current position, or null if the last call to
-     * seekTo failed, or we're at EOF.
-     */
-    public abstract Slice get();
-
-    /**
-     * A list of columns contained in this slice. A slice may be a tombstone,
-     * which only exists to pass along deletion Metadata, in which case the list
-     * will be empty.
+     * Merges consecutive Slices into an IteratingRow.
      *
-     * @return A column list for the slice at our current position, or null if
-     * the last call to seek*() failed, or we're at EOF.
-     */
-    public abstract List<Column> getColumns() throws IOException;
-
-    /**
-     * A buffer containing the columns in this slice, preferably still in serialized
-     * form.
-     *
-     * @return A SliceBuffer for the slice at our current position, or null if
-     * the last call to seek*() failed, or we're at EOF.
-     */
-    public abstract SliceBuffer getBuffer() throws IOException;
-
-    /**
-     * Reads the entire ColumnFamily defined by the key of the current Slice. After
-     * the call, the Scanner will be positioned at the beginning of the first Slice
-     * for the next ColumnFamily, or at EOF.
-     *
-     * FIXME: This is here temporarily as we port callers to the Slice API: using this
-     * method in conjunction with next(), get() and friends will definitely not
-     * work as expected.
-     *
-     * @return An IteratingRow for the current ColumnFamily, or null if get() would
-     * return null.
-     */
-    @Deprecated
-    public abstract IteratingRow getIteratingRow() throws IOException;
-
-    /**
-     * FIXME: This is here temporarily as we port callers to the Slice API.
-     *
-     * @return An iterator wrapping this Scanner and starting at the current position
-     * of the Scanner.
-     */
-    @Deprecated
-    public RowIterator getIterator()
-    {
-        return new RowIterator(this);
-    }
-
-    /**
      * FIXME: This is here temporarily as we port callers to the Slice API.
      */
     @Deprecated
-    public static class RowIterator extends AbstractIterator<IteratingRow> implements PeekingIterator<IteratingRow>, Closeable
+    public static class RowIterator extends ReducingIterator<SliceBuffer, IteratingRow> implements PeekingIterator<IteratingRow>, Closeable
     {
         public final SSTableScanner scanner;
-        RowIterator(SSTableScanner scanner)
+        private final boolean isSuper;
+        private DecoratedKey dk;
+        private ColumnFamily cf;
+
+        public RowIterator(SSTableScanner scanner)
         {
+            super(scanner);
             this.scanner = scanner;
+            isSuper = this.scanner.reader().getColumnDepth() == 2;
+
+            dk = null;
+            cf = this.scanner.reader().makeColumnFamily();
         }
 
         @Override
-        protected IteratingRow computeNext()
+        protected boolean isEqual(SliceBuffer sb1, SliceBuffer sb2)
         {
-            try
-            {
-                IteratingRow row = scanner.getIteratingRow();
-                if (row == null)
-                    return endOfData();
-                return row;
-            }
-            catch (IOException e)
-            {
-                throw new IOError(e);
-            }
+            return sb1.begin.dk.compareTo(sb2.begin.dk) == 0;
         }
         
+        @Override
+        public void reduce(SliceBuffer sb)
+        {
+            dk = sb.begin.dk;
+            cf.delete(sb.meta.localDeletionTime, sb.meta.markedForDeleteAt);
+            if (!isSuper)
+            {
+                for (Column col : sb.realized())
+                    cf.addColumn(col);
+                return;
+            }
+
+            // super cf
+            byte[] scname = sb.begin.name(1);
+            SuperColumn sc = (SuperColumn)cf.getColumn(scname);
+            if (sc == null)
+            {
+                sc = new SuperColumn(scname, scanner.comparator().typeAt(2));
+                sc.markForDeleteAt(sb.meta.localDeletionTime, sb.meta.markedForDeleteAt);
+                cf.addColumn(sc);
+            }
+            for (Column col : sb.realized())
+                sc.addColumn(col);
+        }
+
+        @Override
+        protected IteratingRow getReduced()
+        {
+            ColumnFamily toret = cf;
+            cf = this.scanner.reader().makeColumnFamily();
+            return new IteratingRow(dk, cf);
+        }
+
         public void close() throws IOException
         {
             scanner.close();
