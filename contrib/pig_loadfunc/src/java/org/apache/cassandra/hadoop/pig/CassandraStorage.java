@@ -34,12 +34,15 @@ import org.apache.hadoop.mapreduce.RecordReader;
 
 import org.apache.pig.LoadFunc;
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigSplit;
+import org.apache.pig.data.DefaultDataBag;
 import org.apache.pig.data.DataByteArray;
 import org.apache.pig.data.Tuple;
 import org.apache.pig.data.TupleFactory;
 
 /**
  * A LoadFunc wrapping ColumnFamilyInputFormat.
+ *
+ * A row from a standard CF will be returned as nested tuples: (key, ((name1, val1), (name2, val2))).
  */
 public class CassandraStorage extends LoadFunc
 {
@@ -62,11 +65,13 @@ public class CassandraStorage extends LoadFunc
             assert key != null && cf != null;
             
             // and wrap it in a tuple
-            ArrayList<Object> tuple = new ArrayList<Object>();
-            tuple.add(new DataByteArray(key));
+		    Tuple tuple = TupleFactory.getInstance().newTuple(2);
+            ArrayList<Tuple> columns = new ArrayList<Tuple>();
+            tuple.set(0, new DataByteArray(key));
             for (Map.Entry<byte[], IColumn> entry : cf.entrySet())
-                tuple.add(columnToTuple(entry.getKey(), entry.getValue()));
-            return TupleFactory.getInstance().newTupleNoCopy(tuple);
+                columns.add(columnToTuple(entry.getKey(), entry.getValue()));
+            tuple.set(1, new DefaultDataBag(columns));
+            return tuple;
         }
         catch (InterruptedException e)
         {
@@ -86,10 +91,10 @@ public class CassandraStorage extends LoadFunc
         }
 
         // super
-        ArrayList<Object> subcols = new ArrayList<Object>();
+        ArrayList<Tuple> subcols = new ArrayList<Tuple>();
         for (IColumn subcol : ((SuperColumn)col).getSubColumns())
             subcols.add(columnToTuple(subcol.name(), subcol));
-        pair.set(1, TupleFactory.getInstance().newTupleNoCopy(subcols));
+        pair.set(1, new DefaultDataBag(subcols));
         return pair;
     }
 

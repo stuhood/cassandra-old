@@ -1,15 +1,21 @@
 A Pig LoadFunc that reads all columns from a given ColumnFamily.
 
-First build and start a Cassandra server with the default configuration*, 
-then, ensuring that JAVA_HOME and PIG_CONF_DIR are set corrently, run:
+First build and start a Cassandra server with the default configuration*, add a jar for Pig >= 0.7.0-dev
+to the lib/ directory, and then, ensuring that JAVA_HOME and PIG_CONF_DIR are set corrently, run:
 
 contrib/pig_loadfunc$ ant
 contrib/pig_loadfunc$ bin/pig_cassandra
 
-Once the 'grunt>' shell has loaded, try a simple program like the following:
-grunt> records = LOAD 'cassandra://Keyspace1/Standard1' USING CassandraStorage();
-grunt> limited = LIMIT records 100;
-grunt> dump limited;
+Once the 'grunt>' shell has loaded, try a simple program like the following, which will determine
+the top 50 column names:
+grunt> rows = LOAD 'cassandra://Keyspace1/Standard1' USING CassandraStorage();
+grunt> cols = FOREACH rows GENERATE flatten($1);
+grunt> colnames = FOREACH cols GENERATE $0;
+grunt> namegroups = GROUP colnames BY $0;
+grunt> namecounts = FOREACH namegroups GENERATE COUNT($1), group;
+grunt> orderednames = ORDER namecounts BY $0;
+grunt> topnames = LIMIT orderednames 50;
+grunt> dump topnames;
 
 *If you want to point Pig at a real cluster, modify the seed
-address in storage-conf.xml accordingly.
+address in storage-conf.xml and re-run the build step.
