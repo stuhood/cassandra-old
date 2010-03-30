@@ -44,12 +44,11 @@ public abstract class Filter
         return Filter.getHashBuckets(key, hashCount, buckets());
     }
 
-
     abstract int buckets();
 
-    public abstract void add(String key);
+    public abstract void add(byte[] key);
 
-    public abstract boolean isPresent(String key);
+    public abstract boolean isPresent(byte[] key);
 
     // for testing
     abstract int emptyBuckets();

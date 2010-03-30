@@ -75,8 +75,7 @@ public class SSTableWriter extends SSTable
     private void afterAppend(DecoratedKey decoratedKey, long dataPosition, int dataSize) throws IOException
     {
         byte[] diskKey = partitioner.convertToDiskFormat(decoratedKey);
-        // FIXME: needs format change
-        bf.add(new String(diskKey, FBUtilities.UTF8));
+        bf.add(diskKey);
         lastWrittenKey = decoratedKey;
         long indexPosition = indexFile.getFilePointer();
         FBUtilities.writeShortByteArray(diskKey, indexFile);

@@ -81,13 +81,13 @@ public class FilterTest
 
         while (keys.hasNext())
         {
-            f.add(keys.next());
+            f.add(keys.next().getBytes());
         }
 
         int fp = 0;
         while (otherkeys.hasNext())
         {
-            if (f.isPresent(otherkeys.next()))
+            if (f.isPresent(otherkeys.next().getBytes()))
             {
                 fp++;
             }
@@ -99,15 +99,15 @@ public class FilterTest
 
     public static Filter testSerialize(Filter f) throws IOException
     {
-        f.add("a");
+        f.add("a".getBytes());
         DataOutputBuffer out = new DataOutputBuffer();
         f.getSerializer().serialize(f, out);
 
         ByteArrayInputStream in = new ByteArrayInputStream(out.getData(), 0, out.getLength());
         Filter f2 = f.getSerializer().deserialize(new DataInputStream(in));
 
-        assert f2.isPresent("a");
-        assert !f2.isPresent("b");
+        assert f2.isPresent("a".getBytes());
+        assert !f2.isPresent("b".getBytes());
         return f2;
     }
 
