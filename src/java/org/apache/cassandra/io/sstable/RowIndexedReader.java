@@ -33,6 +33,7 @@ import org.apache.cassandra.cache.InstrumentedCache;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.utils.BloomFilter;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -171,7 +172,7 @@ class RowIndexedReader extends SSTableReader
                 {
                     break;
                 }
-                DecoratedKey decoratedKey = partitioner.convertFromDiskFormat(input.readUTF());
+                DecoratedKey decoratedKey = partitioner.convertFromDiskFormat(FBUtilities.readShortByteArray(input));
                 long dataPosition = input.readLong();
                 long nextIndexPosition = input.getFilePointer();
                 // read the next index entry to see how big the row is
@@ -182,7 +183,7 @@ class RowIndexedReader extends SSTableReader
                 }
                 else
                 {
-                    input.readUTF();
+                    FBUtilities.readShortByteArray(input);
                     nextDataPosition = input.readLong();
                     input.seek(nextIndexPosition);
                 }
@@ -229,7 +230,8 @@ class RowIndexedReader extends SSTableReader
     public PositionSize getPosition(DecoratedKey decoratedKey)
     {
         // first, check bloom filter
-        if (!bf.isPresent(partitioner.convertToDiskFormat(decoratedKey)))
+        // FIXME: expecting utf8
+        if (!bf.isPresent(new String(partitioner.convertToDiskFormat(decoratedKey), FBUtilities.UTF8)))
             return null;
 
         // next, the key cache
@@ -290,7 +292,7 @@ class RowIndexedReader extends SSTableReader
                 }
 
                 // read key & data position from index entry
-                DecoratedKey indexDecoratedKey = partitioner.convertFromDiskFormat(input.readUTF());
+                DecoratedKey indexDecoratedKey = partitioner.convertFromDiskFormat(FBUtilities.readShortByteArray(input));
                 long dataPosition = input.readLong();
 
                 int v = indexDecoratedKey.compareTo(decoratedKey);
@@ -363,7 +365,7 @@ class RowIndexedReader extends SSTableReader
                 DecoratedKey indexDecoratedKey;
                 try
                 {
-                    indexDecoratedKey = partitioner.convertFromDiskFormat(input.readUTF());
+                    indexDecoratedKey = partitioner.convertFromDiskFormat(FBUtilities.readShortByteArray(input));
                 }
                 catch (EOFException e)
                 {
