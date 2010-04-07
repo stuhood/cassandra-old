@@ -35,8 +35,7 @@ import org.apache.cassandra.io.util.DataOutputBuffer;
  * (TODO: look at making SuperColumn immutable too.  This is trickier but is probably doable
  *  with something like PCollections -- http://code.google.com
  */
-
-public class Column implements IColumn
+public class Column implements IColumn, Named
 {
     private static Logger logger = LoggerFactory.getLogger(Column.class);
 
@@ -99,6 +98,23 @@ public class Column implements IColumn
     public long timestamp()
     {
         return timestamp;
+    }
+
+    /**
+     * Given the relevant metadata for the parents of this column, determine if the
+     * column is ready for garbage collection.
+     *
+     * TODO: based on ColumnFamilyStore.removeDeleted: incorporate
+     */
+    public boolean readyForGC(long parentMarkedForDeleteAt, int gcBefore)
+    {
+        if (isMarkedForDelete() && getLocalDeletionTime() <= gcBefore)
+            // the column is deleted, and has acted as a tombstone long enough
+            return true;
+        if (timestamp() <= parentMarkedForDeleteAt)
+            // our parents indicate that we should be deleted
+            return true;
+        return false;
     }
 
     public boolean isMarkedForDelete()
