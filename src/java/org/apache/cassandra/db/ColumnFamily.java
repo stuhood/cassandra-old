@@ -108,7 +108,7 @@ public class ColumnFamily implements IColumnContainer
         return cf;
     }
 
-    private AbstractType getSubComparator()
+    public AbstractType getSubComparator()
     {
         return (columnSerializer_ instanceof SuperColumnSerializer) ? ((SuperColumnSerializer)columnSerializer_).getComparator() : null;
     }
