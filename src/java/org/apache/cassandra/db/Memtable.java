@@ -46,6 +46,7 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.WrappedRunnable;
 
+import com.google.common.base.Function;
 import com.google.common.collect.Iterators;
 
 /**
@@ -65,14 +66,32 @@ public class Memtable implements Comparable<Memtable>, IFlushable
     private final AtomicInteger currentOperations = new AtomicInteger(0);
 
     private final long creationTime;
-    private final ConcurrentNavigableMap<ColumnKey, List<ASlice>> rows = new ConcurrentSkipListMap<ColumnKey, List<ASlice>>();
+    private final ConcurrentNavigableMap<ColumnKey, List<ASlice>> rows;
     private final IPartitioner partitioner = StorageService.getPartitioner();
     private final ColumnFamilyStore cfs;
+    private final ColumnKey.Comparator comp;
 
     public Memtable(ColumnFamilyStore cfs)
     {
         this.cfs = cfs;
+        comp = ColumnKey.getComparator(cfs.table_, cfs.columnFamily_);
+        rows = new ConcurrentSkipListMap<ColumnKey, List<ASlice>>(comp);
         creationTime = System.currentTimeMillis();
+    }
+
+    /**
+     * Flattens lists of slices to an iterator over slices.
+     */
+    public Iterator<ASlice> concat(Iterator<List<ASlice>> iter)
+    {
+        Function<List<ASlice>, Iterator<ASlice>> fun = new Function<List<ASlice>, Iterator<ASlice>>()
+            {
+                public Iterator<ASlice> apply(List<ASlice> list)
+                {
+                    return list.iterator();
+                }
+            };
+        return Iterators.concat(Iterators.transform(rows.values().iterator(), fun));
     }
 
     /**
@@ -133,7 +152,6 @@ public class Memtable implements Comparable<Memtable>, IFlushable
         currentThroughput.addAndGet(cf.size());
         currentOperations.addAndGet(cf.getColumnCount());
 
-        ColumnKey.Comparator comp = ColumnKey.getComparator(cfs.table_, cfs.columnFamily_);
 
         // NB: since we don't support differing metadata for parents yet (aka, range deletes), each Slice here represents a single parent
         List<ASlice> newslices = cf.toSlices(key);
@@ -148,7 +166,7 @@ public class Memtable implements Comparable<Memtable>, IFlushable
      */
     private void resolve(List<ASlice> newslices)
     {
-        assert !slices.isEmpty();
+        assert !newslices.isEmpty();
 
         // determine the key for the parent of these slices
         ColumnKey parentkey = newslices.iterator().next().begin;
@@ -202,14 +220,19 @@ public class Memtable implements Comparable<Memtable>, IFlushable
         SSTableWriter writer = new SSTableWriter(cfs.getFlushPath(), rows.size(), StorageService.getPartitioner());
 
         DataOutputBuffer buffer = new DataOutputBuffer();
-        for (Map.Entry<ColumnKey, List<ASlice>> entry : rows.entrySet())
+
+        // combine sorted Slices into sorted ColumnFamilies
+        Iterator<Pair<DecoratedKey, ColumnFamily>> rowiter = new SliceToCFIterator(cfs.table_,
+                                                                                   cfs.columnFamily_,
+                                                                                   concat(rows.values().iterator()));
+        while (rowiter.hasNext())
         {
+            Pair<DecoratedKey, ColumnFamily> row = rowiter.next();
             buffer.reset();
-            ColumnFamily cf = ColumnFamily.fromSlices(cfs.table_, cfs.columnFamily_, entry.getValue());
             /* serialize the cf with column indexes */
-            ColumnFamily.serializer().serializeWithIndexes(cf, buffer);
+            ColumnFamily.serializer().serializeWithIndexes(row.right, buffer);
             /* Now write the key and value to disk */
-            writer.append(entry.getKey(), buffer);
+            writer.append(row.left, buffer);
         }
 
         SSTableReader ssTable = writer.closeAndOpenReader();
@@ -242,7 +265,8 @@ public class Memtable implements Comparable<Memtable>, IFlushable
      */
     public Iterator<Pair<DecoratedKey, ColumnFamily>> getEntryIterator(DecoratedKey startWith)
     {
-        return new SliceToCFIterator(cfs.table_, cfs.columnFamily_, rows.tailMap(startWith).values().iterator());
+        ColumnKey ck = new ColumnKey(startWith, comp.columnDepth());
+        return new SliceToCFIterator(cfs.table_, cfs.columnFamily_, concat(rows.tailMap(ck).values().iterator()));
     }
 
     public boolean isClean()
@@ -352,16 +376,25 @@ public class Memtable implements Comparable<Memtable>, IFlushable
         };
     }
 
-    /*
-    public ColumnFamily getColumnFamily(DecoratedKey key)
+    /**
+     * FIXME: Squashing Slices back into a CF is inefficient.
+     */
+    public ColumnFamily getColumnFamily(DecoratedKey dk)
     {
-        // FIXME: hella inefficient
-        List<ASlice> rowslices = rows.get(key);
-        if (rowslices == null)
+        ColumnKey ck = new ColumnKey(dk, comp.columnDepth());
+        Iterator<Pair<DecoratedKey, ColumnFamily>> rowiter = new SliceToCFIterator(cfs.table_,
+                                                                                   cfs.columnFamily_,
+                                                                                   concat(rows.tailMap(ck).values().iterator()));
+        if (!rowiter.hasNext())
             return null;
-        return ColumnFamily.fromSlices(cfs.table_, cfs.columnFamily_, rowslices);
+
+        // collect a single row
+        Pair<DecoratedKey, ColumnFamily> row = rowiter.next();
+        // and confirm that it has a matching key
+        if (!dk.equals(row.left))
+            return null;
+        return row.right;
     }
-    */
 
     void clearUnsafe()
     {
