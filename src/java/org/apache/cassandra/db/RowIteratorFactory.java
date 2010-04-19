@@ -32,6 +32,7 @@ import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.sstable.SSTableScanner;
+import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.ReducingIterator;
 import org.apache.commons.collections.IteratorUtils;
 
@@ -165,7 +166,7 @@ public class RowIteratorFactory
      * @param startWith Start at this key position
      * @return entry iterator for the current memtable
      */
-    private static Iterator<Map.Entry<DecoratedKey, ColumnFamily>> memtableEntryIterator(Memtable memtable, DecoratedKey startWith)
+    private static Iterator<Pair<DecoratedKey, ColumnFamily>> memtableEntryIterator(Memtable memtable, DecoratedKey startWith)
     {
         Table.flusherLock.readLock().lock();
         try
@@ -181,7 +182,7 @@ public class RowIteratorFactory
     /**
      * Get a ColumnIterator for a specific key in the memtable.
      */
-    private static class ConvertToColumnIterator implements Function<Map.Entry<DecoratedKey, ColumnFamily>, IColumnIterator>
+    private static class ConvertToColumnIterator implements Function<Pair<DecoratedKey, ColumnFamily>, IColumnIterator>
     {
         private QueryFilter filter;
         private AbstractType comparator;
@@ -192,9 +193,9 @@ public class RowIteratorFactory
             this.comparator = comparator;
         }
 
-        public IColumnIterator apply(final Entry<DecoratedKey, ColumnFamily> entry)
+        public IColumnIterator apply(final Pair<DecoratedKey, ColumnFamily> entry)
         {
-            return filter.getMemtableColumnIterator(entry.getValue(), entry.getKey(), comparator);
+            return filter.getMemtableColumnIterator(entry.right, entry.left, comparator);
         }
     }
 

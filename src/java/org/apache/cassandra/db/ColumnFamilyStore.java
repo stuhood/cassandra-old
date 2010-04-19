@@ -92,7 +92,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     private Set<Memtable> memtablesPendingFlush = new ConcurrentSkipListSet<Memtable>();
 
-    private final String table_;
+    public final String table_;
     public final String columnFamily_;
     private final boolean isSuper_;
 
