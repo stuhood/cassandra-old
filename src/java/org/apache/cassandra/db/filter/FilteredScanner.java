@@ -26,6 +26,7 @@ import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnKey;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.Scanner;
@@ -71,6 +72,12 @@ public class FilteredScanner extends AbstractIterator<SliceBuffer> implements Sc
     public ColumnKey.Comparator comparator()
     {
         return scanner.comparator();
+    }
+
+    @Override
+    public void setColumnFilter(QueryFilter filter)
+    {
+        scanner.setColumnFilter(filter);
     }
 
     public void close() throws IOException

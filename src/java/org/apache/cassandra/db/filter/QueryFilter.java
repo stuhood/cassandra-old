@@ -33,8 +33,8 @@ public class QueryFilter
 {
     public final DecoratedKey key;
     public final QueryPath path;
-    private final INameFilter filter;
-    private final INameFilter superFilter;
+    public final INameFilter filter;
+    public final INameFilter superFilter;
 
     protected QueryFilter(DecoratedKey key, QueryPath path, INameFilter filter)
     {

@@ -44,7 +44,8 @@ public class RowIndexedSuperScanner extends RowIndexedScanner
 
     protected void repositionSlice() throws IOException
     {
-        for (SuperColumn col : (List<SuperColumn>)getRawColumns())
+        // we must always load all super columns so that their metadata can be resolved
+        for (SuperColumn col : (List<SuperColumn>)getRawColumns(null))
             supers.add(col);
     }
 
@@ -104,12 +105,25 @@ public class RowIndexedSuperScanner extends RowIndexedScanner
         SuperColumn supcol = supers.poll();
         Slice.Metadata supermeta = rowmeta.childWith(supcol.getMarkedForDeleteAt(),
                                                      supcol.getLocalDeletionTime());
+
+        ColumnKey begin = new ColumnKey(rowkey, supcol.name(), ColumnKey.NAME_BEGIN);
+        ColumnKey end = new ColumnKey(rowkey, supcol.name(), ColumnKey.NAME_END);
+
+        // apply both levels of filters to subcolumns
+        // note: we drop the subcolumns of filtered supercolumns here
+        // TODO: duplicates logic from collectCollatedColumns
         List<Column> subcols = new ArrayList<Column>();
-        for (IColumn col : supcol.getSubColumns())
-            subcols.add((Column)col);
-        return new SliceBuffer(supermeta,
-                               new ColumnKey(rowkey, supcol.name(), ColumnKey.NAME_BEGIN),
-                               new ColumnKey(rowkey, supcol.name(), ColumnKey.NAME_END),
-                               subcols);
+        if(filter == null || filter.superFilter == null || filter.superFilter.mightMatchSlice(begin, end))
+        {
+            // might match
+            for (IColumn col : supcol.getSubColumns())
+            {
+                if (filter == null || filter.filter == null || filter.filter.matchesName(col.name()))
+                {
+                    subcols.add((Column)col);
+                }
+            }
+        }
+        return new SliceBuffer(supermeta, begin, end, subcols);
     }
 }

@@ -454,7 +454,11 @@ class RowIndexedReader extends SSTableReader
 
     public SSTableScanner getScanner(int bufferSize, QueryFilter filter)
     {
-        return new RowIndexedScanner(this, filter, bufferSize);
+        SSTableScanner scanner = makeColumnFamily().isSuper() ? 
+            new RowIndexedSuperScanner(this, bufferSize) :
+            new RowIndexedScanner(this, bufferSize);
+        scanner.setColumnFilter(filter);
+        return scanner;
     }
     
     public FileDataInput getFileDataInput(DecoratedKey decoratedKey, int bufferSize)
