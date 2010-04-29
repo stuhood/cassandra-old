@@ -32,7 +32,7 @@ import org.apache.cassandra.utils.ReducingIterator;
 import com.google.common.collect.*;
 
 /**
- * Merges non-intersecting SliceBuffers into a Row.
+ * Merges non-intersecting SliceBuffers into Rows.
  *
  * FIXME: Replace with SliceToCFIterator once merged
  */

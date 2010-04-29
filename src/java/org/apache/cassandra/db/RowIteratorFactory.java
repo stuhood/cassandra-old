@@ -18,6 +18,7 @@
 package org.apache.cassandra.db;
 
 import java.io.Closeable;
+import java.io.IOError;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -30,6 +31,7 @@ import java.util.Map.Entry;
 import org.apache.cassandra.db.filter.IColumnIterator;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.io.SliceToRowIterator;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.sstable.SSTableScanner;
 import org.apache.cassandra.utils.ReducingIterator;
@@ -102,10 +104,13 @@ public class RowIteratorFactory
         // sstables
         for (SSTableReader sstable : sstables)
         {
-            final SSTableScanner scanner = sstable.getScanner(RANGE_FILE_BUFFER_SIZE, filter);
-            scanner.seekTo(startWith);
-            assert scanner instanceof Closeable; // otherwise we leak FDs
-            iterators.add(scanner);
+            SSTableScanner scanner = sstable.getScanner(RANGE_FILE_BUFFER_SIZE, filter);
+            scanner.first();
+
+            // FIXME: converting Slice -> IColumnIterator
+            Iterator iciter = new SliceToRowIterator(scanner, sstable);
+            assert iciter instanceof Closeable; // otherwise we leak FDs
+            iterators.add(iciter);
         }
 
         Iterator<IColumnIterator> collated = IteratorUtils.collatedIterator(COMPARE_BY_KEY, iterators);

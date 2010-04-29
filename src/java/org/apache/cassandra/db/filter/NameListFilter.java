@@ -67,6 +67,7 @@ public class NameListFilter implements INameFilter
         for (byte[] name : columns)
             if (comp.compare(begin, name) <= 0 && comp.compare(name, end) <= 0)
                 return true;
+        return false;
     }
 
     @Override

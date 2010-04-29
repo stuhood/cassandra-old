@@ -23,6 +23,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.util.Arrays;
+import java.util.Iterator;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -30,6 +31,7 @@ import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.filter.QueryPath;
 import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.io.SliceToRowIterator;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.sstable.SSTableWriter;
 import org.apache.cassandra.io.util.DataOutputBuffer;
@@ -224,12 +226,11 @@ public class SSTableExportTest extends SchemaLoader
         
         reader = SSTableReader.open(tempSS2.getPath(), DatabaseDescriptor.getPartitioner());
         QueryFilter qf = QueryFilter.getNamesFilter(Util.dk("rowA"), new QueryPath("Standard1", null, null), "name".getBytes());
-        ColumnFamily cf = qf.getSSTableColumnIterator(reader).getColumnFamily();
+        ColumnFamily cf = new SliceToRowIterator(reader.getScanner(1024, qf), reader).next().getColumnFamily();
         assertTrue(cf != null);
         assertTrue(Arrays.equals(cf.getColumn("name".getBytes()).value(), hexToBytes("76616c")));
 
         qf = QueryFilter.getNamesFilter(Util.dk("rowExclude"), new QueryPath("Standard1", null, null), "name".getBytes());
-        cf = qf.getSSTableColumnIterator(reader).getColumnFamily();
-        assert cf == null;
+        assert !new SliceToRowIterator(reader.getScanner(1024, qf), reader).hasNext();
     }
 }
