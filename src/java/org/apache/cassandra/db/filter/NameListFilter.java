@@ -28,16 +28,16 @@ import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.AbstractType;
 
-public class NamesQueryFilter implements IFilter
+public class NameListFilter implements INameFilter
 {
     public final SortedSet<byte[]> columns;
 
-    public NamesQueryFilter(SortedSet<byte[]> columns)
+    public NameListFilter(SortedSet<byte[]> columns)
     {
         this.columns = columns;
     }
 
-    public NamesQueryFilter(byte[] column)
+    public NameListFilter(byte[] column)
     {
         this(getSingleColumnSet(column));
     }
@@ -96,5 +96,11 @@ public class NamesQueryFilter implements IFilter
     public Comparator<IColumn> getColumnComparator(AbstractType comparator)
     {
         return QueryFilter.getColumnComparator(comparator);
+    }
+
+    @Override
+    public String toString()
+    {
+        return "#<NameListFilter " + columns + ">";
     }
 }

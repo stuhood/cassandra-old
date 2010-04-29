@@ -24,7 +24,6 @@ import java.util.concurrent.ExecutionException;
 import org.junit.Test;
 
 import static junit.framework.Assert.assertNull;
-import org.apache.cassandra.db.filter.NamesQueryFilter;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.filter.QueryPath;
 

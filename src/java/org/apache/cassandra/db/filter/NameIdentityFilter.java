@@ -25,14 +25,21 @@ import org.apache.commons.lang.ArrayUtils;
 
 import org.apache.cassandra.db.SuperColumn;
 
-class IdentityQueryFilter extends SliceQueryFilter
+class NameIdentityFilter extends NameSliceFilter
 {
-    /**
-     * Only for use in testing; will read entire CF into memory.
-     */
-    public IdentityQueryFilter()
+    private final static NameIdentityFilter SINGLETON = new NameIdentityFilter();
+
+    private NameIdentityFilter()
     {
         super(ArrayUtils.EMPTY_BYTE_ARRAY, ArrayUtils.EMPTY_BYTE_ARRAY, null, false, Integer.MAX_VALUE);
+    }
+
+    /**
+     * @return The NameIdentityFilter singleton.
+     */
+    public static NameIdentityFilter get()
+    {
+        return SINGLETON;
     }
 
     public SuperColumn filterSuperColumn(SuperColumn superColumn, int gcBefore)

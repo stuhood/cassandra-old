@@ -204,7 +204,7 @@ public class Memtable implements Comparable<Memtable>, IFlushable
     /**
      * obtain an iterator of columns in this memtable in the specified order starting from a given column.
      */
-    public static IColumnIterator getSliceIterator(final DecoratedKey key, final ColumnFamily cf, SliceQueryFilter filter, AbstractType typeComparator)
+    public static IColumnIterator getSliceIterator(final DecoratedKey key, final ColumnFamily cf, NameSliceFilter filter, AbstractType typeComparator)
     {
         assert cf != null;
         Collection<IColumn> rawColumns = cf.getSortedColumns();
@@ -263,7 +263,7 @@ public class Memtable implements Comparable<Memtable>, IFlushable
         };
     }
 
-    public static IColumnIterator getNamesIterator(final DecoratedKey key, final ColumnFamily cf, final NamesQueryFilter filter)
+    public static IColumnIterator getNamesIterator(final DecoratedKey key, final ColumnFamily cf, final NameListFilter filter)
     {
         assert cf != null;
         final boolean isStandard = !cf.isSuper();

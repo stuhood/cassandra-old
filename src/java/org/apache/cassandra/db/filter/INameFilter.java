@@ -33,9 +33,9 @@ import org.apache.cassandra.io.util.FileDataInput;
  * to extract the desired columns from a Memtable, SSTable, or SuperColumn.  Either the get*ColumnIterator
  * methods will be called, or filterSuperColumn, but not both on the same object.  QueryFilter
  * takes care of putting the two together if subcolumn filtering needs to be done, based on the
- * querypath that it knows (but that IFilter implementations are oblivious to).
+ * querypath that it knows (but that INameFilter implementations are oblivious to).
  */
-interface IFilter
+public interface INameFilter
 {
     /**
      * returns an iterator that returns columns from the given memtable
