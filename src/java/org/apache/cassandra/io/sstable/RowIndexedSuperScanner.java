@@ -45,7 +45,7 @@ public class RowIndexedSuperScanner extends RowIndexedScanner
     protected void repositionSlice() throws IOException
     {
         // we must always load all super columns so that their metadata can be resolved
-        for (SuperColumn col : (List<SuperColumn>)getRawColumns(null))
+        for (SuperColumn col : (List<SuperColumn>)getRawColumns())
             supers.add(col);
     }
 
@@ -97,7 +97,7 @@ public class RowIndexedSuperScanner extends RowIndexedScanner
     }
 
     /**
-     * Polls the first Slice from the 'supers' queue.
+     * Polls the first Slice from the 'supers' queue and filters columns.
      */
     private SliceBuffer getSuperSlice() throws IOException
     {
@@ -113,12 +113,12 @@ public class RowIndexedSuperScanner extends RowIndexedScanner
         // note: we drop the subcolumns of filtered supercolumns here
         // TODO: duplicates logic from collectCollatedColumns
         List<Column> subcols = new ArrayList<Column>();
-        if(filter == null || filter.superFilter == null || filter.superFilter.mightMatchSlice(begin, end))
+        if(filter == null || filter.mightMatchSlice(comp, begin, end))
         {
             // might match
             for (IColumn col : supcol.getSubColumns())
             {
-                if (filter == null || filter.filter == null || filter.filter.matchesName(col.name()))
+                if (filter == null || filter.matches(comp, 2, col))
                 {
                     subcols.add((Column)col);
                 }

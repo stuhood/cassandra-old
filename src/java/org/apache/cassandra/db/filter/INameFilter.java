@@ -44,14 +44,14 @@ public interface INameFilter
     public abstract IColumnIterator getMemtableColumnIterator(ColumnFamily cf, DecoratedKey key, AbstractType comparator);
 
     /**
-     * @return True if this filter might match columns between the given keys.
+     * @return True if this filter might match columns between the given names.
      */
-    public abstract boolean mightMatchSlice(ColumnKey begin, ColumnKey end);
+    public abstract boolean mightMatchSlice(Comparator<byte[]> comp, byte[] begin, byte[] end);
 
     /**
      * @return True if this filter matches the given name (assuming that parents match).
      */
-    public abstract boolean matchesName(byte[] name);
+    public abstract boolean matchesName(Comparator<byte[]> comp, byte[] name);
 
     /**
      * collects columns from reducedColumns into returnCF.  Termination is determined

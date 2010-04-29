@@ -24,7 +24,6 @@ import java.util.*;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.IColumnIterator;
-import org.apache.cassandra.db.filter.IFilter;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.io.Slice;
 import org.apache.cassandra.io.SliceBuffer;
@@ -50,6 +49,7 @@ public class RowIndexedScanner implements SSTableScanner
     private final int bufferSize;
     private BufferedRandomAccessFile file;
     private final ColumnFamily emptycf; // always empty: just a metadata holder
+    protected final ColumnKey.Comparator comp;
 
     protected QueryFilter filter = null;
 
@@ -76,6 +76,7 @@ public class RowIndexedScanner implements SSTableScanner
         this.length = reader.length();
         this.bufferSize = bufferSize;
         emptycf = reader.makeColumnFamily();
+        this.comp = reader().getComparator();
     }
     
     @Override
@@ -87,7 +88,7 @@ public class RowIndexedScanner implements SSTableScanner
     @Override
     public ColumnKey.Comparator comparator()
     {
-        return reader().getComparator();
+        return comp;
     }
 
     @Override
@@ -314,49 +315,54 @@ public class RowIndexedScanner implements SSTableScanner
     private List<Column> matchOrSkipSlice(ColumnKey begin, ColumnKey end)
     {
         if (filter == null)
-            return (List<Column>)getRawColumns(null);
-        if (filter.filter.mightMatchSlice(begin, end))
-            return (List<Column>)getRawColumns(filter.filter);
+            return (List<Column>)getRawColumns();
+        if (filter.mightMatchSlice(comp, begin, end))
+            return (List<Column>)getFilteredRawColumns();
         return skipRawColumns();
     }
 
     /**
      * Pulls the columns in the current slice from disk, filtering them on the fly. Slices that are completely
      * eliminated via the filter will result in an empty list.
-     * @param ifilter IFilter for the column level being loaded.
      * @return IColumns from disk for the current chunk of the index.
      */
-    protected List getRawColumns(IFilter ifilter) throws IOException
+    private List getFilteredRawColumns() throws IOException
     {
-        if (rowmeta == null)
-            return null;
-        
-        // read sequential columns from the chunk
         file.seek(rowcolsoffset + rowindex.get(chunkpos).offset);
         long chunkend = file.getFilePointer() + rowindex.get(chunkpos).width;
-
-        if (ifilter == null)
-        {
-            // unfiltered
-            ArrayList<IColumn> columns = new ArrayList<IColumn>();
-            while (file.getFilePointer() < chunkend)
-                columns.add(emptycf.getColumnSerializer().deserialize(file));
-            return columns;
-        }
 
         // filter individual columns
         ArrayList<IColumn> columns = new ArrayList<IColumn>();
         while (file.getFilePointer() < chunkend)
         {
             IColumn col = emptycf.getColumnSerializer().deserialize(file);
-            if (!ifilter.matchesName(col.name()))
+            if (!filter.matches(comp, 1, col))
                 continue;
             columns.add(col);
         }
         return columns;
     }
 
-    protected List skipRawColumns() throws IOException
+    /**
+     * Pulls the columns in the current slice from disk.
+     * @return IColumns from disk for the current chunk of the index.
+     */
+    protected List getRawColumns() throws IOException
+    {
+        // read sequential columns from the chunk
+        file.seek(rowcolsoffset + rowindex.get(chunkpos).offset);
+        long chunkend = file.getFilePointer() + rowindex.get(chunkpos).width;
+
+        ArrayList<IColumn> columns = new ArrayList<IColumn>();
+        while (file.getFilePointer() < chunkend)
+            columns.add(emptycf.getColumnSerializer().deserialize(file));
+        return columns;
+    }
+
+    /**
+     * @return An empty list.
+     */
+    private List skipRawColumns() throws IOException
     {
         // no interesting columns in this slice
         file.seek(rowcolsoffset + rowindex.get(chunkpos).offset + rowindex.get(chunkpos).width);

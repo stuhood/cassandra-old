@@ -29,19 +29,23 @@ import org.apache.cassandra.utils.ReducingIterator;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.AbstractType;
 
+/**
+ * Describes a query with a filter per column parent: null filters are allowed (unfiltered).
+ * TODO: To apply more than one filter per level, an AndFilter implementing IColumnFilter would be useful.
+ */
 public class QueryFilter
 {
+    public final String cfname;
     public final DecoratedKey key;
-    public final QueryPath path;
-    public final INameFilter filter;
-    public final INameFilter superFilter;
+    private final INameFilter[] filters;
 
     protected QueryFilter(DecoratedKey key, QueryPath path, INameFilter filter)
     {
+        this.cfname = path.columnFamilyName;
         this.key = key;
-        this.path = path;
-        this.filter = filter;
-        superFilter = path.superColumnName == null ? null : new NamesQueryFilter(path.superColumnName);
+        this.filters = path.superColumnName != null ?
+            new INameFilter[]{ new NameListFilter(path.superColumnName), filter } :
+            new INameFilter[]{ filter };
     }
 
     public IColumnIterator getMemtableColumnIterator(Memtable memtable, AbstractType comparator)
@@ -55,24 +59,7 @@ public class QueryFilter
     public IColumnIterator getMemtableColumnIterator(ColumnFamily cf, DecoratedKey key, AbstractType comparator)
     {
         assert cf != null;
-        if (path.superColumnName == null)
-            return filter.getMemtableColumnIterator(cf, key, comparator);
-        return superFilter.getMemtableColumnIterator(cf, key, comparator);
-    }
-
-    // TODO move gcBefore into a field
-    public IColumnIterator getSSTableColumnIterator(SSTableReader sstable)
-    {
-        if (path.superColumnName == null)
-            return filter.getSSTableColumnIterator(sstable, key);
-        return superFilter.getSSTableColumnIterator(sstable, key);
-    }
-
-    public IColumnIterator getSSTableColumnIterator(SSTableReader sstable, FileDataInput file, DecoratedKey key, long dataStart)
-    {
-        if (path.superColumnName == null)
-            return filter.getSSTableColumnIterator(sstable, file, key, dataStart);
-        return superFilter.getSSTableColumnIterator(sstable, file, key, dataStart);
+        return filters[0].getMemtableColumnIterator(cf, key, comparator);
     }
 
     public static Comparator<IColumn> getColumnComparator(final AbstractType comparator)
@@ -107,7 +94,7 @@ public class QueryFilter
             protected IColumn getReduced()
             {
                 IColumn c = curCF.getSortedColumns().iterator().next();
-                if (superFilter != null)
+                if (filters.length == 2)
                 {
                     // filterSuperColumn only looks at immediate parent (the supercolumn) when determining if a subcolumn
                     // is still live, i.e., not shadowed by the parent's tombstone.  so, bump it up temporarily to the tombstone
@@ -116,7 +103,8 @@ public class QueryFilter
                     if (returnCF.getMarkedForDeleteAt() > deletedAt)
                         ((SuperColumn)c).markForDeleteAt(c.getLocalDeletionTime(), returnCF.getMarkedForDeleteAt());
 
-                    c = filter.filterSuperColumn((SuperColumn)c, gcBefore);
+                    // subcolumn filter
+                    c = nameFilter(2).filterSuperColumn((SuperColumn)c, gcBefore);
                     ((SuperColumn)c).markForDeleteAt(c.getLocalDeletionTime(), deletedAt); // reset sc tombstone time to what it should be
                 }
                 curCF.clear();
@@ -124,12 +112,12 @@ public class QueryFilter
             }
         };
 
-        (superFilter == null ? filter : superFilter).collectReducedColumns(returnCF, reduced, gcBefore);
+        filters[0].collectReducedColumns(returnCF, reduced, gcBefore);
     }
 
     public String getColumnFamilyName()
     {
-        return path.columnFamilyName;
+        return cfname;
     }
 
     public static boolean isRelevant(IColumn column, IColumnContainer container, int gcBefore)
@@ -158,7 +146,7 @@ public class QueryFilter
     }
 
     /**
-     * return a QueryFilter object that includes every column in the row.
+     * @return a QueryFilter object that includes every column in the row.
      * This is dangerous on large rows; avoid except for test code.
      */
     public static QueryFilter getIdentityFilter(DecoratedKey key, QueryPath path)

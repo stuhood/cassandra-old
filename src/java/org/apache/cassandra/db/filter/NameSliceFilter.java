@@ -30,7 +30,6 @@ import org.apache.commons.collections.iterators.ReverseListIterator;
 import org.apache.commons.collections.IteratorUtils;
 
 import com.google.common.collect.Collections2;
-import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.AbstractType;
@@ -51,6 +50,9 @@ public class NameSliceFilter implements INameFilter
 
     public NameSliceFilter(byte[] start, byte[] finish, List<byte[]> bitmasks, boolean reversed, int count)
     {
+        assert bitmasks == null : "FIXME: Not implemented: should filter in matchName."; // FIXME
+        assert !reversed : "FIXME: Not implemented: needs a reverse scanner impl.."; // FIXME
+
         this.start = start;
         this.finish = finish;
         this.reversed = reversed;
@@ -63,14 +65,18 @@ public class NameSliceFilter implements INameFilter
         return Memtable.getSliceIterator(key, cf, this, comparator);
     }
 
-    public IColumnIterator getSSTableColumnIterator(SSTableReader sstable, DecoratedKey key)
+    @Override
+    public boolean mightMatchSlice(Comparator<byte[]> comp, byte[] begin, byte[] end)
     {
-        return new SSTableSliceIterator(sstable, key, start, finish, getPredicate(), reversed);
+        // non-wrapping intersection
+        return comp.compare(begin, finish) <= 0 && comp.compare(start, end) <= 0;
     }
-    
-    public IColumnIterator getSSTableColumnIterator(SSTableReader sstable, FileDataInput file, DecoratedKey key, long dataStart)
+
+    @Override
+    public boolean matchesName(Comparator<byte[]> comp, byte[] name)
     {
-        return new SSTableSliceIterator(sstable, file, key, start, finish, getPredicate(), reversed);
+        // contains
+        return comp.compare(start, name) <= 0 && comp.compare(name, finish) <= 0;
     }
     
     private Predicate<IColumn> getPredicate()

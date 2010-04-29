@@ -163,7 +163,7 @@ public class ColumnKey implements Named
      * The implementation of java.util.Comparator.compare() uses the maximum
      * depth.
      *
-     * TODO: This comparator wraps null safety around AbstractType, but we should
+     * FIXME: This comparator wraps null safety around AbstractType, but we should
      * push it down instead.
      */
     public static class Comparator extends Ordering<ColumnKey>
@@ -177,6 +177,14 @@ public class ColumnKey implements Named
         public int columnDepth()
         {
             return nameComparators.length;
+        }
+
+        /**
+         * TODO: Creates new comparator per-call: see FIXME on class.
+         */
+        public java.util.Comparator<byte[]> comparatorAt(int depth)
+        {
+            return Ordering.from(nameComparators[depth-1]).nullsLast();
         }
 
         public AbstractType typeAt(int depth)

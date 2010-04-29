@@ -20,9 +20,11 @@ package org.apache.cassandra.db.filter;
  * 
  */
 
+import java.util.Comparator;
 
 import org.apache.commons.lang.ArrayUtils;
 
+import org.apache.cassandra.db.ColumnKey;
 import org.apache.cassandra.db.SuperColumn;
 
 class NameIdentityFilter extends NameSliceFilter
@@ -46,5 +48,17 @@ class NameIdentityFilter extends NameSliceFilter
     {
         // no filtering done, deliberately
         return superColumn;
+    }
+
+    @Override
+    public boolean mightMatchSlice(Comparator<byte[]> comp, byte[] begin, byte[] end)
+    {
+        return true;
+    }
+
+    @Override
+    public boolean matchesName(Comparator<byte[]> comp, byte[] name)
+    {
+        return true;
     }
 }
