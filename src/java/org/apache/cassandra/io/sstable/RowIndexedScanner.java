@@ -323,7 +323,7 @@ public class RowIndexedScanner implements SeekableScanner
     /**
      * @return A populated or empty Column list, depending on filtering.
      */
-    private List<Column> matchOrSkipSlice(ColumnKey begin, ColumnKey end)
+    private List<Column> matchOrSkipSlice(ColumnKey begin, ColumnKey end) throws IOException
     {
         if (filter == null)
             return (List<Column>)getRawColumns();

@@ -49,6 +49,7 @@ import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.db.SliceToRowIterator;
 import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.service.StorageService;
@@ -802,11 +803,25 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             /* add the SSTables on disk */
             for (SSTableReader sstable : ssTables_)
             {
-                iter = filter.getSSTableColumnIterator(sstable);
-                if (iter.getColumnFamily() != null)
+                int buffer = 1024; // FIXME
+                // FIXME: pulls the entire row into memory: once all components
+                // are using the Scanner interface, we can fix this
+                org.apache.cassandra.Scanner scanner = filter.filter(sstable.getScanner(buffer));
+                SliceToRowIterator stri = new SliceToRowIterator(scanner, sstable);
+                try
                 {
-                    returnCF.delete(iter.getColumnFamily());
-                    iterators.add(iter);
+                    if (!stri.hasNext())
+                        continue;
+                    iter = (IColumnIterator)stri.next();
+                    if (iter.getColumnFamily() != null)
+                    {
+                        returnCF.delete(iter.getColumnFamily());
+                        iterators.add(iter);
+                    }
+                }
+                finally
+                {
+                    stri.close();
                 }
             }
 

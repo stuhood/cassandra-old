@@ -254,7 +254,7 @@ class RowIndexedReader extends SSTableReader
     /**
      * returns the position in the data file to find the given key, or -1 if the key is not present
      */
-    public PositionSize getPosition(DecoratedKey decoratedKey)
+    PositionSize getPosition(DecoratedKey decoratedKey)
     {
         // first, check bloom filter
         if (!bf.isPresent(partitioner.convertToDiskFormat(decoratedKey)))
@@ -455,7 +455,10 @@ class RowIndexedReader extends SSTableReader
         return new RowIndexedScanner(this, bufferSize);
     }
 
-    public FileDataInput getFileDataInput(DecoratedKey decoratedKey, int bufferSize)
+    /**
+     * FIXME: Not currently in use: should be used inside RowIndexedScanner.
+     */
+    FileDataInput getFileDataInput(DecoratedKey decoratedKey, int bufferSize)
     {
         PositionSize info = getPosition(decoratedKey);
         if (info == null)

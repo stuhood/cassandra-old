@@ -21,6 +21,7 @@ package org.apache.cassandra.tools;
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Iterator;
 
 import org.apache.cassandra.Scanner;
 
@@ -53,7 +54,7 @@ public class SSTableImportTest extends SchemaLoader
         // Verify results
         SSTableReader reader = SSTableReader.open(tempSS.getPath(), DatabaseDescriptor.getPartitioner());
         QueryFilter qf = QueryFilter.getNamesFilter(Util.dk("rowA"), new QueryPath("Standard1", null, null), "colAA".getBytes());
-        ColumnFamily cf = qf.getSSTableColumnIterator(reader).getColumnFamily();
+        ColumnFamily cf = new SliceToRowIterator(reader.getScanner(1024, qf), reader).next().getColumnFamily();
         assert Arrays.equals(cf.getColumn("colAA".getBytes()).value(), hexToBytes("76616c4141"));
     }
 
@@ -67,7 +68,7 @@ public class SSTableImportTest extends SchemaLoader
         // Verify results
         SSTableReader reader = SSTableReader.open(tempSS.getPath(), DatabaseDescriptor.getPartitioner());
         QueryFilter qf = QueryFilter.getNamesFilter(Util.dk("rowA"), new QueryPath("Super4", null, null), "superA".getBytes());
-        ColumnFamily cf = qf.getSSTableColumnIterator(reader).getColumnFamily();
+        ColumnFamily cf = new SliceToRowIterator(reader.getScanner(1024, qf), reader).next().getColumnFamily();
         IColumn superCol = cf.getColumn("superA".getBytes());
         assert Arrays.equals(superCol.getSubColumn("colAA".getBytes()).value(), hexToBytes("76616c75654141"));
     }

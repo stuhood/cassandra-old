@@ -212,12 +212,10 @@ public abstract class SSTableReader extends SSTable implements Comparable<SSTabl
     public abstract Collection<DecoratedKey> getKeySamples();
 
     /**
-     * Returns the position in the data file to find the given key, or -1 if the
+     * @return The position in the data file to find the given key, or -1 if the
      * key is not present.
-     * FIXME: should not be public: use Scanner.
      */
-    @Deprecated
-    public abstract PositionSize getPosition(DecoratedKey decoratedKey) throws IOException;
+    abstract PositionSize getPosition(DecoratedKey decoratedKey) throws IOException;
 
     /**
      * @return The length in bytes of the data file for this SSTable.
@@ -245,18 +243,6 @@ public abstract class SSTableReader extends SSTable implements Comparable<SSTabl
      * @return A Scanner for seeking over the rows of the SSTable.
      */
     public abstract SeekableScanner getScanner(int bufferSize);
-
-    /**
-     * FIXME: Shim
-     */
-    @Deprecated
-    public abstract RowIndexedIColumnIteratorIterator getIterator(int bufferSize, QueryFilter filter);
-    
-    /**
-     * FIXME: should not be public: use Scanner.
-     */
-    @Deprecated
-    public abstract FileDataInput getFileDataInput(DecoratedKey decoratedKey, int bufferSize);
 
     public AbstractType getColumnComparator()
     {
