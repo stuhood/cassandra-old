@@ -33,10 +33,10 @@ public class QueryFilter
 {
     public final DecoratedKey key;
     public final QueryPath path;
-    private final IFilter filter;
-    private final IFilter superFilter;
+    private final IFilter<byte[]> filter;
+    private final IFilter<byte[]> superFilter;
 
-    protected QueryFilter(DecoratedKey key, QueryPath path, IFilter filter)
+    protected QueryFilter(DecoratedKey key, QueryPath path, IFilter<byte[]> filter)
     {
         this.key = key;
         this.path = path;
@@ -154,7 +154,7 @@ public class QueryFilter
      */
     public static QueryFilter getSliceFilter(DecoratedKey key, QueryPath path, byte[] start, byte[] finish, List<byte[]> bitmasks, boolean reversed, int limit)
     {
-        return new QueryFilter(key, path, new SliceQueryFilter(start, finish, bitmasks, reversed, limit));
+        return new QueryFilter(key, path, new NameSliceFilter(start, finish, bitmasks, reversed, limit));
     }
 
     /**
@@ -163,7 +163,7 @@ public class QueryFilter
      */
     public static QueryFilter getIdentityFilter(DecoratedKey key, QueryPath path)
     {
-        return new QueryFilter(key, path, new IdentityQueryFilter());
+        return new QueryFilter(key, path, new NameIdentityFilter());
     }
 
     /**
@@ -174,7 +174,7 @@ public class QueryFilter
      */
     public static QueryFilter getNamesFilter(DecoratedKey key, QueryPath path, SortedSet<byte[]> columns)
     {
-        return new QueryFilter(key, path, new NamesQueryFilter(columns));
+        return new QueryFilter(key, path, new NameListFilter(columns));
     }
 
     /**
@@ -182,6 +182,6 @@ public class QueryFilter
      */
     public static QueryFilter getNamesFilter(DecoratedKey key, QueryPath path, byte[] column)
     {
-        return new QueryFilter(key, path, new NamesQueryFilter(column));
+        return new QueryFilter(key, path, new NameMatchFilter(column));
     }
 }

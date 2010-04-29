@@ -25,12 +25,9 @@ import org.apache.commons.lang.ArrayUtils;
 
 import org.apache.cassandra.db.SuperColumn;
 
-class IdentityQueryFilter extends SliceQueryFilter
+class NameIdentityFilter extends NameSliceFilter
 {
-    /**
-     * Only for use in testing; will read entire CF into memory.
-     */
-    public IdentityQueryFilter()
+    public NameIdentityFilter()
     {
         super(ArrayUtils.EMPTY_BYTE_ARRAY, ArrayUtils.EMPTY_BYTE_ARRAY, null, false, Integer.MAX_VALUE);
     }

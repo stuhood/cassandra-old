@@ -28,32 +28,13 @@ import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.AbstractType;
 
-public class NamesQueryFilter implements IFilter
+public class NameListFilter implements IFilter<byte[]>
 {
     public final SortedSet<byte[]> columns;
 
-    public NamesQueryFilter(SortedSet<byte[]> columns)
+    public NameListFilter(SortedSet<byte[]> columns)
     {
         this.columns = columns;
-    }
-
-    public NamesQueryFilter(byte[] column)
-    {
-        this(getSingleColumnSet(column));
-    }
-
-    private static TreeSet<byte[]> getSingleColumnSet(byte[] column)
-    {
-        Comparator<byte[]> singleColumnComparator = new Comparator<byte[]>()
-        {
-            public int compare(byte[] o1, byte[] o2)
-            {
-                return Arrays.equals(o1, o2) ? 0 : -1;
-            }
-        };
-        TreeSet<byte[]> set = new TreeSet<byte[]>(singleColumnComparator);
-        set.add(column);
-        return set;
     }
 
     public IColumnIterator getMemtableColumnIterator(ColumnFamily cf, DecoratedKey key, AbstractType comparator)
@@ -96,5 +77,11 @@ public class NamesQueryFilter implements IFilter
     public Comparator<IColumn> getColumnComparator(AbstractType comparator)
     {
         return QueryFilter.getColumnComparator(comparator);
+    }
+
+    @Override
+    public String toString()
+    {
+        return "#<NameListFilter " + columns + ">";
     }
 }

@@ -39,9 +39,9 @@ import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Iterators;
 
-public class SliceQueryFilter implements IFilter
+public class NameSliceFilter implements IFilter<byte[]>
 {
-    private static Logger logger = LoggerFactory.getLogger(SliceQueryFilter.class);
+    private static Logger logger = LoggerFactory.getLogger(NameSliceFilter.class);
 
     public final byte[] start;
     public final byte[] finish;
@@ -49,7 +49,7 @@ public class SliceQueryFilter implements IFilter
     public final boolean reversed;
     public final int count;
 
-    public SliceQueryFilter(byte[] start, byte[] finish, List<byte[]> bitmasks, boolean reversed, int count)
+    public NameSliceFilter(byte[] start, byte[] finish, List<byte[]> bitmasks, boolean reversed, int count)
     {
         this.start = start;
         this.finish = finish;

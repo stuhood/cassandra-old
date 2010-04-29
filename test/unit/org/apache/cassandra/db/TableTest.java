@@ -39,9 +39,8 @@ import org.apache.cassandra.utils.WrappedRunnable;
 import static org.apache.cassandra.Util.column;
 import static org.apache.cassandra.Util.getBytes;
 import org.apache.cassandra.Util;
-import org.apache.cassandra.db.filter.NamesQueryFilter;
 import org.apache.cassandra.db.filter.QueryPath;
-import org.apache.cassandra.db.filter.SliceQueryFilter;
+import org.apache.cassandra.db.filter.NameSliceFilter;
 import org.apache.cassandra.db.marshal.LongType;
 import org.apache.cassandra.io.sstable.IndexHelper;
 import org.apache.cassandra.io.sstable.SSTable;
@@ -550,7 +549,7 @@ public class TableTest extends CleanupHelper
                     {
                         try
                         {
-                            return SliceQueryFilter.matchesBitmask(bitmask, o.toString().getBytes("UTF-8"));
+                            return NameSliceFilter.matchesBitmask(bitmask, o.toString().getBytes("UTF-8"));
                         }
                         catch (UnsupportedEncodingException e)
                         {
