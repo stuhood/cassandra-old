@@ -322,7 +322,7 @@ public class Table
     {
         ColumnFamilyStore cfStore = columnFamilyStores.get(cfNameMap.get(filter.getColumnFamilyName()));
         ColumnFamily columnFamily = cfStore.getColumnFamily(filter);
-        return new Row(filter.key, columnFamily);
+        return new Row(filter.key(), columnFamily);
     }
 
     /**
