@@ -57,22 +57,22 @@ public class SliceBuffer extends Slice
     // or realized must be set
     private List<Column> realized = null;
 
-    public SliceBuffer(Slice.Metadata meta, ColumnKey key, ColumnKey end, Column... realized)
+    public SliceBuffer(Slice.Metadata meta, ColumnKey begin, ColumnKey end, Column... realized)
     {
-        super(meta, key, end);
+        super(meta, begin, end);
         this.realized = Arrays.asList(realized);
     }
 
-    public SliceBuffer(Slice.Metadata meta, ColumnKey key, ColumnKey end, List<Column> realized)
+    public SliceBuffer(Slice.Metadata meta, ColumnKey begin, ColumnKey end, List<Column> realized)
     {
-        super(meta, key, end);
+        super(meta, begin, end);
         assert realized != null;
         this.realized = Collections.unmodifiableList(realized);
     }
 
-    public SliceBuffer(Slice.Metadata meta, ColumnKey key, ColumnKey end, int numCols, DataOutputBuffer serialized)
+    public SliceBuffer(Slice.Metadata meta, ColumnKey begin, ColumnKey end, int numCols, DataOutputBuffer serialized)
     {
-        super(meta, key, end);
+        super(meta, begin, end);
         assert serialized != null;
         assert numCols > -1;
         this.serialized = serialized;
@@ -147,7 +147,7 @@ public class SliceBuffer extends Slice
      */
     public static List<SliceBuffer> merge(ColumnKey.Comparator comparator, SliceBuffer one, SliceBuffer two)
     {
-        assert comparator.compare(one.key, two.key, comparator.columnDepth()-1) == 0;
+        assert comparator.compare(one.begin, two.begin, comparator.columnDepth()-1) == 0;
         Named.Comparator namecomp = new Named.Comparator(comparator);
 
         // mergesort and resolve the columns of the two slices
@@ -160,11 +160,11 @@ public class SliceBuffer extends Slice
         List<SliceBuffer> output = new LinkedList<SliceBuffer>();
 
         // left side of the overlap
-        slicesFor(output, namecomp, merged, one.meta, two.meta, one.key, two.key);
+        slicesFor(output, namecomp, merged, one.meta, two.meta, one.begin, two.begin);
         // overlap: resolved metadata, and max start and min end values
         Slice.Metadata olapmeta = Slice.Metadata.resolve(one.meta, two.meta);
         slicesFor(output, namecomp, merged, olapmeta, olapmeta,
-                  comparator.max(one.key, two.key), comparator.min(one.end, two.end));
+                  comparator.max(one.begin, two.begin), comparator.min(one.end, two.end));
         // right side of the overlap
         slicesFor(output, namecomp, merged, two.meta, one.meta, one.end, two.end);
 
@@ -232,7 +232,7 @@ public class SliceBuffer extends Slice
         // create a filtered copy
         List<Column> survivors = new ArrayList<Column>(surviving);
         Iterables.addAll(survivors, Iterables.filter(realized(), gcpred));
-        return new SliceBuffer(meta, key, end, survivors);
+        return new SliceBuffer(meta, begin, end, survivors);
     }
 
     /**
@@ -248,7 +248,7 @@ public class SliceBuffer extends Slice
         try
         {
             meta.serialize(shared);
-            key.withName(ColumnKey.NAME_BEGIN).serialize(shared);
+            begin.withName(ColumnKey.NAME_BEGIN).serialize(shared);
         }
         catch (IOException e)
         {
@@ -256,8 +256,11 @@ public class SliceBuffer extends Slice
         }
 
         if (numCols == 0)
+        {
             // for tombstones, only metadata is digested
             digest.update(shared.getData(), 0, shared.getLength());
+            return;
+        }
         for (Column col : realized())
         {
             digest.update(shared.getData(), 0, shared.getLength());

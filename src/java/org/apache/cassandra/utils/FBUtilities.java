@@ -388,13 +388,18 @@ public class FBUtilities
     public static <T extends Comparable<T>> CollatingIterator getCollatingIterator()
     {
         // CollatingIterator will happily NPE if you do not specify a comparator explicitly
-        return new CollatingIterator(new Comparator<T>()
+        return getCollatingIterator(new Comparator<T>()
         {
             public int compare(T o1, T o2)
             {
                 return o1.compareTo(o2);
             }
         });
+    }
+
+    public static <T> CollatingIterator getCollatingIterator(Comparator<T> comp)
+    {
+        return new CollatingIterator(comp);
     }
 
     public static void atomicSetMax(AtomicInteger atomic, int i)

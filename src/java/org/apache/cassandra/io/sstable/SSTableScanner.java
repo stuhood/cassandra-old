@@ -19,18 +19,69 @@
 
 package org.apache.cassandra.io.sstable;
 
-import java.io.Closeable;
-import java.util.Iterator;
+import java.io.*;
+import java.util.*;
 
-import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.IColumnIterator;
+import org.apache.cassandra.io.Scanner;
+import org.apache.cassandra.io.Slice;
+import org.apache.cassandra.io.SliceBuffer;
+import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.ReducingIterator;
 
+import com.google.common.collect.*;
 
-public abstract class SSTableScanner implements Iterator<IColumnIterator>, Closeable
+public interface SSTableScanner extends Scanner
 {
-    public abstract void seekTo(DecoratedKey seekKey);
+    /**
+     * @return The underlying SSTableReader.
+     */
+    public SSTableReader reader();
 
-    public abstract long getFileLength();
+    /**
+     * See the contract for seekNear(CK).
+     */
+    public boolean seekNear(DecoratedKey seekKey) throws IOException;
 
-    public abstract long getFilePointer();
+    /**
+     * Seeks to the slice which might contain the given key, without checking the
+     * existence of the key in the filter. If such a slice does not exist, the next
+     * calls to next() will have undefined results.
+     *
+     * seekKeys with trailing NAME_BEGIN or NAME_END names will properly match
+     * the slices that they begin or end when used with this method.
+     *
+     * @return False if no such Slice was found.
+     */
+    public boolean seekNear(ColumnKey seekKey) throws IOException;
+
+    /**
+     * See the contract for seekTo(CK).
+     */
+    public boolean seekTo(DecoratedKey seekKey) throws IOException;
+
+    /**
+     * Seeks to the slice which might contain the given key. If the key does not
+     * exist, or such a slice does not exist, the next calls to next() will have
+     * undefined results.
+     *
+     * seekKeys with trailing NAME_BEGIN or NAME_END names will properly match
+     * the slices that they begin or end when used with this method.
+     *
+     * @return False if no such Slice was found.
+     */
+    public boolean seekTo(ColumnKey seekKey) throws IOException;
+
+    /**
+     * @return True if the scanner has been successfully positioned, and contains
+     * at least one more Slice.
+     */
+    public boolean hasNext();
+
+    /**
+     * @return The next slice (preferably still in serialized form), unless the last call to seek*() failed, or we are at
+     * the end of the file.
+     */
+    public SliceBuffer next();
 }

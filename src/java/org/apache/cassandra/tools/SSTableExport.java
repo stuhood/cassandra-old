@@ -24,11 +24,10 @@ import java.io.PrintStream;
 import java.util.*;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.ColumnFamily;
-import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.IColumn;
+import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.io.SliceToRowIterator;
 import org.apache.cassandra.io.sstable.SSTable;
 import org.apache.cassandra.io.sstable.SSTableIdentityIterator;
 import org.apache.cassandra.io.sstable.SSTableReader;
@@ -108,11 +107,11 @@ public class SSTableExport
         return json.toString();
     }
     
-    private static String serializeRow(SSTableIdentityIterator row) throws IOException
+    private static String serializeRow(Row row) throws IOException
     {
-        ColumnFamily cf = row.getColumnFamily();
+        ColumnFamily cf = row.cf;
         AbstractType comparator = cf.getComparator();
-        StringBuilder json = new StringBuilder(asKey(bytesToHex(row.getKey().key)));
+        StringBuilder json = new StringBuilder(asKey(bytesToHex(row.key.key)));
         
         if (cf.isSuper())
         {
@@ -201,36 +200,33 @@ public class SSTableExport
             excludeSet = new HashSet<String>(Arrays.asList(excludes));
         
         outs.println("{");
-        
         for (String key : keys)
         {
             if (excludeSet.contains(key))
                 continue;
             DecoratedKey<?> dk = partitioner.decorateKey(hexToBytes(key));
-            scanner.seekTo(dk);
+            // seek to the key
+            if (!scanner.seekTo(dk))
+                // key doesn't exist
+                continue;
             
-            i++;
-            
-            if (scanner.hasNext())
+            Row row = new SliceToRowIterator(scanner, scanner.reader()).peek();
+            try
             {
-                SSTableIdentityIterator row = (SSTableIdentityIterator) scanner.next();
-                try
-                {
-                    String jsonOut = serializeRow(row);
-                    if (i != 1)
-                        outs.println(",");
-                    outs.print("  " + jsonOut);
-                }
-                catch (IOException ioexc)
-                {
-                    System.err.println("WARNING: Corrupt row " + key + " (skipping).");
-                    continue;
-                }
-                catch (OutOfMemoryError oom)
-                {
-                    System.err.println("ERROR: Out of memory deserializing row " + key);
-                    continue;
-                }
+                String jsonOut = serializeRow(row);
+                if (i++ != 1)
+                    outs.println(",");
+                outs.print("  " + jsonOut);
+            }
+            catch (IOException ioexc)
+            {
+                System.err.println("WARNING: Corrupt row " + key + " (skipping).");
+                continue;
+            }
+            catch (OutOfMemoryError oom)
+            {
+                System.err.println("ERROR: Out of memory deserializing row " + key);
+                continue;
             }
         }
         
@@ -257,35 +253,37 @@ public class SSTableExport
     static void export(SSTableReader reader, PrintStream outs, String[] excludes) throws IOException
     {
         SSTableScanner scanner = reader.getScanner(INPUT_FILE_BUFFER_SIZE);
-        Set<String> excludeSet = new HashSet();
+        scanner.first();
 
+        Set<String> excludeSet = new HashSet();
         if (excludes != null)
             excludeSet = new HashSet<String>(Arrays.asList(excludes));
 
         outs.println("{");
-        
-        while(scanner.hasNext())
+       
+        SliceToRowIterator rowiter = new SliceToRowIterator(scanner, scanner.reader());
+        while (rowiter.hasNext())
         {
-            SSTableIdentityIterator row = (SSTableIdentityIterator) scanner.next();
-            if (excludeSet.contains(bytesToHex(row.getKey().key)))
+            Row row = rowiter.next();
+            if (excludeSet.contains(bytesToHex(row.key.key)))
                 continue;
             try
             {
                 String jsonOut = serializeRow(row);
                 outs.print("  " + jsonOut);
-                if (scanner.hasNext())
+                if (rowiter.hasNext())
                     outs.println(",");
                 else
                     outs.println();
             }
             catch (IOException ioexcep)
             {
-                System.err.println("WARNING: Corrupt row " + bytesToHex(row.getKey().key) + " (skipping).");
+                System.err.println("WARNING: Corrupt row " + bytesToHex(row.key.key) + " (skipping).");
                 continue;
             }
             catch (OutOfMemoryError oom)
             {
-                System.err.println("ERROR: Out of memory deserializing row " + bytesToHex(row.getKey().key));
+                System.err.println("ERROR: Out of memory deserializing row " + bytesToHex(row.key.key));
                 continue;
             }
         }

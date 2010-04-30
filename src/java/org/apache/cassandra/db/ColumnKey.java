@@ -28,6 +28,7 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.BloomFilter;
+import org.apache.cassandra.utils.FBUtilities;
 
 import com.google.common.collect.Ordering;
 
@@ -149,23 +150,12 @@ public class ColumnKey implements Named
 
     public void serialize(DataOutput dos) throws IOException
     {
-        dos.writeUTF(StorageService.getPartitioner().convertToDiskFormat(dk));
-
-        dos.writeByte((byte)names.length);
-        for (byte[] name : names)
-            ColumnSerializer.writeName(name, dos);
+        throw new RuntimeException("FIXME: Blag!");
     }
 
     public static ColumnKey deserialize(DataInput dis) throws IOException
     {
-        DecoratedKey dk =
-            StorageService.getPartitioner().convertFromDiskFormat(dis.readUTF());
-
-        byte nameCount = dis.readByte();
-        byte[][] names = new byte[nameCount][];
-        for (int i = 0; i < nameCount; i++)
-            names[i] = ColumnSerializer.readName(dis);
-        return new ColumnKey(dk, names);
+        throw new RuntimeException("FIXME: Blag!");
     }
 
     /**
@@ -187,6 +177,11 @@ public class ColumnKey implements Named
         public int columnDepth()
         {
             return nameComparators.length;
+        }
+
+        public AbstractType typeAt(int depth)
+        {
+            return nameComparators[depth-1];
         }
 
         /**

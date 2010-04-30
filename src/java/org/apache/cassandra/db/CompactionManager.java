@@ -33,12 +33,15 @@ import org.slf4j.LoggerFactory;
 
 
 import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
+import org.apache.cassandra.db.filter.FilteredScanner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.io.*;
+import org.apache.cassandra.io.CompactionIterator.CompactedRow;
 import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.AntiEntropyService;
+import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.FBUtilities;
 import org.cliffc.high_scale_lib.NonBlockingHashMap;
@@ -49,6 +52,9 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.commons.collections.iterators.FilterIterator;
 import org.apache.commons.collections.iterators.CollatingIterator;
 import org.apache.commons.collections.PredicateUtils;
+
+import com.google.common.base.Function;
+import com.google.common.collect.Iterators;
 
 public class CompactionManager implements CompactionManagerMBean
 {
@@ -324,12 +330,13 @@ public class CompactionManager implements CompactionManagerMBean
 
         SSTableWriter writer;
         CompactionIterator ci = new CompactionIterator(sstables, gcBefore, major); // retain a handle so we can call close()
-        Iterator<CompactionIterator.CompactedRow> nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
+        Iterator<Row> ri = new SliceToRowIterator(ci, sstables.iterator().next());
+        Iterator<CompactedRow> cri = Iterators.transform(ri, new RowSerializer());
         executor.beginCompaction(cfs, ci);
 
         try
         {
-            if (!nni.hasNext())
+            if (!cri.hasNext())
             {
                 // don't mark compacted in the finally block, since if there _is_ nondeleted data,
                 // we need to sync it (via closeAndOpen) first, so there is no period during which
@@ -344,9 +351,9 @@ public class CompactionManager implements CompactionManagerMBean
             // validate the CF as we iterate over it
             AntiEntropyService.IValidator validator = AntiEntropyService.instance.getValidator(table.name, cfs.getColumnFamilyName(), null, major);
             validator.prepare();
-            while (nni.hasNext())
+            while (cri.hasNext())
             {
-                CompactionIterator.CompactedRow row = nni.next();
+                CompactionIterator.CompactedRow row = cri.next();
                 long prevpos = writer.getFilePointer();
 
                 writer.append(row.key, row.buffer);
@@ -409,19 +416,20 @@ public class CompactionManager implements CompactionManagerMBean
 
         SSTableWriter writer = null;
         CompactionIterator ci = new AntiCompactionIterator(sstables, ranges, getDefaultGCBefore(), cfs.isCompleteSSTables(sstables));
-        Iterator<CompactionIterator.CompactedRow> nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
+        Iterator<Row> ri = new SliceToRowIterator(ci, sstables.iterator().next());
+        Iterator<CompactedRow> cri = Iterators.transform(ri, new RowSerializer());
         executor.beginCompaction(cfs, ci);
 
         try
         {
-            if (!nni.hasNext())
+            if (!cri.hasNext())
             {
                 return results;
             }
 
-            while (nni.hasNext())
+            while (cri.hasNext())
             {
-                CompactionIterator.CompactedRow row = nni.next();
+                CompactionIterator.CompactedRow row = cri.next();
                 if (writer == null)
                 {
                     FileUtils.createDirectory(compactionFileLocation);
@@ -472,17 +480,18 @@ public class CompactionManager implements CompactionManagerMBean
     {
         Collection<SSTableReader> sstables = cfs.getSSTables();
         CompactionIterator ci = new CompactionIterator(sstables, getDefaultGCBefore(), true);
+        Iterator<Row> ri = new SliceToRowIterator(ci, sstables.iterator().next());
+        Iterator<CompactedRow> cri = Iterators.transform(ri, new RowSerializer());
+
         executor.beginCompaction(cfs, ci);
         try
         {
-            Iterator<CompactionIterator.CompactedRow> nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
-
             // validate the CF as we iterate over it
             AntiEntropyService.IValidator validator = AntiEntropyService.instance.getValidator(cfs.getTable().name, cfs.getColumnFamilyName(), initiator, true);
             validator.prepare();
-            while (nni.hasNext())
+            while (cri.hasNext())
             {
-                CompactionIterator.CompactedRow row = nni.next();
+                CompactionIterator.CompactedRow row = cri.next();
                 validator.add(row);
             }
             validator.complete();
@@ -543,44 +552,29 @@ public class CompactionManager implements CompactionManagerMBean
 
     private static class AntiCompactionIterator extends CompactionIterator
     {
-        private Set<SSTableScanner> scanners;
-
         public AntiCompactionIterator(Collection<SSTableReader> sstables, Collection<Range> ranges, int gcBefore, boolean isMajor)
                 throws IOException
         {
-            super(getCollatedRangeIterator(sstables, ranges), gcBefore, isMajor);
+            super(sstables, getCollatingIterator(sstables, new SliceComparator(sstables.iterator().next().getComparator())), gcBefore, isMajor);
         }
 
-        private static Iterator getCollatedRangeIterator(Collection<SSTableReader> sstables, final Collection<Range> ranges)
+        /**
+         * Wraps a filtering Scanner around each SSTableScanner.
+         */
+        protected static CollatingIterator getCollatingIterator(Collection<SSTableReader> sstables, Comparator<SliceBuffer> comp, Collection<Range> ranges)
                 throws IOException
         {
-            org.apache.commons.collections.Predicate rangesPredicate = new org.apache.commons.collections.Predicate()
-            {
-                public boolean evaluate(Object row)
-                {
-                    return Range.isTokenInRanges(((SSTableIdentityIterator)row).getKey().token, ranges);
-                }
-            };
-            CollatingIterator iter = FBUtilities.<SSTableIdentityIterator>getCollatingIterator();
+            CollatingIterator iter = FBUtilities.<SliceBuffer>getCollatingIterator(comp);
+            int bufferPer = TOTAL_FILE_BUFFER_BYTES / sstables.size();
             for (SSTableReader sstable : sstables)
             {
-                SSTableScanner scanner = sstable.getScanner(FILE_BUFFER_SIZE);
-                iter.addIterator(new FilterIterator(scanner, rangesPredicate));
+                org.apache.cassandra.io.Scanner rawscanner = sstable.getScanner(bufferPer);
+                org.apache.cassandra.io.Scanner scanner = (ranges != null) ?
+                    new FilteredScanner(rawscanner, ranges) : rawscanner;
+                scanner.first();
+                iter.addIterator(scanner);
             }
             return iter;
-        }
-
-        public Iterable<SSTableScanner> getScanners()
-        {
-            if (scanners == null)
-            {
-                scanners = new HashSet<SSTableScanner>();
-                for (Object o : ((CollatingIterator)source).getIterators())
-                {
-                    scanners.add((SSTableScanner)((FilterIterator)o).getIterator());
-                }
-            }
-            return scanners;
         }
     }
 
@@ -672,5 +666,20 @@ public class CompactionManager implements CompactionManagerMBean
             n += i;
         }
         return n;
+    }
+    
+    /**
+     * FIXME: Serializes Rows to CompactedRows until both are removed.
+     */
+    @Deprecated
+    final class RowSerializer implements Function<Row, CompactedRow>
+    {
+        public CompactedRow apply(Row row)
+        {
+            // serialize to the compacted row
+            DataOutputBuffer dao = new DataOutputBuffer();
+            ColumnFamily.serializer().serializeWithIndexes(row.cf, dao);
+            return new CompactedRow(row.key, dao);
+        }
     }
 }
