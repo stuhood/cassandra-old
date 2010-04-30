@@ -51,9 +51,6 @@ public class NameSliceFilter implements IFilter<byte[]>
 
     public NameSliceFilter(Comparator<byte[]> comp, byte[] start, byte[] finish, List<byte[]> bitmasks, boolean reversed, int count)
     {
-        assert bitmasks == null : "FIXME: Not implemented: should filter in matchName."; // FIXME
-        assert !reversed : "FIXME: Not implemented: needs a reverse scanner impl.."; // FIXME
-
         this.comp = comp;
         this.start = start;
         this.finish = finish;
@@ -71,24 +68,22 @@ public class NameSliceFilter implements IFilter<byte[]>
     public boolean matchesBetween(byte[] begin, byte[] end)
     {
         // non-wrapping intersection
-        return comp.compare(begin, finish) <= 0 && comp.compare(start, end) <= 0;
+        // TODO: replace finish.length check with ColumnKey.NAME_END
+        return comp.compare(start, end) <= 0 && (finish.length == 0 || comp.compare(begin, finish) <= 0);
     }
 
     @Override
     public boolean matches(byte[] name)
     {
+        if (bitmasks != null && !bitmasks.isEmpty() && !matchesBitmasks(name))
+            return false;
+
         // contains
-        return comp.compare(start, name) <= 0 && comp.compare(name, finish) <= 0;
+        // TODO: replace finish.length check with ColumnKey.NAME_END when all
+        // components are using Slices
+        return comp.compare(start, name) <= 0 && (finish.length == 0 || comp.compare(name, finish) <= 0);
     }
     
-    private Predicate<IColumn> getPredicate()
-    {
-        return (bitmasks == null || bitmasks.isEmpty())
-               ? Predicates.<IColumn>alwaysTrue()
-               : getBitmaskMatchColumnPredicate();
-    }
-
-
     public SuperColumn filterSuperColumn(SuperColumn superColumn, int gcBefore)
     {
         // we clone shallow, then add, under the theory that generally we're interested in a relatively small number of subcolumns.
@@ -190,6 +185,14 @@ public class NameSliceFilter implements IFilter<byte[]>
             };
         }
         return Predicates.or(predicates);
+    }
+
+    public boolean matchesBitmasks(byte[] name)
+    {
+        for (byte[] bitmask : bitmasks)
+            if (matchesBitmask(bitmask, name))
+                return true;
+        return false;
     }
 
     public static boolean matchesBitmask(byte[] bitmask, byte[] name)

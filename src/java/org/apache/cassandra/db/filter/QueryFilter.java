@@ -28,32 +28,51 @@ import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.utils.ReducingIterator;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.dht.AbstractBounds;
 
 /**
  * Describes a query with a filter per column parent: null filters are allowed (unfiltered).
- * TODO: To apply more than one filter per level, an AndFilter implementing IColumnFilter would be useful.
  */
 public class QueryFilter
 {
     public final String cfname;
-    public final DecoratedKey key;
+    private final IFilter<DecoratedKey> keyfilter;
     private final List<IFilter<byte[]>> filters;
 
+    /**
+     * Converts a QueryPath with a supercolumn name specified into an additional level of filtering.
+     */
+    @Deprecated
     protected QueryFilter(DecoratedKey key, QueryPath path, IFilter<byte[]> filter)
     {
-        this.cfname = path.columnFamilyName;
-        this.key = key;
-        this.filters = path.superColumnName != null ?
+        this(path.columnFamilyName, key == null ? null : new KeyMatchFilter(key), path.superColumnName != null ?
             Arrays.<IFilter<byte[]>>asList(new NameMatchFilter(path.superColumnName), filter) :
-            Arrays.<IFilter<byte[]>>asList(filter);
+            Arrays.<IFilter<byte[]>>asList(filter));
+    }
+
+    protected QueryFilter(String cfname, IFilter<DecoratedKey> keyfilter, List<IFilter<byte[]>> filters)
+    {
+        this.cfname = cfname;
+        this.keyfilter = keyfilter;
+        this.filters = filters;
+    }
+
+    /**
+     * FIXME: transitional: remove once Memtables are using the Scanner API
+     */
+    @Deprecated
+    public DecoratedKey key()
+    {
+        assert keyfilter instanceof KeyMatchFilter;
+        return ((KeyMatchFilter)keyfilter).key;
     }
 
     public IColumnIterator getMemtableColumnIterator(Memtable memtable, AbstractType comparator)
     {
-        ColumnFamily cf = memtable.getColumnFamily(key);
+        ColumnFamily cf = memtable.getColumnFamily(key());
         if (cf == null)
             return null;
-        return getMemtableColumnIterator(cf, key, comparator);
+        return getMemtableColumnIterator(cf, key(), comparator);
     }
 
     public IColumnIterator getMemtableColumnIterator(ColumnFamily cf, DecoratedKey key, AbstractType comparator)
@@ -171,5 +190,13 @@ public class QueryFilter
     public static QueryFilter getNamesFilter(DecoratedKey key, QueryPath path, byte[] column)
     {
         return new QueryFilter(key, path, new NameMatchFilter(column));
+    }
+
+    /**
+     * @return A filter that matches all keys in the given Range.
+     */
+    public static QueryFilter getRangeFilter(String cfname, AbstractBounds bounds)
+    {
+        return new QueryFilter(cfname, new KeyRangeFilter(bounds));
     }
 }

@@ -752,7 +752,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             if (ssTables_.getRowCache().getCapacity() == 0)
                 return removeDeleted(getTopLevelColumns(filter, gcBefore), gcBefore);
 
-            ColumnFamily cached = cacheRow(filter.key);
+            ColumnFamily cached = cacheRow(filter.key());
             if (cached == null)
                 return null;
             IColumnIterator ci = filter.getMemtableColumnIterator(cached, null, getComparator());
