@@ -23,8 +23,7 @@ import java.io.*;
 import java.util.*;
 
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.filter.IColumnIterator;
-import org.apache.cassandra.db.filter.QueryFilter;
+import org.apache.cassandra.db.filter.INameFilter;
 import org.apache.cassandra.io.Slice;
 import org.apache.cassandra.io.SliceBuffer;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
@@ -51,7 +50,7 @@ public class RowIndexedScanner implements SSTableScanner
     private final ColumnFamily emptycf; // always empty: just a metadata holder
     protected final ColumnKey.Comparator comp;
 
-    protected QueryFilter filter = null;
+    protected INameFilter filter = null;
 
     /**
      * State related to the current row.
@@ -92,7 +91,7 @@ public class RowIndexedScanner implements SSTableScanner
     }
 
     @Override
-    public void setColumnFilter(QueryFilter filter)
+    public void pushdownFilter(INameFilter filter)
     {
         this.filter = filter;
     }
@@ -316,7 +315,7 @@ public class RowIndexedScanner implements SSTableScanner
     {
         if (filter == null)
             return (List<Column>)getRawColumns();
-        if (filter.mightMatchSlice(comp, begin, end))
+        if (filter.mightMatchSlice(comp.comparatorAt(1), begin.name(1), end.name(1)))
             return (List<Column>)getFilteredRawColumns();
         return skipRawColumns();
     }
@@ -332,11 +331,12 @@ public class RowIndexedScanner implements SSTableScanner
         long chunkend = file.getFilePointer() + rowindex.get(chunkpos).width;
 
         // filter individual columns
+        Comparator<byte[]> ccomp = comp.comparatorAt(1);
         ArrayList<IColumn> columns = new ArrayList<IColumn>();
         while (file.getFilePointer() < chunkend)
         {
             IColumn col = emptycf.getColumnSerializer().deserialize(file);
-            if (!filter.matches(comp, 1, col))
+            if (!filter.matchesName(ccomp, col.name()))
                 continue;
             columns.add(col);
         }

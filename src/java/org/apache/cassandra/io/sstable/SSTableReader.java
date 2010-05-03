@@ -36,9 +36,11 @@ import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.filter.FilteredScanner;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.io.ICompactSerializer2;
+import org.apache.cassandra.io.Scanner;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
 import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.io.util.MappedFileDataInput;
@@ -244,10 +246,13 @@ public abstract class SSTableReader extends SSTable implements Comparable<SSTabl
 
     /**
      * @param bufferSize Buffer size in bytes for this Scanner.
-     * @param filter filter to use when reading the columns
+     * @param filter Filter to apply returned Slices.
      * @return A Scanner for seeking over the rows of the SSTable.
      */
-    public abstract SSTableScanner getScanner(int bufferSize, QueryFilter filter);
+    public Scanner getScanner(int bufferSize, QueryFilter filter)
+    {
+        return new FilteredScanner(getScanner(bufferSize), filter);
+    }
     
     /**
      * FIXME: should not be public: use Scanner.

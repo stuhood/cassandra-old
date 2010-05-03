@@ -31,6 +31,7 @@ import java.util.Map.Entry;
 import org.apache.cassandra.db.filter.IColumnIterator;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.io.Scanner;
 import org.apache.cassandra.io.SliceToRowIterator;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.sstable.SSTableScanner;
@@ -104,7 +105,7 @@ public class RowIteratorFactory
         // sstables
         for (SSTableReader sstable : sstables)
         {
-            SSTableScanner scanner = sstable.getScanner(RANGE_FILE_BUFFER_SIZE, filter);
+            Scanner scanner = sstable.getScanner(RANGE_FILE_BUFFER_SIZE, filter);
             scanner.first();
 
             // FIXME: converting Slice -> IColumnIterator

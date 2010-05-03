@@ -25,7 +25,7 @@ import java.util.Iterator;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnKey;
-import org.apache.cassandra.db.filter.QueryFilter;
+import org.apache.cassandra.db.filter.INameFilter;
 
 import com.google.common.collect.PeekingIterator;
 
@@ -48,11 +48,15 @@ public interface Scanner extends Iterator<SliceBuffer>,Closeable
     public ColumnKey.Comparator comparator();
 
     /**
-     * @param filter A filter to be applied to the columns in returned Slices. Slices which have all of their columns
-     * filtered out will still be returned in case the metadata needs to be applied elsewhere. To filter out entire
-     * rows, it's more efficient to use an external filter like FilteredScanner, which seeks on the underlying scanner.
+     * Sets a INameFilter to use to minimize deserialization by filtering columns as close to the source as possible.
+     * Slices which have all of their columns filtered out will still be returned in case their metadata needs to be
+     * applied elsewhere. To filter large ranges, it's more efficient to use a QueryFilter with FilteredScanner,
+     * which can seek on the underlying scanner.
+     *
+     * @param filter A filter to be applied to the columns in returned Slices.
+     * @return A QueryFilter which describes the portion of the filtering that cannot be pushed down by this scanner.
      */
-    public void setColumnFilter(QueryFilter filter);
+    public void pushdownFilter(INameFilter filter);
 
     /**
      * @return The approximate number of bytes remaining in the Scanner.

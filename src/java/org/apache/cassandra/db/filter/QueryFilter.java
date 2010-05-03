@@ -29,13 +29,18 @@ import org.apache.cassandra.utils.ReducingIterator;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.dht.AbstractBounds;
+import org.apache.cassandra.dht.Range;
 
 /**
- * Describes a query with a filter per column parent: null filters are allowed (unfiltered).
+ * Describes a simple query plan for ranges of columns, with a filter per column parent: null filters are allowed
+ * at any level (unfiltered).
+ *
+ * TODO: should support the concept of a reversed query natively, meaning that it controls the seeking of
+ * the containing scanner.
  */
-public class QueryFilter
+public final class QueryFilter
 {
-    public final String cfname;
+    private final String cfname;
     private final IKeyFilter keyfilter;
     private final INameFilter[] filters;
 
@@ -55,6 +60,24 @@ public class QueryFilter
         this.cfname = cfname;
         this.keyfilter = keyfilter;
         this.filters = filters;
+    }
+
+    /**
+     * @return The IKeyFilter for this query, or null if the level is unfiltered.
+     */
+    public IKeyFilter keyFilter()
+    {
+        return keyfilter;
+    }
+
+    /**
+     * @return The INameFilter at the given depth, or null if the level is unfiltered.
+     */
+    public INameFilter nameFilter(int depth)
+    {
+        if (depth > filters.length)
+            return null;
+        return filters[depth-1];
     }
 
     /**
@@ -193,10 +216,16 @@ public class QueryFilter
     }
 
     /**
-     * @return A filter that matches all keys in the given Range.
+     * FIXME: temporarily assuming one un-wrapped range per anticompaction until we support compound filters.
+     * @return A filter that matches keys in any of the given Ranges.
      */
-    public static QueryFilter getRangeFilter(String cfname, AbstractBounds bounds)
+    public static QueryFilter getRangeFilter(String cfname, Collection<Range> ranges)
     {
-        return new QueryFilter(cfname, new KeyRangeFilter(bounds));
+        assert ranges == null || ranges.size() == 1;
+        if (ranges == null)
+            return null;
+        List<AbstractBounds> bounds = ranges.iterator().next().unwrap();
+        assert bounds.size() == 1;
+        return new QueryFilter(cfname, new KeyRangeFilter(bounds.iterator().next()));
     }
 }

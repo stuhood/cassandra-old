@@ -34,7 +34,9 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
 import org.apache.cassandra.db.filter.FilteredScanner;
+import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.io.*;
 import org.apache.cassandra.io.CompactionIterator.CompactedRow;
 import org.apache.cassandra.io.sstable.*;
@@ -565,12 +567,15 @@ public class CompactionManager implements CompactionManagerMBean
                 throws IOException
         {
             CollatingIterator iter = FBUtilities.<SliceBuffer>getCollatingIterator(comp);
+            if (sstables.isEmpty())
+                return iter;
+
+            QueryFilter qf = QueryFilter.getRangeFilter(sstables.iterator().next().getColumnFamilyName(), ranges);
             int bufferPer = TOTAL_FILE_BUFFER_BYTES / sstables.size();
             for (SSTableReader sstable : sstables)
             {
-                org.apache.cassandra.io.Scanner rawscanner = sstable.getScanner(bufferPer);
-                org.apache.cassandra.io.Scanner scanner = (ranges != null) ?
-                    new FilteredScanner(rawscanner, ranges) : rawscanner;
+                org.apache.cassandra.io.Scanner scanner = (qf == null) ?
+                    sstable.getScanner(bufferPer) : sstable.getScanner(bufferPer, qf);
                 scanner.first();
                 iter.addIterator(scanner);
             }

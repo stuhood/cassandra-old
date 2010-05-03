@@ -109,16 +109,15 @@ public class RowIndexedSuperScanner extends RowIndexedScanner
         ColumnKey begin = new ColumnKey(rowkey, supcol.name(), ColumnKey.NAME_BEGIN);
         ColumnKey end = new ColumnKey(rowkey, supcol.name(), ColumnKey.NAME_END);
 
-        // apply both levels of filters to subcolumns
-        // note: we drop the subcolumns of filtered supercolumns here
-        // TODO: duplicates logic from collectCollatedColumns
+        // drop non-matching subcolumns
+        Comparator<byte[]> ccomp = comp.comparatorAt(2);
         List<Column> subcols = new ArrayList<Column>();
-        if(filter == null || filter.mightMatchSlice(comp, begin, end))
+        if(filter == null || filter.mightMatchSlice(ccomp, begin.name(2), end.name(2)))
         {
             // might match
             for (IColumn col : supcol.getSubColumns())
             {
-                if (filter == null || filter.matches(comp, 2, col))
+                if (filter == null || filter.matchesName(ccomp, col.name()))
                 {
                     subcols.add((Column)col);
                 }

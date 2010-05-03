@@ -26,6 +26,7 @@ import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnKey;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.filter.INameFilter;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
@@ -36,30 +37,41 @@ import org.apache.cassandra.service.StorageService;
 import com.google.common.collect.AbstractIterator;
 
 /**
- * Filters a Scanner using a list of non-intersecting ranges.
+ * Filters a Scanner using a collection of non-intersecting ranges.
  */
 public class FilteredScanner extends AbstractIterator<SliceBuffer> implements Scanner
 {
     private final Scanner scanner;
-    private final ArrayList<Range> ranges;
-    private int rangeidx;
+    private final QueryFilter filter;
 
-    public FilteredScanner(Scanner scanner, Collection<Range> ranges) throws IOException
+    public FilteredScanner(Scanner scanner, QueryFilter filter)
     {
         this.scanner = scanner;
-        this.ranges = new ArrayList<Range>(ranges);
-        Collections.sort(this.ranges);
-        rangeidx = 0;
-        
-        // if one of the ranges was a wrapping range, it will be sorted first
-        if (this.ranges.get(0).isWrapAround())
+        this.filter = filter;
+
+        // push down column level filtering: slices we receive will contain only matching columns
+        this.scanner.pushdownFilter(filter.nameFilter(scanner.columnDepth()));
+    }
+
+    /**
+     * TODO: should return a key to indicate where to seek next, giving the effect of a coroutine.
+     * For instance, in the null KeyFilter case, we always want to seek to the end of the given key,
+     * possibly with additional seek information from the NameFilters.
+     *
+     * @return True if the slice represented by the given ColumnKeys might contain matching columns.
+     */
+    public boolean matches(ColumnKey begin, ColumnKey end)
+    {
+        if (filter.keyFilter() != null && !filter.keyFilter().matchesKey(begin.dk))
+            return false;
+        for (int i = 1; i <= columnDepth(); i++)
         {
-            // split the wrapping range in two
-            Range wrap = this.ranges.get(0);
-            Token mintoken = StorageService.getPartitioner().getMinimumToken();
-            this.ranges.add(new Range(wrap.left, mintoken));
-            this.ranges.set(0, new Range(mintoken, wrap.right));
+            if (filter.nameFilter(i) == null)
+                continue;
+            if (!filter.nameFilter(i).mightMatchSlice(comparator().comparatorAt(i), begin.name(i), end.name(i)))
+                return false;
         }
+        return true;
     }
 
     @Override
@@ -75,9 +87,10 @@ public class FilteredScanner extends AbstractIterator<SliceBuffer> implements Sc
     }
 
     @Override
-    public void setColumnFilter(QueryFilter filter)
+    public void pushdownFilter(INameFilter filter)
     {
-        scanner.setColumnFilter(filter);
+        // a filtered scanner is already too busy applying its own filters
+        throw new RuntimeException("Filtering a FilteredScanner is redundant!");
     }
 
     public void close() throws IOException
@@ -94,62 +107,42 @@ public class FilteredScanner extends AbstractIterator<SliceBuffer> implements Sc
     @Override
     public boolean first()
     {
-        // seek to the beginning of the first range
-        rangeidx = 0;
-        scanner.seekNear(new DecoratedKey(ranges.get(rangeidx).left));
+        if (!scanner.first())
+            return false;
         return hasNext();
     }
 
     @Override
     public boolean seekNear(DecoratedKey seekKey) throws IOException
     {
-        // laziness: compaction won't need to seek
+        // TODO: laziness
         throw new RuntimeException("Not implemented");
     }
 
     @Override
     public boolean seekNear(ColumnKey seekKey) throws IOException
     {
-        // laziness: compaction won't need to seek
+        // TODO: laziness
         throw new RuntimeException("Not implemented");
     }
 
     /**
-     * Checks whether the current range matches the current slice. If not, skips
-     * forward through the ranges and slices looking for the next possible match.
+     * Checks whether the current slice matches our embedded filter. If not, skips
+     * forward through slices looking for the next possible match.
+     *
+     * FIXME: Totally naive at the moment: filters individual slices, and never seeks. See the comments in
+     * QueryFilter for "the plan".
      *
      * @return The next slice matching the filter.
      */
     @Override
     public SliceBuffer computeNext()
     {
-        try
+        while (scanner.hasNext())
         {
-            // skip through ranges/slices until we find a slice contained in a range
-            while (scanner.hasNext() && rangeidx < ranges.size())
-            {
-                SliceBuffer slice = scanner.next();
-                if (ranges.get(rangeidx).contains(slice.begin.dk.token))
-                    // range contains slice
-                    return slice;
-
-                if (ranges.get(rangeidx).left.compareTo(slice.begin.dk.token) > 0)
-                {
-                    // slice is less than current range: seek to the nearest slice
-                    if (!scanner.seekNear(new DecoratedKey(ranges.get(rangeidx).left)))
-                        // no more data anywhere after the current range
-                        break;
-                }
-                else
-                {
-                    // range is less than slice: skip to next range
-                    rangeidx++;
-                }
-            }
-        }
-        catch(IOException e)
-        {
-            throw new IOError(e);
+            SliceBuffer slice = scanner.next();
+            if (matches(slice.begin, slice.end))
+                return slice;
         }
         
         return endOfData();
