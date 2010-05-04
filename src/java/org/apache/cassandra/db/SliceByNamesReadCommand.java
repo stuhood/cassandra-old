@@ -56,7 +56,7 @@ public class SliceByNamesReadCommand extends ReadCommand
     public Row getRow(Table table) throws IOException
     {
         DecoratedKey dk = StorageService.getPartitioner().decorateKey(key);
-        return table.getRow(QueryFilter.getNamesFilter(dk, queryPath, columnNames));
+        return table.getRow(QueryFilter.on(table.name, queryPath).forKey(dk).forNames(queryPath.superColumnName == null ? 1 : 2, columnNames));
     }
 
     @Override

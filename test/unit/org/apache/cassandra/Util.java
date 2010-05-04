@@ -103,6 +103,6 @@ public class Util
     {
         ColumnFamilyStore cfStore = table.getColumnFamilyStore(cfName);
         assert cfStore != null : "Column family " + cfName + " has not been defined";
-        return cfStore.getColumnFamily(QueryFilter.getIdentityFilter(key, new QueryPath(cfName)));
+        return cfStore.getColumnFamily(QueryFilter.on(cfStore).forKey(key));
     }
 }

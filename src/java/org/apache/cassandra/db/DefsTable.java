@@ -65,7 +65,7 @@ public class DefsTable
         DecoratedKey vkey = StorageService.getPartitioner().decorateKey(Migration.toBytes(version));
         Table defs = Table.open(Table.DEFINITIONS);
         ColumnFamilyStore cfStore = defs.getColumnFamilyStore(Migration.SCHEMA_CF);
-        QueryFilter filter = QueryFilter.getSliceFilter(vkey, new QueryPath(Migration.SCHEMA_CF), "".getBytes(), "".getBytes(), null, false, 1024);
+        QueryFilter filter = QueryFilter.on(Table.DEFINITIONS, Migration.SCHEMA_CF).forKey(vkey).forSlice(1, "".getBytes(), "".getBytes(), null, false, 1024);
         ColumnFamily cf = cfStore.getColumnFamily(filter);
         Collection<KSMetaData> tables = new ArrayList<KSMetaData>();
         for (IColumn col : cf.getSortedColumns())

@@ -59,6 +59,7 @@ public class RowIteratorFactory
     /**
      * Get a row iterator over the provided memtables and sstables, between the provided keys
      * and filtered by the queryfilter.
+     * FIXME: Remove startWith/stopAt parameters, and use a range filter w QueryFilter
      * @param current Current memtable, must be accessed with locks.
      * @param memtables Memtables pending flush.
      * @param sstables SStables to scan through.

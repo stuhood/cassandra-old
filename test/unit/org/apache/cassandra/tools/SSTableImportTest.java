@@ -29,6 +29,7 @@ import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.IColumn;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.filter.QueryPath;
+import org.apache.cassandra.io.Scanner;
 import org.apache.cassandra.io.SliceToRowIterator;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import static org.apache.cassandra.utils.FBUtilities.hexToBytes;
@@ -51,8 +52,10 @@ public class SSTableImportTest extends SchemaLoader
 
         // Verify results
         SSTableReader reader = SSTableReader.open(tempSS.getPath(), DatabaseDescriptor.getPartitioner());
-        QueryFilter qf = QueryFilter.getNamesFilter(Util.dk("rowA"), new QueryPath("Standard1", null, null), "colAA".getBytes());
-        ColumnFamily cf = new SliceToRowIterator(reader.getScanner(1024, qf), reader).next().getColumnFamily();
+        QueryFilter qf = QueryFilter.on("Keyspace1", "Standard1").forKey(Util.dk("rowA")).forName(1, "colAA".getBytes());
+        Scanner scanner = reader.getScanner(1024, qf);
+        scanner.first();
+        ColumnFamily cf = new SliceToRowIterator(scanner, reader).next().getColumnFamily();
         assert Arrays.equals(cf.getColumn("colAA".getBytes()).value(), hexToBytes("76616c4141"));
     }
 
@@ -65,8 +68,10 @@ public class SSTableImportTest extends SchemaLoader
         
         // Verify results
         SSTableReader reader = SSTableReader.open(tempSS.getPath(), DatabaseDescriptor.getPartitioner());
-        QueryFilter qf = QueryFilter.getNamesFilter(Util.dk("rowA"), new QueryPath("Super4", null, null), "superA".getBytes());
-        ColumnFamily cf = new SliceToRowIterator(reader.getScanner(1024, qf), reader).next().getColumnFamily();
+        QueryFilter qf = QueryFilter.on("Keyspace1", "Super4").forKey(Util.dk("rowA")).forName(1, "superA".getBytes());
+        Scanner scanner = reader.getScanner(1024, qf);
+        scanner.first();
+        ColumnFamily cf = new SliceToRowIterator(scanner, reader).next().getColumnFamily();
         IColumn superCol = cf.getColumn("superA".getBytes());
         assert Arrays.equals(superCol.getSubColumn("colAA".getBytes()).value(), hexToBytes("76616c75654141"));
     }

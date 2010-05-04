@@ -31,6 +31,7 @@ import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.filter.QueryPath;
 import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.io.Scanner;
 import org.apache.cassandra.io.SliceToRowIterator;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.sstable.SSTableWriter;
@@ -225,12 +226,16 @@ public class SSTableExportTest extends SchemaLoader
         SSTableImport.importJson(tempJson.getPath(), "Keyspace1", "Standard1", tempSS2.getPath());        
         
         reader = SSTableReader.open(tempSS2.getPath(), DatabaseDescriptor.getPartitioner());
-        QueryFilter qf = QueryFilter.getNamesFilter(Util.dk("rowA"), new QueryPath("Standard1", null, null), "name".getBytes());
-        ColumnFamily cf = new SliceToRowIterator(reader.getScanner(1024, qf), reader).next().getColumnFamily();
+        QueryFilter qf = QueryFilter.on("Keyspace1", "Standard1").forKey(Util.dk("rowA")).forName(1, "name".getBytes());
+        Scanner scanner = reader.getScanner(1024, qf);
+        scanner.first();
+        ColumnFamily cf = new SliceToRowIterator(scanner, reader).next().getColumnFamily();
         assertTrue(cf != null);
         assertTrue(Arrays.equals(cf.getColumn("name".getBytes()).value(), hexToBytes("76616c")));
 
-        qf = QueryFilter.getNamesFilter(Util.dk("rowExclude"), new QueryPath("Standard1", null, null), "name".getBytes());
-        assert !new SliceToRowIterator(reader.getScanner(1024, qf), reader).hasNext();
+        qf = QueryFilter.on("Keyspace1", "Standard1").forKey(Util.dk("rowExclude")).forName(1, "name".getBytes());
+        scanner = reader.getScanner(1024, qf);
+        scanner.first();
+        assert !new SliceToRowIterator(scanner, reader).hasNext();
     }
 }

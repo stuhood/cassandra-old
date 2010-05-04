@@ -123,7 +123,7 @@ public class SystemTable
         columns.add(TOKEN);
         columns.add(GENERATION);
         columns.add(CLUSTERNAME);
-        QueryFilter filter = QueryFilter.getNamesFilter(decorate(LOCATION_KEY), new QueryPath(STATUS_CF), columns);
+        QueryFilter filter = QueryFilter.on(Table.SYSTEM_TABLE, STATUS_CF).forKey(decorate(LOCATION_KEY)).forNames(1, columns);
         ColumnFamily cf = table.getColumnFamilyStore(STATUS_CF).getColumnFamily(filter);
 
         if (cf == null)
@@ -194,9 +194,7 @@ public class SystemTable
     public static boolean isBootstrapped()
     {
         Table table = Table.open(Table.SYSTEM_TABLE);
-        QueryFilter filter = QueryFilter.getNamesFilter(decorate(BOOTSTRAP_KEY),
-                                                        new QueryPath(STATUS_CF),
-                                                        BOOTSTRAP);
+        QueryFilter filter = QueryFilter.on(Table.SYSTEM_TABLE, STATUS_CF).forKey(decorate(BOOTSTRAP_KEY)).forName(1, BOOTSTRAP);
         ColumnFamily cf = table.getColumnFamilyStore(STATUS_CF).getColumnFamily(filter);
         return cf != null && cf.getColumn(BOOTSTRAP).value()[0] == 1;
     }
@@ -220,7 +218,7 @@ public class SystemTable
     public static ColumnFamily getDroppedCFs() throws IOException
     {
         ColumnFamilyStore cfs = Table.open(Table.SYSTEM_TABLE).getColumnFamilyStore(SystemTable.STATUS_CF);
-        return cfs.getColumnFamily(QueryFilter.getSliceFilter(decorate(GRAVEYARD_KEY), new QueryPath(STATUS_CF), "".getBytes(), "".getBytes(), null, false, 100));
+        return cfs.getColumnFamily(QueryFilter.on(Table.SYSTEM_TABLE, STATUS_CF).forKey(decorate(GRAVEYARD_KEY)).forSlice(1, "".getBytes(), "".getBytes(), null, false, 100));
     }
     
     public static void deleteDroppedCfMarkers(Collection<IColumn> cols) throws IOException

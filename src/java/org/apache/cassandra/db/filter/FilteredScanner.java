@@ -55,19 +55,17 @@ public class FilteredScanner extends AbstractIterator<SliceBuffer> implements Sc
 
     /**
      * TODO: should return a key to indicate where to seek next, giving the effect of a coroutine.
-     * For instance, in the null KeyFilter case, we always want to seek to the end of the given key,
+     * For instance, in the KeyIdentityFilter case, we always want to seek to the end of the given key,
      * possibly with additional seek information from the NameFilters.
      *
      * @return True if the slice represented by the given ColumnKeys might contain matching columns.
      */
     public boolean matches(ColumnKey begin, ColumnKey end)
     {
-        if (filter.keyFilter() != null && !filter.keyFilter().matchesKey(begin.dk))
+        if (!filter.keyFilter().matchesKey(begin.dk))
             return false;
         for (int i = 1; i <= columnDepth(); i++)
         {
-            if (filter.nameFilter(i) == null)
-                continue;
             if (!filter.nameFilter(i).mightMatchSlice(comparator().comparatorAt(i), begin.name(i), end.name(i)))
                 return false;
         }

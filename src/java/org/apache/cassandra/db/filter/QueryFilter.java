@@ -26,17 +26,16 @@ import java.util.*;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.utils.ReducingIterator;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Range;
 
 /**
- * Describes a simple query plan for ranges of columns, with a filter per column parent: null filters are allowed
- * at any level (unfiltered).
+ * Describes a simple query plan for ranges of columns, with a filter per column parent.
  *
- * TODO: should support the concept of a reversed query natively, meaning that it controls the seeking of
- * the containing scanner.
+ * TODO: should support the concept of a reversed query natively.
  */
 public final class QueryFilter
 {
@@ -45,14 +44,15 @@ public final class QueryFilter
     private final INameFilter[] filters;
 
     /**
-     * Converts a QueryPath with a supercolumn name specified into an additional level of filtering.
+     * An identity query filter of the given depth.
      */
-    @Deprecated
-    protected QueryFilter(DecoratedKey key, QueryPath path, INameFilter filter)
+    protected QueryFilter(String cfname, int depth)
     {
-        this(path.columnFamilyName, key == null ? null : new KeyMatchFilter(key), path.superColumnName != null ?
-            new INameFilter[]{ new NameListFilter(path.superColumnName), filter } :
-            new INameFilter[]{ filter });
+        this.cfname = cfname;
+        this.keyfilter = KeyIdentityFilter.get();
+        this.filters = new INameFilter[depth];
+        for (int i = 0; i < depth; i++)
+            this.filters[i] = NameIdentityFilter.get();
     }
 
     protected QueryFilter(String cfname, IKeyFilter keyfilter, INameFilter... filters)
@@ -63,7 +63,7 @@ public final class QueryFilter
     }
 
     /**
-     * @return The IKeyFilter for this query, or null if the level is unfiltered.
+     * @return The IKeyFilter for this query.
      */
     public IKeyFilter keyFilter()
     {
@@ -71,12 +71,10 @@ public final class QueryFilter
     }
 
     /**
-     * @return The INameFilter at the given depth, or null if the level is unfiltered.
+     * @return The INameFilter at the given depth.
      */
     public INameFilter nameFilter(int depth)
     {
-        if (depth > filters.length)
-            return null;
         return filters[depth-1];
     }
 
@@ -173,59 +171,117 @@ public final class QueryFilter
     }
 
     /**
-     * @return a QueryFilter object to satisfy the given slice criteria:
-     * @param key the row to slice
-     * @param path path to the level to slice at (CF or SuperColumn)
+     * The beginning of the chain for building a QueryFilter.
+     * @return An identity QueryFilter for the given CF.
+     */
+    public static QueryFilter on(ColumnFamilyStore cfs)
+    {
+        return on(cfs.table_, cfs.columnFamily_);
+    }
+
+    /**
+     * The beginning of the chain for building a QueryFilter.
+     * @return An identity QueryFilter for the given CF.
+     */
+    public static QueryFilter on(String ksname, String cfname)
+    {
+        if("Super".equals(DatabaseDescriptor.getColumnFamilyType(ksname, cfname)))
+            return new QueryFilter(cfname, 2);
+        return new QueryFilter(cfname, 1);
+    }
+
+    /**
+     * TODO: Replace QueryPath with an arbitrarily nested filter that mirrors QueryFilter.
+     */
+    public static QueryFilter on(String ksname, QueryPath path)
+    {
+        QueryFilter qf = on(ksname, path.columnFamilyName);
+        return path.superColumnName != null ? qf.forName(1, path.superColumnName) : qf;
+    }
+
+    /**
+     * @return A copy of the name filters for this QueryFilter, with the given depth set to the given filter.
+     */
+    private INameFilter[] copyAndAdd(int depth, INameFilter filt)
+    {
+        INameFilter[] filts = Arrays.copyOf(filters, filters.length);
+        filts[depth - 1] = filt;
+        return filts;
+    }
+
+    /**
+     * @return Creates a copy of this QueryFilter with a slice filter at the given depth.
+     * @param depth depth to slice at
      * @param start column to start slice at, inclusive; empty for "the first column"
      * @param finish column to stop slice at, inclusive; empty for "the last column"
      * @param bitmasks we should probably remove this
      * @param reversed true to start with the largest column (as determined by configured sort order) instead of smallest
      * @param limit maximum number of non-deleted columns to return
      */
-    public static QueryFilter getSliceFilter(DecoratedKey key, QueryPath path, byte[] start, byte[] finish, List<byte[]> bitmasks, boolean reversed, int limit)
+    public QueryFilter forSlice(int depth, byte[] start, byte[] finish, List<byte[]> bitmasks, boolean reversed, int limit)
     {
-        return new QueryFilter(key, path, new NameSliceFilter(start, finish, bitmasks, reversed, limit));
+        return new QueryFilter(cfname, keyfilter, copyAndAdd(depth, new NameSliceFilter(start, finish, bitmasks, reversed, limit)));
     }
 
     /**
-     * @return a QueryFilter object that includes every column in the row.
-     * This is dangerous on large rows; avoid except for test code.
-     */
-    public static QueryFilter getIdentityFilter(DecoratedKey key, QueryPath path)
-    {
-        return new QueryFilter(key, path, new NameIdentityFilter());
-    }
-
-    /**
-     * @return a QueryFilter object that will return columns matching the given names
-     * @param key the row to slice
-     * @param path path to the level to slice at (CF or SuperColumn)
+     * @return Creates a copy of this QueryFilter with a name list filter at the given depth.
+     * @param depth depth to filter names at
      * @param columns the column names to restrict the results to
      */
-    public static QueryFilter getNamesFilter(DecoratedKey key, QueryPath path, SortedSet<byte[]> columns)
+    public QueryFilter forNames(int depth, SortedSet<byte[]> columns)
     {
-        return new QueryFilter(key, path, new NameListFilter(columns));
+        return new QueryFilter(cfname, keyfilter, copyAndAdd(depth, new NameListFilter(columns)));
     }
 
     /**
      * convenience method for creating a name filter matching a single column
      */
-    public static QueryFilter getNamesFilter(DecoratedKey key, QueryPath path, byte[] column)
+    public QueryFilter forName(int depth, byte[] column)
     {
-        return new QueryFilter(key, path, new NameListFilter(column));
+        return new QueryFilter(cfname, keyfilter, copyAndAdd(depth, new NameListFilter(column)));
     }
 
     /**
-     * FIXME: temporarily assuming one un-wrapped range per anticompaction until we support compound filters.
-     * @return A filter that matches keys in any of the given Ranges.
+     * @return A filter matching the given key.
      */
-    public static QueryFilter getRangeFilter(String cfname, Collection<Range> ranges)
+    public QueryFilter forKey(DecoratedKey key)
     {
-        assert ranges == null || ranges.size() == 1;
+        // clone this query with the added key filter
+        return new QueryFilter(cfname, new KeyMatchFilter(key), Arrays.copyOf(filters, filters.length));
+    }
+
+    /**
+     * @return A filter matching keys in any of the given Ranges.
+     */
+    public QueryFilter forRange(AbstractBounds range)
+    {
+        // clone this query with the added key filter
+        return new QueryFilter(cfname, new KeyRangeFilter(range), Arrays.copyOf(filters, filters.length));
+    }
+
+    /**
+     * @return A filter matching keys in any of the given Ranges.
+     */
+    public QueryFilter forRanges(Collection<Range> ranges)
+    {
+        // FIXME: temporarily assuming one un-wrapped range per anticompaction until we support compound filters.
+        assert ranges == null || ranges.size() == 1 : "FIXME: Not implemented!";
         if (ranges == null)
-            return null;
-        List<AbstractBounds> bounds = ranges.iterator().next().unwrap();
-        assert bounds.size() == 1;
-        return new QueryFilter(cfname, new KeyRangeFilter(bounds.iterator().next()));
+            return this;
+        List<AbstractBounds> boundslist = ranges.iterator().next().unwrap();
+        assert boundslist.size() == 1;
+        AbstractBounds bounds = boundslist.iterator().next();
+
+        return forRange(bounds);
+    }
+
+    @Override
+    public String toString()
+    {
+        StringBuilder buff = new StringBuilder();
+        buff.append("#<QueryFilter [").append(keyfilter);
+        for (INameFilter filt : filters)
+            buff.append(", ").append(filt);
+        return buff.append("]>").toString();
     }
 }

@@ -569,8 +569,8 @@ public class CompactionManager implements CompactionManagerMBean
             CollatingIterator iter = FBUtilities.<SliceBuffer>getCollatingIterator(comp);
             if (sstables.isEmpty())
                 return iter;
-
-            QueryFilter qf = QueryFilter.getRangeFilter(sstables.iterator().next().getColumnFamilyName(), ranges);
+            SSTableReader first = sstables.iterator().next();
+            QueryFilter qf = QueryFilter.on(first.getTableName(), first.getColumnFamilyName()).forRanges(ranges);
             int bufferPer = TOTAL_FILE_BUFFER_BYTES / sstables.size();
             for (SSTableReader sstable : sstables)
             {
