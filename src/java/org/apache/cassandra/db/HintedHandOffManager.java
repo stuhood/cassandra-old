@@ -121,7 +121,7 @@ public class HintedHandOffManager
         DecoratedKey dkey = StorageService.getPartitioner().decorateKey(key);
         for (ColumnFamilyStore cfstore : table.getColumnFamilyStores())
         {
-            ColumnFamily cf = cfstore.getColumnFamily(QueryFilter.getIdentityFilter(dkey, new QueryPath(cfstore.getColumnFamilyName())));
+            ColumnFamily cf = cfstore.getColumnFamily(QueryFilter.on(cfstore).forKey(dkey));
             if (cf != null)
                 rm.add(cf);
         }
@@ -174,7 +174,7 @@ public class HintedHandOffManager
             byte[] startColumn = ArrayUtils.EMPTY_BYTE_ARRAY;
             while (true)
             {
-                QueryFilter filter = QueryFilter.getSliceFilter(tableNameKey, new QueryPath(HINTS_CF), startColumn, ArrayUtils.EMPTY_BYTE_ARRAY, null, false, PAGE_SIZE);
+                QueryFilter filter = QueryFilter.on(tableName, HINTS_CF).forKey(tableNameKey).forSlice(1, startColumn, ArrayUtils.EMPTY_BYTE_ARRAY, null, false, PAGE_SIZE);
                 ColumnFamily hintColumnFamily = ColumnFamilyStore.removeDeleted(hintStore.getColumnFamily(filter), Integer.MAX_VALUE);
                 if (pagingFinished(hintColumnFamily, startColumn))
                     break;
@@ -239,7 +239,7 @@ public class HintedHandOffManager
             byte[] startColumn = ArrayUtils.EMPTY_BYTE_ARRAY;
             while (true)
             {
-                QueryFilter filter = QueryFilter.getSliceFilter(tableNameKey, new QueryPath(HINTS_CF), startColumn, ArrayUtils.EMPTY_BYTE_ARRAY, null, false, PAGE_SIZE);
+                QueryFilter filter = QueryFilter.on(tableName, HINTS_CF).forKey(tableNameKey).forSlice(1, startColumn, ArrayUtils.EMPTY_BYTE_ARRAY, null, false, PAGE_SIZE);
                 ColumnFamily hintColumnFamily = ColumnFamilyStore.removeDeleted(hintStore.getColumnFamily(filter), Integer.MAX_VALUE);
                 if (pagingFinished(hintColumnFamily, startColumn))
                     break;
@@ -281,7 +281,7 @@ public class HintedHandOffManager
         long now = System.currentTimeMillis();
         while (true)
         {
-            QueryFilter filter = QueryFilter.getSliceFilter(oldTableKey, new QueryPath(HINTS_CF), startCol, ArrayUtils.EMPTY_BYTE_ARRAY, null, false, PAGE_SIZE);
+            QueryFilter filter = QueryFilter.on(Table.SYSTEM_TABLE, HINTS_CF).forKey(oldTableKey).forSlice(1, startCol, ArrayUtils.EMPTY_BYTE_ARRAY, null, false, PAGE_SIZE);
             ColumnFamily cf = ColumnFamilyStore.removeDeleted(hintStore.getColumnFamily(filter), Integer.MAX_VALUE);
             if (pagingFinished(cf, startCol))
                 break;

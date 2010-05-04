@@ -169,7 +169,7 @@ public abstract class Migration
         DecoratedKey dkey = StorageService.getPartitioner().decorateKey(LAST_MIGRATION_KEY);
         Table defs = Table.open(Table.SYSTEM_TABLE);
         ColumnFamilyStore cfStore = defs.getColumnFamilyStore(SCHEMA_CF);
-        QueryFilter filter = QueryFilter.getNamesFilter(dkey, new QueryPath(SCHEMA_CF), LAST_MIGRATION_KEY);
+        QueryFilter filter = QueryFilter.on(cfStore).forKey(dkey).forName(1, LAST_MIGRATION_KEY);
         ColumnFamily cf = cfStore.getColumnFamily(filter);
         if (cf == null || cf.getColumnNames().size() == 0)
             return null;
@@ -264,7 +264,7 @@ public abstract class Migration
         DecoratedKey dkey = StorageService.getPartitioner().decorateKey(MIGRATIONS_KEY);
         Table defs = Table.open(Table.SYSTEM_TABLE);
         ColumnFamilyStore cfStore = defs.getColumnFamilyStore(Migration.MIGRATIONS_CF);
-        QueryFilter filter = QueryFilter.getSliceFilter(dkey, new QueryPath(MIGRATIONS_CF), UUIDGen.decompose(start), UUIDGen.decompose(end), null, false, 1000);
+        QueryFilter filter = QueryFilter.on(cfStore).forKey(dkey).forSlice(1, UUIDGen.decompose(start), UUIDGen.decompose(end), null, false, 1000);
         ColumnFamily cf = cfStore.getColumnFamily(filter);
         return cf.getSortedColumns();
     }

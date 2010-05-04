@@ -30,7 +30,7 @@ import org.apache.cassandra.utils.FBUtilities;
 
 public class SliceByNamesReadCommand extends ReadCommand
 {
-    public final SortedSet<byte[]> columnNames;
+    public final Collection<byte[]> columnNames;
 
     public SliceByNamesReadCommand(String table, byte[] key, ColumnParent column_parent, Collection<byte[]> columnNames)
     {
@@ -40,8 +40,7 @@ public class SliceByNamesReadCommand extends ReadCommand
     public SliceByNamesReadCommand(String table, byte[] key, QueryPath path, Collection<byte[]> columnNames)
     {
         super(table, key, path, CMD_TYPE_GET_SLICE_BY_NAMES);
-        this.columnNames = new TreeSet<byte[]>(getComparator());
-        this.columnNames.addAll(columnNames);
+        this.columnNames = columnNames;
     }
 
     @Override
@@ -56,7 +55,7 @@ public class SliceByNamesReadCommand extends ReadCommand
     public Row getRow(Table table) throws IOException
     {
         DecoratedKey dk = StorageService.getPartitioner().decorateKey(key);
-        return table.getRow(QueryFilter.getNamesFilter(dk, queryPath, columnNames));
+        return table.getRow(QueryFilter.on(table.name, queryPath).forKey(dk).forNames(queryPath.superColumnName == null ? 1 : 2, columnNames));
     }
 
     @Override

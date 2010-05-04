@@ -23,7 +23,6 @@ import java.io.*;
 import java.util.Iterator;
 
 import org.apache.cassandra.db.ColumnKey;
-import org.apache.cassandra.db.filter.INameFilter;
 
 /**
  * A Scanner is an Iterator for reading slices in sorted order.

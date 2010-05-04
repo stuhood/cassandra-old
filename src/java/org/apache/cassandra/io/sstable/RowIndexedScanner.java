@@ -339,12 +339,11 @@ public class RowIndexedScanner implements SeekableScanner
         long chunkend = file.getFilePointer() + rowindex.get(chunkpos).width;
 
         // filter individual columns
-        Comparator<byte[]> ccomp = comp.comparatorAt(1);
         ArrayList<Column> columns = new ArrayList<Column>();
         while (file.getFilePointer() < chunkend)
         {
             Column col = (Column)emptycf.getColumnSerializer().deserialize(file);
-            if (!filter.matchesName(ccomp, col.name()))
+            if (!filter.matches(col.name()))
                 continue;
             columns.add(col);
         }

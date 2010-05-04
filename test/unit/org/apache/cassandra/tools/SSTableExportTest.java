@@ -227,12 +227,14 @@ public class SSTableExportTest extends SchemaLoader
         SSTableImport.importJson(tempJson.getPath(), "Keyspace1", "Standard1", tempSS2.getPath());        
         
         reader = SSTableReader.open(tempSS2.getPath(), DatabaseDescriptor.getPartitioner());
-        QueryFilter qf = QueryFilter.getNamesFilter(Util.dk("rowA"), new QueryPath("Standard1", null, null), "name".getBytes());
-        ColumnFamily cf = new SliceToRowIterator(qf.filter(reader.getScanner(1024)), reader).next().getColumnFamily();
+        QueryFilter qf = QueryFilter.on("Keyspace1", "Standard1").forKey(Util.dk("rowA")).forName(1, "name".getBytes());
+        Scanner scanner = qf.filter(reader.getScanner(1024));
+        ColumnFamily cf = new SliceToRowIterator(scanner, reader).next().getColumnFamily();
         assertTrue(cf != null);
         assertTrue(Arrays.equals(cf.getColumn("name".getBytes()).value(), hexToBytes("76616c")));
 
-        qf = QueryFilter.getNamesFilter(Util.dk("rowExclude"), new QueryPath("Standard1", null, null), "name".getBytes());
-        assert !new SliceToRowIterator(qf.filter(reader.getScanner(1024)), reader).hasNext();
+        qf = QueryFilter.on("Keyspace1", "Standard1").forKey(Util.dk("rowExclude")).forName(1, "name".getBytes());
+        scanner = qf.filter(reader.getScanner(1024));
+        assert !new SliceToRowIterator(scanner, reader).hasNext();
     }
 }

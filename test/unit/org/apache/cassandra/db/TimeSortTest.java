@@ -107,7 +107,7 @@ public class TimeSortTest extends CleanupHelper
         TreeSet<byte[]> columnNames = new TreeSet<byte[]>(new LongType());
         columnNames.add(getBytes(10));
         columnNames.add(getBytes(0));
-        cf = cfStore.getColumnFamily(QueryFilter.getNamesFilter(Util.dk("900"), new QueryPath("StandardLong1"), columnNames));
+        cf = cfStore.getColumnFamily(QueryFilter.on("Keyspace1", "StandardLong1").forKey(Util.dk("900")).forNames(1, columnNames));
         assert "c".equals(new String(cf.getColumn(getBytes(0)).value()));
         assert "c".equals(new String(cf.getColumn(getBytes(10)).value()));
     }

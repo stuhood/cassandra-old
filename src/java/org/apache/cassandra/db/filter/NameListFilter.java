@@ -32,10 +32,11 @@ public class NameListFilter implements IFilter<byte[]>
     private final Comparator<byte[]> comp;
     public final SortedSet<byte[]> columns;
 
-    public NameListFilter(Comparator<byte[]> comp, SortedSet<byte[]> columns)
+    public NameListFilter(Comparator<byte[]> comp, Collection<byte[]> columns)
     {
         this.comp = comp;
-        this.columns = columns;
+        this.columns = new TreeSet<byte[]>(comp);
+        this.columns.addAll(columns);
     }
 
     public IColumnIterator getMemtableColumnIterator(ColumnFamily cf, DecoratedKey key, AbstractType comparator)

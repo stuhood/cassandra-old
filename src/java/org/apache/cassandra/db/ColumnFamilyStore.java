@@ -95,7 +95,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     private Set<Memtable> memtablesPendingFlush = new ConcurrentSkipListSet<Memtable>();
 
-    private final String table_;
+    public final String table_;
     public final String columnFamily_;
     public final ColumnKey.Comparator comparator;
 
@@ -711,12 +711,13 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     public ColumnFamily getColumnFamily(DecoratedKey key, QueryPath path, byte[] start, byte[] finish, List<byte[]> bitmasks, boolean reversed, int limit)
     {
-        return getColumnFamily(QueryFilter.getSliceFilter(key, path, start, finish, bitmasks, reversed, limit));
+        QueryFilter qf = QueryFilter.on(this).forKey(key);
+        return getColumnFamily(qf.forSlice(path.superColumnName == null ? 1 : 2, start, finish, bitmasks, reversed, limit));
     }
 
     public ColumnFamily getColumnFamily(DecoratedKey key, QueryPath path, byte[] start, byte[] finish, boolean reversed, int limit)
     {
-        return getColumnFamily(QueryFilter.getSliceFilter(key, path, start, finish, null, reversed, limit));
+        return getColumnFamily(key, path, start, finish, null, reversed, limit);
     }
 
     public ColumnFamily getColumnFamily(QueryFilter filter)
@@ -729,7 +730,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         ColumnFamily cached;
         if ((cached = ssTables_.getRowCache().get(key)) == null)
         {
-            cached = getTopLevelColumns(QueryFilter.getIdentityFilter(key, new QueryPath(columnFamily_)), Integer.MIN_VALUE);
+            cached = getTopLevelColumns(QueryFilter.on(this).forKey(key), Integer.MIN_VALUE);
             if (cached == null)
                 return null;
             ssTables_.getRowCache().put(key, cached);
@@ -870,13 +871,19 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         
         final int gcBefore = CompactionManager.getDefaultGCBefore();
 
-        final QueryPath queryPath =  new QueryPath(columnFamily_, superColumn, null);
-        final SortedSet<byte[]> columnNameSet = new TreeSet<byte[]>(getComparator());
-        if (columnNames != null)
-            columnNameSet.addAll(columnNames);
-
-        final QueryFilter filter = sliceRange == null ? QueryFilter.getNamesFilter(null, queryPath, columnNameSet)
-                                                      : QueryFilter.getSliceFilter(null, queryPath, sliceRange.start, sliceRange.finish, sliceRange.bitmasks, sliceRange.reversed, sliceRange.count);
+        QueryFilter filter = QueryFilter.on(this).forRange(range);
+        int colDepth;
+        if (superColumn == null)
+            colDepth = 1;
+        else
+        {
+            // slicing is at subcolumn level
+            filter = filter.forName(1, superColumn);
+            colDepth = 2;
+        }
+        filter = sliceRange != null ?
+            filter.forSlice(colDepth, sliceRange.start, sliceRange.finish, sliceRange.bitmasks, sliceRange.reversed, sliceRange.count) :
+            filter.forNames(colDepth, columnNames);
 
         Collection<Memtable> memtables = new ArrayList<Memtable>();
         memtables.add(getMemtableThreadSafe());

@@ -93,26 +93,26 @@ public class RemoveSuperColumnTest extends CleanupHelper
     private void validateRemoveSubColumn(DecoratedKey dk) throws IOException
     {
         ColumnFamilyStore store = Table.open("Keyspace1").getColumnFamilyStore("Super3");
-        assertNull(store.getColumnFamily(QueryFilter.getNamesFilter(dk, new QueryPath("Super3", "SC1".getBytes()), Util.getBytes(1)), Integer.MAX_VALUE));
-        assertNotNull(store.getColumnFamily(QueryFilter.getNamesFilter(dk, new QueryPath("Super3", "SC1".getBytes()), Util.getBytes(2)), Integer.MAX_VALUE));
+        assertNull(store.getColumnFamily(QueryFilter.on(store).forKey(dk).forName(1, "SC1".getBytes()).forName(2, Util.getBytes(1)), Integer.MAX_VALUE));
+        assertNotNull(store.getColumnFamily(QueryFilter.on(store).forKey(dk).forName(1, "SC1".getBytes()).forName(2, Util.getBytes(2)), Integer.MAX_VALUE));
     }
 
     private void validateRemoveTwoSources(DecoratedKey dk) throws IOException
     {
         ColumnFamilyStore store = Table.open("Keyspace1").getColumnFamilyStore("Super1");
-        ColumnFamily resolved = store.getColumnFamily(QueryFilter.getNamesFilter(dk, new QueryPath("Super1"), "SC1".getBytes()));
+        ColumnFamily resolved = store.getColumnFamily(QueryFilter.on(store).forKey(dk).forName(1, "SC1".getBytes()));
         assert resolved.getSortedColumns().iterator().next().getMarkedForDeleteAt() == 1 : resolved;
         assert resolved.getSortedColumns().iterator().next().getSubColumns().size() == 0 : resolved;
         assertNull(ColumnFamilyStore.removeDeleted(resolved, Integer.MAX_VALUE));
-        assertNull(store.getColumnFamily(QueryFilter.getNamesFilter(dk, new QueryPath("Super1"), "SC1".getBytes()), Integer.MAX_VALUE));
-        assertNull(store.getColumnFamily(QueryFilter.getIdentityFilter(dk, new QueryPath("Super1")), Integer.MAX_VALUE));
-        assertNull(ColumnFamilyStore.removeDeleted(store.getColumnFamily(QueryFilter.getIdentityFilter(dk, new QueryPath("Super1"))), Integer.MAX_VALUE));
+        assertNull(store.getColumnFamily(QueryFilter.on(store).forKey(dk).forName(1, "SC1".getBytes()), Integer.MAX_VALUE));
+        assertNull(store.getColumnFamily(QueryFilter.on(store).forKey(dk), Integer.MAX_VALUE));
+        assertNull(ColumnFamilyStore.removeDeleted(store.getColumnFamily(QueryFilter.on(store).forKey(dk)), Integer.MAX_VALUE));
     }
 
     private void validateRemoveCompacted(DecoratedKey dk) throws IOException
     {
         ColumnFamilyStore store = Table.open("Keyspace1").getColumnFamilyStore("Super1");
-        ColumnFamily resolved = store.getColumnFamily(QueryFilter.getNamesFilter(dk, new QueryPath("Super1"), "SC1".getBytes()));
+        ColumnFamily resolved = store.getColumnFamily(QueryFilter.on(store).forKey(dk).forName(1, "SC1".getBytes()));
         assert resolved.getSortedColumns().iterator().next().getMarkedForDeleteAt() == 1;
         Collection<IColumn> subColumns = resolved.getSortedColumns().iterator().next().getSubColumns();
         assert subColumns.size() == 0;
@@ -154,7 +154,7 @@ public class RemoveSuperColumnTest extends CleanupHelper
     private void validateRemoveWithNewData(DecoratedKey dk) throws IOException
     {
         ColumnFamilyStore store = Table.open("Keyspace1").getColumnFamilyStore("Super2");
-        ColumnFamily resolved = store.getColumnFamily(QueryFilter.getNamesFilter(dk, new QueryPath("Super2", "SC1".getBytes()), getBytes(2)), Integer.MAX_VALUE);
+        ColumnFamily resolved = store.getColumnFamily(QueryFilter.on(store).forKey(dk).forName(1, "SC1".getBytes()).forName(2, getBytes(2)), Integer.MAX_VALUE);
         Collection<IColumn> subColumns = resolved.getSortedColumns().iterator().next().getSubColumns();
         assert subColumns.size() == 1;
         assert subColumns.iterator().next().timestamp() == 2;
@@ -176,7 +176,7 @@ public class RemoveSuperColumnTest extends CleanupHelper
         rm = new RowMutation("Keyspace1", key.key);
         rm.delete(new QueryPath("Super2", "SC1".getBytes()), 1);
         rm.apply();
-        assertNull(store.getColumnFamily(QueryFilter.getNamesFilter(key, new QueryPath("Super2"), "SC1".getBytes()), Integer.MAX_VALUE));
+        assertNull(store.getColumnFamily(QueryFilter.on(store).forKey(key).forName(1, "SC1".getBytes()), Integer.MAX_VALUE));
 
         // resurrect
         rm = new RowMutation("Keyspace1", key.key);
@@ -184,7 +184,7 @@ public class RemoveSuperColumnTest extends CleanupHelper
         rm.apply();
 
         // validate
-        ColumnFamily resolved = store.getColumnFamily(QueryFilter.getNamesFilter(key, new QueryPath("Super2"), "SC1".getBytes()), Integer.MAX_VALUE);
+        ColumnFamily resolved = store.getColumnFamily(QueryFilter.on(store).forKey(key).forName(1, "SC1".getBytes()), Integer.MAX_VALUE);
         Collection<IColumn> subColumns = resolved.getSortedColumns().iterator().next().getSubColumns();
         assert subColumns.size() == 1;
         assert subColumns.iterator().next().timestamp() == 2;

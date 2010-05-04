@@ -67,7 +67,7 @@ public class ColumnFamilyStoreTest extends CleanupHelper
         List<SSTableReader> ssTables = table.getAllSSTablesOnDisk();
         assertEquals(1, ssTables.size());
         ssTables.get(0).forceFilterFailures();
-        ColumnFamily cf = store.getColumnFamily(QueryFilter.getIdentityFilter(Util.dk("key2"), new QueryPath("Standard1", null, "Column1".getBytes())));
+        ColumnFamily cf = store.getColumnFamily(QueryFilter.on(store).forKey(Util.dk("key2")).forName(1, "Column1".getBytes()));
         assertNull(cf);
     }
 
@@ -86,12 +86,12 @@ public class ColumnFamilyStoreTest extends CleanupHelper
         {
             public void runMayThrow() throws IOException
             {
-                QueryFilter sliceFilter = QueryFilter.getSliceFilter(Util.dk("key1"), new QueryPath("Standard2", null, null), ArrayUtils.EMPTY_BYTE_ARRAY, ArrayUtils.EMPTY_BYTE_ARRAY, null, false, 1);
+                QueryFilter sliceFilter = QueryFilter.on(store).forKey(Util.dk("key1")).forSlice(1, ArrayUtils.EMPTY_BYTE_ARRAY, ArrayUtils.EMPTY_BYTE_ARRAY, null, false, 1);
                 ColumnFamily cf = store.getColumnFamily(sliceFilter);
                 assert cf.isMarkedForDelete();
                 assert cf.getColumnsMap().isEmpty();
 
-                QueryFilter namesFilter = QueryFilter.getNamesFilter(Util.dk("key1"), new QueryPath("Standard2", null, null), "a".getBytes());
+                QueryFilter namesFilter = QueryFilter.on(store).forKey(Util.dk("key1")).forName(1, "a".getBytes());
                 cf = store.getColumnFamily(namesFilter);
                 assert cf.isMarkedForDelete();
                 assert cf.getColumnsMap().isEmpty();
@@ -138,7 +138,7 @@ public class ColumnFamilyStoreTest extends CleanupHelper
         ColumnFamilyStore cfs = insertKey1Key2();
 
         IPartitioner p = StorageService.getPartitioner();
-        RangeSliceReply result = cfs.getRangeSlice(ArrayUtils.EMPTY_BYTE_ARRAY,
+        RangeSliceReply result = cfs.getRangeSlice(null,
                                                    Util.range(p, "key15", "key1"),
                                                    10,
                                                    null,
@@ -152,7 +152,7 @@ public class ColumnFamilyStoreTest extends CleanupHelper
         ColumnFamilyStore cfs = insertKey1Key2();
 
         IPartitioner p = StorageService.getPartitioner();
-        RangeSliceReply result = cfs.getRangeSlice(ArrayUtils.EMPTY_BYTE_ARRAY,
+        RangeSliceReply result = cfs.getRangeSlice(null,
                                                    Util.range(p, "key1", "key2"),
                                                    10,
                                                    null,

@@ -86,8 +86,7 @@ public class RecoveryManagerTruncateTest extends CleanupHelper
 		{
 			return null;
 		}
-		cf = cfStore.getColumnFamily(QueryFilter.getNamesFilter(
-		        Util.dk(keyName), new QueryPath(cfName), columnName.getBytes()));
+		cf = cfStore.getColumnFamily(QueryFilter.on(cfStore).forKey(Util.dk(keyName)).forName(1, columnName.getBytes()));
 		if (cf == null)
 		{
 			return null;

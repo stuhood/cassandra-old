@@ -182,7 +182,7 @@ public class DefsTest extends CleanupHelper
         assert store != null;
         store.forceBlockingFlush();
         
-        ColumnFamily cfam = store.getColumnFamily(QueryFilter.getNamesFilter(dk, new QueryPath(cf), "col0".getBytes()));
+        ColumnFamily cfam = store.getColumnFamily(QueryFilter.on(store).forKey(dk).forName(1, "col0".getBytes()));
         assert cfam.getColumn("col0".getBytes()) != null;
         IColumn col = cfam.getColumn("col0".getBytes());
         assert Arrays.equals("value0".getBytes(), col.value());
@@ -262,7 +262,7 @@ public class DefsTest extends CleanupHelper
         // do some reads.
         store = Table.open(oldCfm.tableName).getColumnFamilyStore(cfName);
         assert store != null;
-        ColumnFamily cfam = store.getColumnFamily(QueryFilter.getSliceFilter(dk, new QueryPath(cfName), "".getBytes(), "".getBytes(), null, false, 1000));
+        ColumnFamily cfam = store.getColumnFamily(QueryFilter.on(store).forKey(dk).forSlice(1, "".getBytes(), "".getBytes(), null, false, 1000));
         assert cfam.getSortedColumns().size() == 100; // should be good enough?
         
         // do some writes
@@ -271,7 +271,7 @@ public class DefsTest extends CleanupHelper
         rm.apply();
         store.forceBlockingFlush();
         
-        cfam = store.getColumnFamily(QueryFilter.getNamesFilter(dk, new QueryPath(cfName), "col5".getBytes()));
+        cfam = store.getColumnFamily(QueryFilter.on(store).forKey(dk).forName(1, "col5".getBytes()));
         assert cfam.getColumnCount() == 1;
         assert Arrays.equals(cfam.getColumn("col5".getBytes()).value(), "updated".getBytes());
     }
@@ -298,7 +298,7 @@ public class DefsTest extends CleanupHelper
         assert store != null;
         store.forceBlockingFlush();
         
-        ColumnFamily cfam = store.getColumnFamily(QueryFilter.getNamesFilter(dk, new QueryPath(newCf.cfName), "col0".getBytes()));
+        ColumnFamily cfam = store.getColumnFamily(QueryFilter.on(store).forKey(dk).forName(1, "col0".getBytes()));
         assert cfam.getColumn("col0".getBytes()) != null;
         IColumn col = cfam.getColumn("col0".getBytes());
         assert Arrays.equals("value0".getBytes(), col.value());
@@ -420,7 +420,7 @@ public class DefsTest extends CleanupHelper
         SortedSet<byte[]> cols = new TreeSet<byte[]>(new BytesType());
         cols.add("col0".getBytes());
         cols.add("col1".getBytes());
-        ColumnFamily cfam = store.getColumnFamily(QueryFilter.getNamesFilter(dk, new QueryPath(cfName), cols));
+        ColumnFamily cfam = store.getColumnFamily(QueryFilter.on(store).forKey(dk).forNames(1, cols));
         assert cfam.getColumnCount() == cols.size();
         // tests new write.
         assert Arrays.equals(cfam.getColumn("col0".getBytes()).value(), "newvalue".getBytes());

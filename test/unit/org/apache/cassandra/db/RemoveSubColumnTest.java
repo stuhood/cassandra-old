@@ -51,7 +51,7 @@ public class RemoveSubColumnTest extends CleanupHelper
         rm.delete(new QueryPath("Super1", "SC1".getBytes(), getBytes(1)), 1);
         rm.apply();
 
-        ColumnFamily retrieved = store.getColumnFamily(QueryFilter.getIdentityFilter(dk, new QueryPath("Super1", "SC1".getBytes())));
+        ColumnFamily retrieved = store.getColumnFamily(QueryFilter.on(store).forKey(dk).forName(1, "SC1".getBytes()));
         assert retrieved.getColumn("SC1".getBytes()).getSubColumn(getBytes(1)).isMarkedForDelete();
         assertNull(ColumnFamilyStore.removeDeleted(retrieved, Integer.MAX_VALUE));
     }

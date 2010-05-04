@@ -432,7 +432,7 @@ public class CompactionManager implements CompactionManagerMBean
 
         SSTableWriter writer = null;
         int gcBefore = cfs.isCompleteSSTables(sstables) ? getDefaultGCBefore() : Integer.MIN_VALUE;
-        QueryFilter filter = QueryFilter.getRangeFilter(cfs.getColumnFamilyName(), ranges);
+        QueryFilter filter = QueryFilter.on(cfs).forRanges(ranges);
         CompactionScanner ci = new CompactionScanner(sstables, filter, cfs.comparator);
         Iterator<Row> ri = new SliceToRowIterator(CollectingScanner.collect(ci, gcBefore), sstables.iterator().next());
         Iterator<CompactedRow> cri = Iterators.transform(ri, new RowSerializer());

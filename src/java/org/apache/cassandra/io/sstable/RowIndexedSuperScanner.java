@@ -70,7 +70,6 @@ public class RowIndexedSuperScanner extends RowIndexedScanner
             ColumnKey end = new ColumnKey(rowkey, supcol.name(), ColumnKey.NAME_END);
 
             // drop non-matching subcolumns
-            Comparator<byte[]> ccomp = comp.comparatorAt(2);
             List<Column> subcols = new ArrayList<Column>();
             for (IColumn col : supcol.getSubColumns())
                 if (filter == null || filter.matches(col.name()))
