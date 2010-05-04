@@ -18,11 +18,7 @@
 
 package org.apache.cassandra.db;
 
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
-import java.util.SortedSet;
+import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -33,11 +29,17 @@ import org.apache.cassandra.config.CFMetaData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.ASlice;
+import org.apache.cassandra.ASlice.Metadata;
+import org.apache.cassandra.Slice;
+import org.apache.cassandra.db.SliceToRowIterator;
+
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.ICompactSerializer2;
 import org.apache.cassandra.db.filter.QueryPath;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Pair;
 
 
 public class ColumnFamily implements IColumnContainer
@@ -79,6 +81,66 @@ public class ColumnFamily implements IColumnContainer
         id_ = id;
     }
     
+    /**
+     * Converts this ColumnFamily to a list of Slices: transitional API while we remove ColumnFamily.
+     * NB: This is a lossy operation: CFs and SCs have independent metadata, while a Slice takes the max value.
+     * @param dk The DecoratedKey for the row this ColumnFamily represents.
+     */
+    public List<ASlice> toSlices(DecoratedKey dk)
+    {
+        Metadata meta = new Metadata(getMarkedForDeleteAt(), getLocalDeletionTime());
+
+        if (!isSuper())
+        {
+            List<Column> columns = new ArrayList<Column>();
+            for (IColumn column : getSortedColumns())
+                columns.add((Column)column);
+            return Collections.<ASlice>singletonList(new Slice(meta, new ColumnKey(dk, ColumnKey.NAME_BEGIN), new ColumnKey(dk, ColumnKey.NAME_END), columns));
+        }
+
+        List<ASlice> slices = new ArrayList<ASlice>();
+        for (IColumn column : getSortedColumns())
+        {
+            SuperColumn sc = (SuperColumn)column;
+            // super columns contain an additional level of metadata
+            Metadata submeta = Metadata.max(meta, new Metadata(sc.getMarkedForDeleteAt(), sc.getLocalDeletionTime()));
+            List<Column> columns = new ArrayList<Column>();
+            for (IColumn subc : sc.getSubColumns())
+                columns.add((Column)subc);
+            slices.add(new Slice(submeta,
+                                 new ColumnKey(dk, sc.name(), ColumnKey.NAME_BEGIN),
+                                 new ColumnKey(dk, sc.name(), ColumnKey.NAME_END),
+                                 columns));
+        }
+        if (slices.isEmpty())
+            // cf was a tombstone
+            slices.add(new Slice(meta,
+                                 new ColumnKey(dk, ColumnKey.NAME_BEGIN, ColumnKey.NAME_BEGIN),
+                                 new ColumnKey(dk, ColumnKey.NAME_END, ColumnKey.NAME_END),
+                                 Collections.<Column>emptyList()));
+        return slices;
+    }
+
+    /**
+     * Converts a list of Slices to a ColumnFamily: transitional API while we remove ColumnFamily.
+     * @param ksname KeySpace name.
+     * @param cfname ColumnFamily name.
+     * @param slices The list of slices, all of which must represent the same row.
+     * @return A ColumnFamily containing columns, a tombstone, or null if the cf would be empty but not a tombstone.
+     */
+    @Deprecated
+    public static ColumnFamily fromSlices(String ksname, String cfname, List<ASlice> slices)
+    {
+        if (slices == null || slices.isEmpty())
+            return null;
+        Iterator<Row> iter = new SliceToRowIterator(slices.iterator(), ksname, cfname);
+        if (!iter.hasNext())
+            return null;
+        ColumnFamily cf = iter.next().cf;
+        assert !iter.hasNext();
+        return cf;
+    }
+
     /** called during CL recovery when it is determined that a CF name was changed. */
     public void rename(String newName)
     {
