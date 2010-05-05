@@ -454,7 +454,7 @@ class RowIndexedReader extends SSTableReader
             return new RowIndexedSuperScanner(this, bufferSize);
         return new RowIndexedScanner(this, bufferSize);
     }
-
+    
     /**
      * FIXME: Not currently in use: should be used inside RowIndexedScanner.
      */

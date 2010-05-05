@@ -36,6 +36,7 @@ import org.apache.cassandra.Scanner;
 
 import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
 import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.io.*;
 import org.apache.cassandra.io.CompactionScanner.CompactedRow;
 import org.apache.cassandra.io.sstable.*;
@@ -431,7 +432,8 @@ public class CompactionManager implements CompactionManagerMBean
 
         SSTableWriter writer = null;
         int gcBefore = cfs.isCompleteSSTables(sstables) ? getDefaultGCBefore() : Integer.MIN_VALUE;
-        CompactionScanner ci = new CompactionScanner(sstables, ranges, cfs.comparator);
+        QueryFilter filter = QueryFilter.getRangeFilter(cfs.getColumnFamilyName(), ranges);
+        CompactionScanner ci = new CompactionScanner(sstables, filter, cfs.comparator);
         Iterator<Row> ri = new SliceToRowIterator(CollectingScanner.collect(ci, gcBefore), sstables.iterator().next());
         Iterator<CompactedRow> cri = Iterators.transform(ri, new RowSerializer());
         executor.beginCompaction(cfs, ci);

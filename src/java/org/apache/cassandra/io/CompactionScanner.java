@@ -38,6 +38,7 @@ import org.apache.cassandra.MergingScanner;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.FilteredScanner;
+import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.io.sstable.SSTableReader;
@@ -57,7 +58,7 @@ public class CompactionScanner extends MergingScanner
     // bytes remaining in input scanners
     private final AtomicLong bytesRemaining = new AtomicLong();
 
-    public CompactionScanner(Collection<SSTableReader> sstables, Collection<Range> filter, ColumnKey.Comparator comparator) throws IOException
+    public CompactionScanner(Collection<SSTableReader> sstables, QueryFilter filter, ColumnKey.Comparator comparator) throws IOException
     {
         super(getScanners(sstables, filter), comparator);
 
@@ -66,7 +67,7 @@ public class CompactionScanner extends MergingScanner
         bytesRemaining.set(totalBytes);
     }
 
-    private static List<Scanner> getScanners(Collection<SSTableReader> sstables, Collection<Range> filter) throws IOException
+    private static List<Scanner> getScanners(Collection<SSTableReader> sstables, QueryFilter filter) throws IOException
     {
         List<Scanner> scanners = new ArrayList<Scanner>();
         int bufferPer = TOTAL_FILE_BUFFER_BYTES / Math.max(1, sstables.size());

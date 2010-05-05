@@ -27,9 +27,7 @@ import org.apache.cassandra.Slice;
 import org.apache.cassandra.SeekableScanner;
 
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.filter.IColumnIterator;
 import org.apache.cassandra.db.filter.IFilter;
-import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
@@ -53,7 +51,7 @@ public class RowIndexedScanner implements SeekableScanner
     private final ColumnFamily emptycf; // always empty: just a metadata holder
     protected final ColumnKey.Comparator comp;
 
-    protected QueryFilter filter = null;
+    protected IFilter<byte[]> filter = null;
 
     /**
      * State related to the current row.
@@ -88,7 +86,7 @@ public class RowIndexedScanner implements SeekableScanner
     }
 
     @Override
-    public void setColumnFilter(QueryFilter filter)
+    public void pushdownFilter(IFilter<byte[]> filter)
     {
         this.filter = filter;
     }
@@ -327,27 +325,26 @@ public class RowIndexedScanner implements SeekableScanner
     {
         if (filter == null)
             return (List<Column>)getRawColumns();
-        if (filter.matchesBetween(comp, begin, end))
-            return (List<Column>)getFilteredRawColumns();
-        return skipRawColumns();
+        return (List<Column>)getFilteredColumns();
     }
 
     /**
      * Pulls the columns in the current slice from disk, filtering them on the fly. Slices that are completely
      * eliminated via the filter will result in an empty list.
-     * @return IColumns from disk for the current chunk of the index.
+     * @return Columns from disk for the current chunk of the index.
      */
-    private List getFilteredRawColumns() throws IOException
+    private List<Column> getFilteredColumns() throws IOException
     {
         file.seek(rowcolsoffset + rowindex.get(chunkpos).offset);
         long chunkend = file.getFilePointer() + rowindex.get(chunkpos).width;
 
         // filter individual columns
-        ArrayList<IColumn> columns = new ArrayList<IColumn>();
+        Comparator<byte[]> ccomp = comp.comparatorAt(1);
+        ArrayList<Column> columns = new ArrayList<Column>();
         while (file.getFilePointer() < chunkend)
         {
-            IColumn col = emptycf.getColumnSerializer().deserialize(file);
-            if (!filter.matches(comp, 1, col))
+            Column col = (Column)emptycf.getColumnSerializer().deserialize(file);
+            if (!filter.matchesName(ccomp, col.name()))
                 continue;
             columns.add(col);
         }
@@ -368,16 +365,6 @@ public class RowIndexedScanner implements SeekableScanner
         while (file.getFilePointer() < chunkend)
             columns.add(emptycf.getColumnSerializer().deserialize(file));
         return columns;
-    }
-
-    /**
-     * @return An empty list.
-     */
-    private List skipRawColumns() throws IOException
-    {
-        // no interesting columns in this slice
-        file.seek(rowcolsoffset + rowindex.get(chunkpos).offset + rowindex.get(chunkpos).width);
-        return Collections.<IColumn>emptyList();
     }
 
     /**

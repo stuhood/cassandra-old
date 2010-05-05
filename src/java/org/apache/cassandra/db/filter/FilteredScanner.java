@@ -38,30 +38,20 @@ import org.apache.cassandra.service.StorageService;
 import com.google.common.collect.AbstractIterator;
 
 /**
- * Filters a Scanner using a list of non-intersecting ranges.
+ * Filters a Scanner using a collection of non-intersecting ranges.
  */
 public class FilteredScanner extends AbstractIterator<ASlice> implements Scanner
 {
     private final SeekableScanner scanner;
-    private final ArrayList<Range> ranges;
-    private int rangeidx;
+    private final QueryFilter filter;
 
-    public FilteredScanner(SeekableScanner scanner, Collection<Range> ranges) throws IOException
+    public FilteredScanner(SeekableScanner scanner, QueryFilter filter)
     {
         this.scanner = scanner;
-        this.ranges = new ArrayList<Range>(ranges);
-        Collections.sort(this.ranges);
-        rangeidx = 0;
-        
-        // if one of the ranges was a wrapping range, it will be sorted first
-        if (this.ranges.get(0).isWrapAround())
-        {
-            // split the wrapping range in two
-            Range wrap = this.ranges.get(0);
-            Token mintoken = StorageService.getPartitioner().getMinimumToken();
-            this.ranges.add(new Range(wrap.left, mintoken));
-            this.ranges.set(0, new Range(mintoken, wrap.right));
-        }
+        this.filter = filter;
+
+        // push down column level filtering: slices we receive will contain only matching columns
+        this.scanner.pushdownFilter(filter.nameFilter(scanner.comparator().columnDepth()));
     }
 
     @Override
@@ -83,41 +73,22 @@ public class FilteredScanner extends AbstractIterator<ASlice> implements Scanner
     }
 
     /**
-     * Checks whether the current range matches the current slice. If not, skips
-     * forward through the ranges and slices looking for the next possible match.
+     * Checks whether the current slice matches our embedded filter. If not, skips
+     * forward through slices looking for the next possible match.
+     *
+     * FIXME: Totally naive at the moment: filters individual slices, and never seeks. See the comments in
+     * QueryFilter for "the plan".
      *
      * @return The next slice matching the filter.
      */
     @Override
     public ASlice computeNext()
     {
-        try
+        while (scanner.hasNext())
         {
-            // skip through ranges/slices until we find a slice contained in a range
-            while (scanner.hasNext() && rangeidx < ranges.size())
-            {
-                ASlice slice = scanner.next();
-                if (ranges.get(rangeidx).contains(slice.begin.dk.token))
-                    // range contains slice
-                    return slice;
-
-                if (ranges.get(rangeidx).left.compareTo(slice.begin.dk.token) > 0)
-                {
-                    // slice is less than current range: seek to the nearest slice
-                    if (!scanner.seekNear(new DecoratedKey(ranges.get(rangeidx).left)))
-                        // no more data anywhere after the current range
-                        break;
-                }
-                else
-                {
-                    // range is less than slice: skip to next range
-                    rangeidx++;
-                }
-            }
-        }
-        catch(IOException e)
-        {
-            throw new IOError(e);
+            ASlice slice = scanner.next();
+            if (filter.matches(slice.begin, slice.end))
+                return slice;
         }
         
         return endOfData();

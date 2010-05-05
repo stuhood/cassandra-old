@@ -23,7 +23,7 @@ import java.io.*;
 import java.util.Iterator;
 
 import org.apache.cassandra.db.ColumnKey;
-import org.apache.cassandra.db.filter.QueryFilter;
+import org.apache.cassandra.db.filter.INameFilter;
 
 /**
  * A Scanner is an Iterator for reading slices in sorted order.
@@ -34,13 +34,6 @@ public interface Scanner extends Iterator<ASlice>,Closeable
      * @return The Comparator for the returned Slices.
      */
     public ColumnKey.Comparator comparator();
-
-    /**
-     * @param filter A filter to be applied to the columns in returned Slices. Slices which have all of their columns
-     * filtered out will still be returned in case the metadata needs to be applied elsewhere. To filter out entire
-     * rows, it's more efficient to use an external filter like FilteredScanner, which seeks on the underlying scanner.
-     */
-    public void setColumnFilter(QueryFilter filter);
 
     /**
      * @return The approximate number of bytes remaining in the Scanner.
