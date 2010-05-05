@@ -77,10 +77,10 @@ public class LongCompactionSpeedTest extends CleanupHelper
         ArrayList<SSTableReader> sstables = new ArrayList<SSTableReader>();
         for (int k = 0; k < sstableCount; k++)
         {
-            SortedMap<String,ColumnFamily> rows = new TreeMap<String,ColumnFamily>();
+            SortedMap<DecoratedKey,ColumnFamily> rows = new TreeMap<DecoratedKey,ColumnFamily>();
             for (int j = 0; j < rowsPerSSTable; j++)
             {
-                String key = String.valueOf(j);
+                DecoratedKey key = Util.dk(String.valueOf(j));
                 IColumn[] cols = new IColumn[colsPerRow];
                 for (int i = 0; i < colsPerRow; i++)
                 {

@@ -153,6 +153,18 @@ public class MergingScanner extends TransformingIterator<ASlice, ASlice> impleme
         return !mergeBuff.isEmpty();
     }
 
+    /**
+     * Not thread safe! CompactionScanner wraps calls to this method to provide thread-safe progress.
+     */
+    @Override
+    public long getBytesRemaining()
+    {
+        long remaining = 0;
+        for (Scanner scanner : scanners)
+            remaining += scanner.getBytesRemaining();
+        return remaining;
+    }
+
     @Override
     public void close() throws IOException
     {

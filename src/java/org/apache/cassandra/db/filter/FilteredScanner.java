@@ -39,7 +39,7 @@ import com.google.common.collect.AbstractIterator;
 /**
  * Filters a Scanner using a list of non-intersecting ranges.
  */
-class FilteredScanner extends AbstractIterator<ASlice> implements Scanner
+public class FilteredScanner extends AbstractIterator<ASlice> implements Scanner
 {
     private final SeekableScanner scanner;
     private final ArrayList<Range> ranges;
