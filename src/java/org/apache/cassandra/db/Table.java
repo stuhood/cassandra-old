@@ -356,9 +356,13 @@ public class Table
                     if ((memtableToFlush=cfs.apply(key, columnFamily)) != null)
                         memtablesToFlush.put(cfs, memtableToFlush);
     
+                    // FIXME: write-through caching is disabled atm, since the cached values are immutable
+                    cfs.invalidateCachedRow(key);
+                    /*
                     ColumnFamily cachedRow = cfs.getRawCachedRow(key);
                     if (cachedRow != null)
                         cachedRow.addAll(columnFamily);
+                    */
                 }
             }
         }

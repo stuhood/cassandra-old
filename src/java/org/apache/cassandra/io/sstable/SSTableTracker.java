@@ -22,9 +22,10 @@ package org.apache.cassandra.io.sstable;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.apache.cassandra.ASlice;
+
 import org.apache.cassandra.cache.JMXInstrumentedCache;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.utils.Pair;
 
@@ -43,7 +44,7 @@ public class SSTableTracker implements Iterable<SSTableReader>
     private final String cfname;
 
     private final JMXInstrumentedCache<Pair<SSTable.Descriptor,DecoratedKey>,SSTable.PositionSize> keyCache;
-    private final JMXInstrumentedCache<DecoratedKey, ColumnFamily> rowCache;
+    private final JMXInstrumentedCache<DecoratedKey, List<ASlice>> rowCache;
 
     public SSTableTracker(String ksname, String cfname)
     {
@@ -51,7 +52,7 @@ public class SSTableTracker implements Iterable<SSTableReader>
         this.cfname = cfname;
         sstables = Collections.emptySet();
         keyCache = new JMXInstrumentedCache<Pair<SSTable.Descriptor,DecoratedKey>,SSTable.PositionSize>(ksname, cfname + "KeyCache", 0);
-        rowCache = new JMXInstrumentedCache<DecoratedKey, ColumnFamily>(ksname, cfname + "RowCache", 0);
+        rowCache = new JMXInstrumentedCache<DecoratedKey, List<ASlice>>(ksname, cfname + "RowCache", 0);
     }
 
     public synchronized void replace(Collection<SSTableReader> oldSSTables, Iterable<SSTableReader> replacements)
@@ -146,7 +147,7 @@ public class SSTableTracker implements Iterable<SSTableReader>
         sstables = Collections.emptySet();
     }
 
-    public JMXInstrumentedCache<DecoratedKey, ColumnFamily> getRowCache()
+    public JMXInstrumentedCache<DecoratedKey, List<ASlice>> getRowCache()
     {
         return rowCache;
     }

@@ -253,7 +253,6 @@ public class SSTableExport
     static void export(SSTableReader reader, PrintStream outs, String[] excludes) throws IOException
     {
         SeekableScanner scanner = reader.getScanner(INPUT_FILE_BUFFER_SIZE);
-        scanner.first();
 
         Set<String> excludeSet = new HashSet();
         if (excludes != null)

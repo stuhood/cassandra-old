@@ -87,6 +87,9 @@ public class DatabaseDescriptor
     public static final UUID INITIAL_VERSION = new UUID(4096, 0); // has type nibble set to 1, everything else to zero.
     private static UUID defsVersion = INITIAL_VERSION;
 
+    public static final int GET_BUFFER_SIZE = 2 * 1024;
+    public static final int RANGE_BUFFER_SIZE = 32 * 1024;
+
     /**
      * Inspect the classpath to find STORAGE_CONF_FILE.
      */

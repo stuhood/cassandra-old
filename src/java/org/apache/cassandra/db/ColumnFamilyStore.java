@@ -36,6 +36,12 @@ import org.apache.commons.collections.IteratorUtils;
 import org.apache.commons.lang.ArrayUtils;
 
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Iterators;
+
+import org.apache.cassandra.ASlice;
+import org.apache.cassandra.Scanner;
+import org.apache.cassandra.MergingScanner;
+
 import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.concurrent.StageManager;
@@ -456,11 +462,14 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     }
 
     /*
+     FIXME: Deprecated: use ASlice.GCFunction.
+
      This is complicated because we need to preserve deleted columns, supercolumns, and columnfamilies
      until they have been deleted for at least GC_GRACE_IN_SECONDS.  But, we do not need to preserve
      their contents; just the object itself as a "tombstone" that can be used to repair other
      replicas that do not know about the deletion.
      */
+    @Deprecated
     public static ColumnFamily removeDeleted(ColumnFamily cf, int gcBefore)
     {
         if (cf == null)
@@ -725,9 +734,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return getColumnFamily(filter, CompactionManager.getDefaultGCBefore());
     }
 
-    private ColumnFamily cacheRow(DecoratedKey key)
+    private List<ASlice> cacheRow(DecoratedKey key)
     {
-        ColumnFamily cached;
+        List<ASlice> cached;
         if ((cached = ssTables_.getRowCache().get(key)) == null)
         {
             cached = getTopLevelColumns(QueryFilter.on(this).forKey(key), Integer.MIN_VALUE);
@@ -751,21 +760,20 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         try
         {
             if (ssTables_.getRowCache().getCapacity() == 0)
-                return removeDeleted(getTopLevelColumns(filter, gcBefore), gcBefore);
+            {
+                List<ASlice> slices = getTopLevelColumns(filter, gcBefore);
+                return ColumnFamily.fromSlices(table_, columnFamily_, slices);
+            }
 
-            ColumnFamily cached = cacheRow(filter.key());
+            List<ASlice> cached = cacheRow(filter.key());
             if (cached == null)
                 return null;
-            IColumnIterator ci = filter.getMemtableColumnIterator(cached, null, getComparator());
-            ColumnFamily returnCF = ci.getColumnFamily().cloneMeShallow();
-            filter.collectCollatedColumns(returnCF, ci, gcBefore);
-            // TODO this is necessary because when we collate supercolumns together, we don't check
-            // their subcolumns for relevance, so we need to do a second prune post facto here.
-            return removeDeleted(returnCF, gcBefore);
-        }
-        catch (IOException e)
-        {
-            throw new IOError(e);
+
+            // TODO: excessive nesting? scans, filters, gcs, and then converts to a cf
+            List<ASlice> slices = new ArrayList<ASlice>();
+            Scanner rowscanner = filter.filter(new ListScanner(cached, comparator));
+            Iterators.addAll(slices, Iterators.transform(rowscanner, new ASlice.GCFunction(gcBefore)));
+            return ColumnFamily.fromSlices(table_, columnFamily_, slices);
         }
         finally
         {
@@ -773,83 +781,56 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         }
     }
 
-    private ColumnFamily getTopLevelColumns(QueryFilter filter, int gcBefore)
+    /**
+     * @return A filtered list of Slices representing a single row.
+     * TODO: Should assert that the QueryFilter only matches a single row.
+     */
+    private List<ASlice> getTopLevelColumns(QueryFilter filter, int gcBefore)
     {
-        // we are querying top-level columns, do a merging fetch with indexes.
-        List<IColumnIterator> iterators = new ArrayList<IColumnIterator>();
-        final ColumnFamily returnCF = ColumnFamily.create(table_, columnFamily_);
+        Scanner scanner = getScanner(filter, gcBefore, DatabaseDescriptor.GET_BUFFER_SIZE);
         try
         {
-            IColumnIterator iter;
-
-            /* add the current memtable */
-            iter = filter.getMemtableColumnIterator(getMemtableThreadSafe(), getComparator());
-            if (iter != null)
-            {
-                returnCF.delete(iter.getColumnFamily());
-                iterators.add(iter);
-            }
-
-            /* add the memtables being flushed */
-            for (Memtable memtable : memtablesPendingFlush)
-            {
-                iter = filter.getMemtableColumnIterator(memtable, getComparator());
-                if (iter != null)
-                {
-                    returnCF.delete(iter.getColumnFamily());
-                    iterators.add(iter);
-                }
-            }
-
-            /* add the SSTables on disk */
-            for (SSTableReader sstable : ssTables_)
-            {
-                int buffer = 1024; // FIXME
-                // FIXME: pulls the entire row into memory: once all components
-                // are using the Scanner interface, we can fix this
-                org.apache.cassandra.Scanner scanner = filter.filter(sstable.getScanner(buffer));
-                SliceToRowIterator stri = new SliceToRowIterator(scanner, sstable);
-                try
-                {
-                    if (!stri.hasNext())
-                        continue;
-                    iter = (IColumnIterator)stri.next();
-                    if (iter.getColumnFamily() != null)
-                    {
-                        returnCF.delete(iter.getColumnFamily());
-                        iterators.add(iter);
-                    }
-                }
-                finally
-                {
-                    stri.close();
-                }
-            }
-
-            Comparator<IColumn> comparator = QueryFilter.getColumnComparator(getComparator());
-            Iterator collated = IteratorUtils.collatedIterator(comparator, iterators);
-            filter.collectCollatedColumns(returnCF, collated, gcBefore);
-            return returnCF; // caller is responsible for final removeDeleted
-        }
-        catch (IOException e)
-        {
-            throw new IOError(e);
+            List<ASlice> row = new ArrayList<ASlice>();
+            Iterators.addAll(row, scanner);
+            return row;
         }
         finally
         {
-            /* close all cursors */
-            for (IColumnIterator ci : iterators)
+            try
             {
-                try
-                {
-                    ci.close();
-                }
-                catch (Throwable th)
-                {
-                    logger_.error("error closing " + ci, th);
-                }
+                scanner.close();
+            }
+            catch (IOException e)
+            {
+                throw new IOError(e);
             }
         }
+    }
+
+    /**
+     * @param filter Filter describing matching Slices.
+     * @param gcBefore Age of deleted Slices that should be skipped.
+     * @param buffersize Buffer size in bytes for any SSTables accessed.
+     * @return A Scanner over Slices contained in this store, which _must_ be closed after use.
+     */
+    private Scanner getScanner(QueryFilter filter, int gcBefore, int buffersize)
+    {
+        // fetch data from current memtable, historical memtables, and SSTables
+        List<Scanner> scanners = new ArrayList<Scanner>();
+
+        // store a reference to the current memtable before copying memtablesPendingFlush: we may iterate one
+        // memtable twice, but we don't want to miss it
+        scanners.add(filter.filter(getMemtableThreadSafe().getScanner()));
+
+        // historical memtables
+        for (Memtable memtable : memtablesPendingFlush)
+            scanners.add(filter.filter(memtable.getScanner()));
+
+        // sstables
+        for (SSTableReader sstable : ssTables_)
+            scanners.add(filter.filter(sstable.getScanner(buffersize)));
+
+        return filter.collect(new MergingScanner(scanners, comparator), gcBefore);
     }
 
     /**
@@ -869,8 +850,6 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         final DecoratedKey startWith = new DecoratedKey(range.left, (byte[])null);
         final DecoratedKey stopAt = new DecoratedKey(range.right, (byte[])null);
         
-        final int gcBefore = CompactionManager.getDefaultGCBefore();
-
         QueryFilter filter = QueryFilter.on(this).forRange(range);
         int colDepth;
         if (superColumn == null)
@@ -885,31 +864,20 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             filter.forSlice(colDepth, sliceRange.start, sliceRange.finish, sliceRange.bitmasks, sliceRange.reversed, sliceRange.count) :
             filter.forNames(colDepth, columnNames);
 
-        Collection<Memtable> memtables = new ArrayList<Memtable>();
-        memtables.add(getMemtableThreadSafe());
-        memtables.addAll(memtablesPendingFlush);
-
-        Collection<SSTableReader> sstables = new ArrayList<SSTableReader>();
-        Iterables.addAll(sstables, ssTables_);
-
-        RowIterator iterator = RowIteratorFactory.getIterator(memtables, sstables, startWith, stopAt, filter, getComparator(), gcBefore);
-
+        SliceToRowIterator iterator = new SliceToRowIterator(getScanner(filter,
+                                                                        CompactionManager.getDefaultGCBefore(),
+                                                                        DatabaseDescriptor.RANGE_BUFFER_SIZE),
+                                                             table_,
+                                                             columnFamily_);
         try
         {
             // pull rows out of the iterator
-            boolean first = true; 
             while(iterator.hasNext())
             {
                 Row current = iterator.next();
                 DecoratedKey key = current.key;
 
-                if (!stopAt.isEmpty() && stopAt.compareTo(key) < 0)
-                    return true;
-
-                // skip first one
-                if(range instanceof Bounds || !first || !key.equals(startWith))
-                    rows.add(current);
-                first = false;
+                rows.add(current);
 
                 if (rows.size() >= maxResults)
                     return true;
@@ -1046,6 +1014,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                     throw new RuntimeException(e);
                 }
 
+                // FIXME: Can probably find a more efficient way to populate
+                throw new RuntimeException("FIXME: Not implemented");
+                /* FIXME
                 for (Row row : result.rows)
                     ssTables_.getRowCache().put(row.key, row.cf);
                 i += result.rows.size();
@@ -1053,6 +1024,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                     break;
 
                 start = DatabaseDescriptor.getPartitioner().getToken(result.rows.get(ROWS - 1).key.key);
+                */
             }
             logger_.info(String.format("Loaded %s rows into the %s cache", i, columnFamily_));
         }
@@ -1077,12 +1049,6 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     public int getLiveSSTableCount()
     {
         return ssTables_.size();
-    }
-
-    /** raw cached row -- does not fetch the row if it is not present.  not counted in cache statistics.  */
-    public ColumnFamily getRawCachedRow(DecoratedKey key)
-    {
-        return ssTables_.getRowCache().getCapacity() == 0 ? null : ssTables_.getRowCache().getInternal(key);
     }
 
     void invalidateCachedRow(DecoratedKey key)

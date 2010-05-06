@@ -82,6 +82,11 @@ public class Memtable implements Comparable<Memtable>, IFlushable
         creationTime = System.currentTimeMillis();
     }
 
+    public ColumnKey.Comparator comparator()
+    {
+        return comp;
+    }
+
     /**
      * Compares two Memtable based on creation time.
      * @param rhs Memtable to compare to.
@@ -232,6 +237,9 @@ public class Memtable implements Comparable<Memtable>, IFlushable
         return "Memtable(" + cfs.getColumnFamilyName() + ")@" + hashCode();
     }
 
+    /**
+     * @return An unfiltered Scanner over this Memtable.
+     */
     public SeekableScanner getScanner()
     {
         return new Scanner(this);
@@ -256,17 +264,6 @@ public class Memtable implements Comparable<Memtable>, IFlushable
         return iter;
     }
 
-    /**
-     * @param startWith Include data in the result from and including this key and to the end of the memtable
-     * @return An iterator of Rows with the data from the start key 
-     */
-    @Deprecated
-    Iterator<Row> getIterator(DecoratedKey startWith)
-    {
-        ColumnKey ck = new ColumnKey(startWith, comp.columnDepth());
-        return new SliceToRowIterator(getIterator(ck), cfs.table_, cfs.columnFamily_);
-    }
-
     public boolean isClean()
     {
         return rows.isEmpty();
@@ -275,6 +272,11 @@ public class Memtable implements Comparable<Memtable>, IFlushable
     public String getTableName()
     {
         return cfs.getTable().name;
+    }
+
+    public String getColumnFamilyName()
+    {
+        return cfs.getColumnFamilyName();
     }
 
     /**

@@ -142,7 +142,7 @@ public class ColumnFamilyStoreTest extends CleanupHelper
                                                    Util.range(p, "key15", "key1"),
                                                    10,
                                                    null,
-                                                   Arrays.asList("asdf".getBytes()));
+                                                   Arrays.asList("Column1".getBytes()));
         assertEquals(2, result.rows.size());
     }
 
@@ -156,7 +156,7 @@ public class ColumnFamilyStoreTest extends CleanupHelper
                                                    Util.range(p, "key1", "key2"),
                                                    10,
                                                    null,
-                                                   Arrays.asList("asdf".getBytes()));
+                                                   Arrays.asList("Column1".getBytes()));
         assertEquals(1, result.rows.size());
         assert Arrays.equals(result.rows.get(0).key.key, "key2".getBytes());
     }
