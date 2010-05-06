@@ -30,6 +30,7 @@ import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnKey;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.service.StorageService;

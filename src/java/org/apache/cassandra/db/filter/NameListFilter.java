@@ -23,17 +23,18 @@ package org.apache.cassandra.db.filter;
 
 import java.util.*;
 
-import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.AbstractType;
 
 public class NameListFilter implements IFilter<byte[]>
 {
+    private final Comparator<byte[]> comp;
     public final SortedSet<byte[]> columns;
 
-    public NameListFilter(SortedSet<byte[]> columns)
+    public NameListFilter(Comparator<byte[]> comp, SortedSet<byte[]> columns)
     {
+        this.comp = comp;
         this.columns = columns;
     }
 
@@ -42,14 +43,19 @@ public class NameListFilter implements IFilter<byte[]>
         return Memtable.getNamesIterator(key, cf, this);
     }
 
-    public IColumnIterator getSSTableColumnIterator(SSTableReader sstable, DecoratedKey key)
+    @Override
+    public boolean matchesBetween(byte[] begin, byte[] end)
     {
-        return new SSTableNamesIterator(sstable, key, columns);
+        // TODO: could be made _much_ more efficient using sorted set properties
+        for (byte[] name : columns)
+            if (comp.compare(begin, name) <= 0 && comp.compare(name, end) <= 0)
+                return true;
     }
-    
-    public IColumnIterator getSSTableColumnIterator(SSTableReader sstable, FileDataInput file, DecoratedKey key, long dataStart)
+
+    @Override
+    public boolean matches(byte[] name)
     {
-        return new SSTableNamesIterator(sstable, file, key, columns);
+        return columns.contains(name);
     }
 
     public SuperColumn filterSuperColumn(SuperColumn superColumn, int gcBefore)

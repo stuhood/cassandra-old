@@ -44,20 +44,14 @@ public interface IFilter<T>
     public abstract IColumnIterator getMemtableColumnIterator(ColumnFamily cf, DecoratedKey key, AbstractType comparator);
 
     /**
-     * Get an iterator that returns columns from the given SSTable using the opened file
-     * matching the Filter criteria in sorted order.
-     * @param sstable SSTable we are reading from
-     * @param file Already opened file data input, saves us opening another one
-     * @param key The key of the row we are about to iterate over
-     * @param dataStart Used to seek to the start of the data
+     * @return True if this filter might match columns between the given names.
      */
-    public abstract IColumnIterator getSSTableColumnIterator(SSTableReader sstable, FileDataInput file, DecoratedKey key, long dataStart);
+    public abstract boolean matchesBetween(T begin, T end);
 
     /**
-     * returns an iterator that returns columns from the given SSTable
-     * matching the Filter criteria in sorted order.
+     * @return True if this filter matches the given name (assuming that parents match).
      */
-    public abstract IColumnIterator getSSTableColumnIterator(SSTableReader sstable, DecoratedKey key);
+    public abstract boolean matches(T name);
 
     /**
      * collects columns from reducedColumns into returnCF.  Termination is determined

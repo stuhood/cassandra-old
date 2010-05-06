@@ -28,6 +28,7 @@ import org.apache.cassandra.SeekableScanner;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.IColumnIterator;
+import org.apache.cassandra.db.filter.IFilter;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
 import org.apache.cassandra.service.StorageService;
@@ -50,6 +51,9 @@ public class RowIndexedScanner implements SeekableScanner
     private final int bufferSize;
     private BufferedRandomAccessFile file;
     private final ColumnFamily emptycf; // always empty: just a metadata holder
+    protected final ColumnKey.Comparator comp;
+
+    protected QueryFilter filter = null;
 
     /**
      * State related to the current row.
@@ -74,12 +78,19 @@ public class RowIndexedScanner implements SeekableScanner
         this.length = reader.length();
         this.bufferSize = bufferSize;
         emptycf = reader.makeColumnFamily();
+        this.comp = reader.getComparator();
     }
     
     @Override
     public ColumnKey.Comparator comparator()
     {
-        return reader.getComparator();
+        return comp;
+    }
+
+    @Override
+    public void setColumnFilter(QueryFilter filter)
+    {
+        this.filter = filter;
     }
 
     /**
@@ -295,8 +306,8 @@ public class RowIndexedScanner implements SeekableScanner
             byte[] endb = (chunkpos < rowindex.size()-1) ? rowindex.get(chunkpos+1).lastName : ColumnKey.NAME_END;
             end = new ColumnKey(rowkey, endb);
 
-            // read the columns
-            columns = (List<Column>)getRawColumns();
+            // either read or skip the columns
+            columns = matchOrSkipSlice(begin, end);
         }
         else
         {
@@ -310,20 +321,63 @@ public class RowIndexedScanner implements SeekableScanner
     }
 
     /**
-     * @return Un-typed columns from disk for the current chunk of the index.
+     * @return A populated or empty Column list, depending on filtering.
+     */
+    private List<Column> matchOrSkipSlice(ColumnKey begin, ColumnKey end)
+    {
+        if (filter == null)
+            return (List<Column>)getRawColumns();
+        if (filter.matchesBetween(comp, begin, end))
+            return (List<Column>)getFilteredRawColumns();
+        return skipRawColumns();
+    }
+
+    /**
+     * Pulls the columns in the current slice from disk, filtering them on the fly. Slices that are completely
+     * eliminated via the filter will result in an empty list.
+     * @return IColumns from disk for the current chunk of the index.
+     */
+    private List getFilteredRawColumns() throws IOException
+    {
+        file.seek(rowcolsoffset + rowindex.get(chunkpos).offset);
+        long chunkend = file.getFilePointer() + rowindex.get(chunkpos).width;
+
+        // filter individual columns
+        ArrayList<IColumn> columns = new ArrayList<IColumn>();
+        while (file.getFilePointer() < chunkend)
+        {
+            IColumn col = emptycf.getColumnSerializer().deserialize(file);
+            if (!filter.matches(comp, 1, col))
+                continue;
+            columns.add(col);
+        }
+        return columns;
+    }
+
+    /**
+     * Pulls the columns in the current slice from disk.
+     * @return IColumns from disk for the current chunk of the index.
      */
     protected List getRawColumns() throws IOException
     {
-        if (rowmeta == null)
-            return null;
-        
         // read sequential columns from the chunk
-        ArrayList<IColumn> columns = new ArrayList<IColumn>();
         file.seek(rowcolsoffset + rowindex.get(chunkpos).offset);
         long chunkend = file.getFilePointer() + rowindex.get(chunkpos).width;
+
+        ArrayList<IColumn> columns = new ArrayList<IColumn>();
         while (file.getFilePointer() < chunkend)
             columns.add(emptycf.getColumnSerializer().deserialize(file));
         return columns;
+    }
+
+    /**
+     * @return An empty list.
+     */
+    private List skipRawColumns() throws IOException
+    {
+        // no interesting columns in this slice
+        file.seek(rowcolsoffset + rowindex.get(chunkpos).offset + rowindex.get(chunkpos).width);
+        return Collections.<IColumn>emptyList();
     }
 
     /**

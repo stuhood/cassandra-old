@@ -25,6 +25,7 @@ import java.util.Iterator;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnKey;
+import org.apache.cassandra.db.filter.IFilter;
 
 /**
  * A SeekableScanner is an Iterator for reading slices in sorted order, which is
@@ -35,6 +36,15 @@ import org.apache.cassandra.db.ColumnKey;
  */
 public interface SeekableScanner extends Scanner
 {
+    /**
+     * Sets an IFilter to use to minimize deserialization by filtering columns as close to the source as possible.
+     * Slices which have all of their columns filtered out will still be returned in case their metadata needs to be
+     * applied elsewhere.
+     *
+     * @param filter A filter to be applied to the columns in returned Slices.
+     */
+    public void pushdownFilter(IFilter<byte[]> filter);
+
     /**
      * Seek to the first Slice in the Scanner.
      * @return False if the Scanner contains no Slices.

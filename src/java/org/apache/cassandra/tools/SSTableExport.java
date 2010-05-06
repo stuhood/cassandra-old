@@ -31,7 +31,6 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.db.SliceToRowIterator;
 import org.apache.cassandra.io.sstable.SSTable;
-import org.apache.cassandra.io.sstable.SSTableIdentityIterator;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
 import org.apache.cassandra.service.StorageService;

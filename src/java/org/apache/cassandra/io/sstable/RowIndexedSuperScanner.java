@@ -70,9 +70,17 @@ public class RowIndexedSuperScanner extends RowIndexedScanner
             ColumnKey end = new ColumnKey(rowkey, supcol.name(), ColumnKey.NAME_END);
 
             // drop non-matching subcolumns
-            List<Column> subcols = new ArrayList<Column>();
-            for (IColumn col : supcol.getSubColumns())
-                    subcols.add((Column)col);
+            if(filter == null || filter.matchesBetween(comp, begin, end))
+            {
+                // might match
+                for (IColumn col : supcol.getSubColumns())
+                {
+                    if (filter == null || filter.matches(comp, 2, col))
+                    {
+                        subcols.add((Column)col);
+                    }
+                }
+            }
             slices.add(new Slice(supermeta, begin, end, subcols));
         }
     }

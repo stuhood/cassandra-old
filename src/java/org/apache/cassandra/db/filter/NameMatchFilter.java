@@ -20,35 +20,24 @@ package org.apache.cassandra.db.filter;
  * 
  */
 
-import java.util.Comparator;
 
-import org.apache.commons.lang.ArrayUtils;
+import java.util.*;
 
-import org.apache.cassandra.db.ColumnKey;
-import org.apache.cassandra.db.SuperColumn;
+import org.apache.cassandra.io.util.FileDataInput;
+import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.marshal.AbstractType;
 
-class NameIdentityFilter extends NameSliceFilter
+public class NameMatchFilter extends NameListFilter
 {
-    public NameIdentityFilter(Comparator<byte[]> comp)
+    public NameMatchFilter(Comparator<byte[]> comp, byte[] name)
     {
-        super(comp, ArrayUtils.EMPTY_BYTE_ARRAY, ArrayUtils.EMPTY_BYTE_ARRAY, null, false, Integer.MAX_VALUE);
+        super(comp, single(comp, name));
     }
 
-    public SuperColumn filterSuperColumn(SuperColumn superColumn, int gcBefore)
+    private static SortedSet<byte[]> single(Comparator<byte[]> comp, byte[] name)
     {
-        // no filtering done, deliberately
-        return superColumn;
-    }
-
-    @Override
-    public boolean matchesBetween(byte[] begin, byte[] end)
-    {
-        return true;
-    }
-
-    @Override
-    public boolean matches(byte[] name)
-    {
-        return true;
+        SortedSet<byte[]> single = new TreeSet<byte[]>(comp);
+        single.add(name);
+        return single;
     }
 }

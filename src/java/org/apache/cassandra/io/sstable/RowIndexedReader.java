@@ -455,15 +455,6 @@ class RowIndexedReader extends SSTableReader
         return new RowIndexedScanner(this, bufferSize);
     }
 
-    /**
-     * FIXME: Shim
-     */
-    @Deprecated
-    public RowIndexedIColumnIteratorIterator getIterator(int bufferSize, QueryFilter filter)
-    {
-        return new RowIndexedIColumnIteratorIterator(this, filter, bufferSize);
-    }
-    
     public FileDataInput getFileDataInput(DecoratedKey decoratedKey, int bufferSize)
     {
         PositionSize info = getPosition(decoratedKey);
