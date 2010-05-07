@@ -92,8 +92,7 @@ public class RowIteratorFactory
         // memtables
         for (Memtable memtable : memtables)
         {
-            iterators.add(Iterators.filter(Iterators.transform(memtable.getEntryIterator(startWith),
-                                                               new ConvertToColumnIterator(filter, comparator)), p));
+            iterators.add((Iterator)Iterators.filter(memtable.getIterator(startWith), p));
         }
 
         // sstables
@@ -157,45 +156,6 @@ public class RowIteratorFactory
         };
 
         return new RowIterator(reduced, iterators);
-    }
-
-    /** 
-     * Used when locks are required before getting the entry iterator.
-     * @param memtable Memtable to get iterator from
-     * @param startWith Start at this key position
-     * @return entry iterator for the current memtable
-     */
-    private static Iterator<Map.Entry<DecoratedKey, ColumnFamily>> memtableEntryIterator(Memtable memtable, DecoratedKey startWith)
-    {
-        Table.flusherLock.readLock().lock();
-        try
-        {
-            return memtable.getEntryIterator(startWith);
-        }
-        finally
-        {
-            Table.flusherLock.readLock().unlock();
-        }
-    }
-
-    /**
-     * Get a ColumnIterator for a specific key in the memtable.
-     */
-    private static class ConvertToColumnIterator implements Function<Map.Entry<DecoratedKey, ColumnFamily>, IColumnIterator>
-    {
-        private QueryFilter filter;
-        private AbstractType comparator;
-
-        public ConvertToColumnIterator(QueryFilter filter, AbstractType comparator)
-        {
-            this.filter = filter;
-            this.comparator = comparator;
-        }
-
-        public IColumnIterator apply(final Entry<DecoratedKey, ColumnFamily> entry)
-        {
-            return filter.getMemtableColumnIterator(entry.getValue(), entry.getKey(), comparator);
-        }
     }
 
 }
