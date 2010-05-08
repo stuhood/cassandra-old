@@ -85,13 +85,21 @@ public class AddColumnFamily extends Migration
         {
             throw new IOException(ex);
         }
+
+        // ensure that the table has been opened at least once
         if (!clientMode)
-            Table.open(ksm.name).initCf(cfm.cfId, cfm.cfName);
-        DatabaseDescriptor.setTableDefinition(ksm, newVersion);
+            Table.open(ksm.name);
         
+        // overwrite the in-memory definitions 
+        DatabaseDescriptor.setTableDefinition(ksm, newVersion);
+
         if (!clientMode)
+        {
+            // initialize the ColumnFamilyStore
+            Table.open(ksm.name).initCf(cfm.cfId, cfm.cfName);
             // force creation of a new commit log segment.
             CommitLog.instance().forceNewSegment();
+        }
     }
 
     @Override

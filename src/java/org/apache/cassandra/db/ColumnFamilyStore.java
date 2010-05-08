@@ -96,6 +96,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     private final String table_;
     public final String columnFamily_;
+    public final ColumnKey.Comparator comparator;
 
     private volatile Integer memtableSwitchCount = 0;
 
@@ -123,6 +124,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     {
         table_ = table;
         columnFamily_ = columnFamilyName;
+        comparator = ColumnKey.getComparator(table_, columnFamily_);
         fileIndexGenerator_.set(indexValue);
         memtable_ = new Memtable(this);
         binaryMemtable_ = new AtomicReference<BinaryMemtable>(new BinaryMemtable(this));

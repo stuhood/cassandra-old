@@ -26,6 +26,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.commons.lang.ArrayUtils;
 
+import org.apache.cassandra.ASlice.Metadata;
+
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.utils.FBUtilities;
@@ -36,8 +38,7 @@ import org.apache.cassandra.utils.FBUtilities;
  * (TODO: look at making SuperColumn immutable too.  This is trickier but is probably doable
  *  with something like PCollections -- http://code.google.com
  */
-
-public class Column implements IColumn
+public class Column implements IColumn, Named
 {
     private static Logger logger = LoggerFactory.getLogger(Column.class);
 
@@ -100,6 +101,20 @@ public class Column implements IColumn
     public long timestamp()
     {
         return timestamp;
+    }
+
+    /**
+     * Given parent metadata, determine if the column is ready for garbage collection.
+     */
+    public boolean readyForGC(Metadata meta, int gcBefore)
+    {
+        if (isMarkedForDelete() && getLocalDeletionTime() <= gcBefore)
+            // the column is deleted, and has acted as a tombstone long enough
+            return true;
+        if (meta.isMarkedForDelete() && timestamp() <= meta.markedForDeleteAt)
+            // our parents indicate that we should be deleted
+            return true;
+        return false;
     }
 
     public boolean isMarkedForDelete()
