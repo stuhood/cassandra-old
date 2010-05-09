@@ -47,15 +47,13 @@ public class NameSliceFilter implements IFilter<byte[]>
     public final byte[] finish;
     public final List<byte[]> bitmasks;
     public final boolean reversed;
-    public final int count;
 
-    public NameSliceFilter(Comparator<byte[]> comp, byte[] start, byte[] finish, List<byte[]> bitmasks, boolean reversed, int count)
+    public NameSliceFilter(Comparator<byte[]> comp, byte[] start, byte[] finish, List<byte[]> bitmasks, boolean reversed)
     {
         this.comp = comp;
         this.start = start;
         this.finish = finish;
         this.reversed = reversed;
-        this.count = count;
         this.bitmasks = bitmasks;
     }
 

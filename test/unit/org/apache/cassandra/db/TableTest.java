@@ -82,7 +82,7 @@ public class TableTest extends CleanupHelper
                 cf = cfStore.getColumnFamily(QueryFilter.on(cfStore).forKey(TEST_KEY).forNames(1, new TreeSet<byte[]>()));
                 assertColumns(cf);
 
-                cf = cfStore.getColumnFamily(QueryFilter.on(cfStore).forKey(TEST_KEY).forSlice(1, ArrayUtils.EMPTY_BYTE_ARRAY, ArrayUtils.EMPTY_BYTE_ARRAY, null, false, 0));
+                cf = cfStore.getColumnFamily(QueryFilter.on(cfStore).forKey(TEST_KEY).forSlice(1, ArrayUtils.EMPTY_BYTE_ARRAY, ArrayUtils.EMPTY_BYTE_ARRAY, null, false).limitedTo(0));
                 assertColumns(cf);
 
                 cf = cfStore.getColumnFamily(QueryFilter.on(cfStore).forKey(TEST_KEY).forName(1, "col99".getBytes()));
@@ -339,7 +339,7 @@ public class TableTest extends CleanupHelper
                 cf = cfStore.getColumnFamily(ROW, new QueryPath("Standard1"), "col5".getBytes(), ArrayUtils.EMPTY_BYTE_ARRAY, false, 2);
                 assertColumns(cf, "col5", "col7");
 
-                QueryFilter qf = QueryFilter.on(cfStore).forKey(ROW).forSlice(1, "col4".getBytes(), ArrayUtils.EMPTY_BYTE_ARRAY, null, false, 2);
+                QueryFilter qf = QueryFilter.on(cfStore).forKey(ROW).forSlice(1, "col4".getBytes(), ArrayUtils.EMPTY_BYTE_ARRAY, null, false).limitedTo(2);
                 assertColumns(cfStore.getColumnFamily(qf), "col4", "col5", "col7");
                 assertColumns(cfStore.getColumnFamily(qf, Integer.MAX_VALUE), "col5", "col7");
 

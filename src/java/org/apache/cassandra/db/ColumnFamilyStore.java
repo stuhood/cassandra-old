@@ -40,6 +40,7 @@ import com.google.common.collect.Iterators;
 
 import org.apache.cassandra.ASlice;
 import org.apache.cassandra.Scanner;
+import org.apache.cassandra.CollectingScanner;
 import org.apache.cassandra.MergingScanner;
 
 import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
@@ -654,7 +655,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     public ColumnFamily getColumnFamily(DecoratedKey key, QueryPath path, byte[] start, byte[] finish, List<byte[]> bitmasks, boolean reversed, int limit)
     {
         QueryFilter qf = QueryFilter.on(this).forKey(key);
-        return getColumnFamily(qf.forSlice(path.superColumnName == null ? 1 : 2, start, finish, bitmasks, reversed, limit));
+        return getColumnFamily(qf.forSlice(path.superColumnName == null ? 1 : 2, start, finish, bitmasks, reversed).limitedTo(limit));
     }
 
     public ColumnFamily getColumnFamily(DecoratedKey key, QueryPath path, byte[] start, byte[] finish, boolean reversed, int limit)
@@ -702,10 +703,12 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             if (cached == null)
                 return null;
 
-            // the cache entry is a full copy of the on-disk content: filter and garbage collect it before returning
+            // the cache entry is a full copy of the on-disk content: filter, garbage collect, and limit it
+            Scanner scanner = filter.filter(new ListScanner(cached, comparator));
+            scanner = filter.limit(CollectingScanner.collect(scanner, gcBefore));
+
             List<ASlice> slices = new ArrayList<ASlice>();
-            Scanner rowscanner = filter.filter(new ListScanner(cached, comparator));
-            Iterators.addAll(slices, Iterators.transform(rowscanner, new ASlice.GCFunction(gcBefore)));
+            Iterators.addAll(slices, scanner);
             return ColumnFamily.fromSlices(table_, columnFamily_, slices);
         }
         finally
@@ -763,7 +766,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         for (SSTableReader sstable : ssTables_)
             scanners.add(filter.filter(sstable.getScanner(buffersize)));
 
-        return filter.collect(new MergingScanner(scanners, comparator), gcBefore);
+        return filter.limit(CollectingScanner.collect(new MergingScanner(scanners, comparator), gcBefore));
     }
 
     /**
@@ -793,8 +796,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             filter = filter.forName(1, superColumn);
             colDepth = 2;
         }
+        // FIXME: not respecting sliceRange.length, since it attempts to limit the content of each row individually
         filter = sliceRange != null ?
-            filter.forSlice(colDepth, sliceRange.start, sliceRange.finish, sliceRange.bitmasks, sliceRange.reversed, sliceRange.count) :
+            filter.forSlice(colDepth, sliceRange.start, sliceRange.finish, sliceRange.bitmasks, sliceRange.reversed) :
             filter.forNames(colDepth, columnNames);
 
         SliceToRowIterator iterator = new SliceToRowIterator(getScanner(filter,

@@ -44,6 +44,7 @@ public final class QueryFilter
 {
     private final String cfname;
     private final ColumnKey.Comparator comp;
+    private final long limit;
     private final IFilter<DecoratedKey> keyfilter;
     private final List<IFilter<byte[]>> filters;
 
@@ -54,6 +55,7 @@ public final class QueryFilter
     {
         this.cfname = cfname;
         this.comp = comp;
+        this.limit = Long.MAX_VALUE;
         this.keyfilter = KeyIdentityFilter.get();
         int depth = comp.columnDepth();
         this.filters = new ArrayList<IFilter<byte[]>>(depth);
@@ -61,10 +63,11 @@ public final class QueryFilter
             this.filters.add(NameIdentityFilter.get());
     }
 
-    protected QueryFilter(String cfname, ColumnKey.Comparator comp, IFilter<DecoratedKey> keyfilter, List<IFilter<byte[]>> filters)
+    protected QueryFilter(String cfname, ColumnKey.Comparator comp, long limit, IFilter<DecoratedKey> keyfilter, List<IFilter<byte[]>> filters)
     {
         this.cfname = cfname;
         this.comp = comp;
+        this.limit = limit;
         this.keyfilter = keyfilter;
         this.filters = filters;
     }
@@ -76,6 +79,7 @@ public final class QueryFilter
     {
         this.cfname = tocopy.cfname;
         this.comp = tocopy.comp;
+        this.limit = tocopy.limit;
         this.keyfilter = tocopy.keyfilter;
         // clone name filters, and replace depth with newfilter
         this.filters = new ArrayList(tocopy.filters);
@@ -101,12 +105,24 @@ public final class QueryFilter
     /**
      * Wraps filtering for this QueryFilter around the given scanner.
      * @param scanner Scanner to filter.
-     * @return A filtered and limited scanner.
+     * @return A filtered scanner.
      */
     public Scanner filter(SeekableScanner scanner)
     {
-        Scanner filtered = new FilteredScanner(scanner, this);
-        return filtered;
+        return new FilteredScanner(scanner, this);
+    }
+
+    /**
+     * Wraps limiting for this QueryFilter around the given scanner. If the limit is unset, this is a noop.
+     *
+     * @param scanner Scanner to limit.
+     * @return A limited scanner.
+     */
+    public Scanner limit(Scanner scanner)
+    {
+        if (limit < Long.MAX_VALUE)
+            return new LimitingScanner(scanner, limit);
+        return scanner;
     }
 
     /**
@@ -168,17 +184,25 @@ public final class QueryFilter
     }
 
     /**
+     * @param newlim maximum number of non-deleted columns to return
+     * @return Creates a copy of this QueryFilter that limits the number of returned columns.
+     */
+    public QueryFilter limitedTo(long newlim)
+    {
+        return new QueryFilter(cfname, comp, newlim, keyfilter, filters);
+    }
+
+    /**
      * @return Creates a copy of this QueryFilter with a slice filter at the given depth.
      * @param depth depth to slice at
      * @param start column to start slice at, inclusive; empty for "the first column"
      * @param finish column to stop slice at, inclusive; empty for "the last column"
      * @param bitmasks we should probably remove this
      * @param reversed true to start with the largest column (as determined by configured sort order) instead of smallest
-     * @param limit maximum number of non-deleted columns to return
      */
-    public QueryFilter forSlice(int depth, byte[] start, byte[] finish, List<byte[]> bitmasks, boolean reversed, int limit)
+    public QueryFilter forSlice(int depth, byte[] start, byte[] finish, List<byte[]> bitmasks, boolean reversed)
     {
-        return new QueryFilter(this, depth, new NameSliceFilter(comp.comparatorAt(depth), start, finish, bitmasks, reversed, limit));
+        return new QueryFilter(this, depth, new NameSliceFilter(comp.comparatorAt(depth), start, finish, bitmasks, reversed));
     }
 
     /**
@@ -205,7 +229,7 @@ public final class QueryFilter
     public QueryFilter forKey(DecoratedKey key)
     {
         // clone this query with the added key filter
-        return new QueryFilter(cfname, comp, new KeyMatchFilter(key), filters);
+        return new QueryFilter(cfname, comp, limit, new KeyMatchFilter(key), filters);
     }
 
     /**
@@ -214,7 +238,7 @@ public final class QueryFilter
     public QueryFilter forRange(AbstractBounds range)
     {
         // clone this query with the added key filter
-        return new QueryFilter(cfname, comp, new KeyRangeFilter(range), filters);
+        return new QueryFilter(cfname, comp, limit, new KeyRangeFilter(range), filters);
     }
 
     /**

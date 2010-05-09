@@ -68,7 +68,7 @@ public class SliceFromReadCommand extends ReadCommand
     public Row getRow(Table table) throws IOException
     {
         DecoratedKey dk = StorageService.getPartitioner().decorateKey(key);
-        return table.getRow(QueryFilter.on(table.name, queryPath).forKey(dk).forSlice(queryPath.superColumnName == null ? 1 : 2, start, finish, bitmasks, reversed, count));
+        return table.getRow(QueryFilter.on(table.name, queryPath).forKey(dk).forSlice(queryPath.superColumnName == null ? 1 : 2, start, finish, bitmasks, reversed).limitedTo(count));
     }
 
     @Override

@@ -28,7 +28,6 @@ import org.apache.cassandra.Scanner;
 
 import org.apache.cassandra.db.ColumnKey;
 import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.filter.IFilter;
 import org.apache.cassandra.db.filter.QueryFilter;
 
 import com.google.common.collect.Iterators;

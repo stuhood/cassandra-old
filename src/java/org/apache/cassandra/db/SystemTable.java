@@ -218,7 +218,7 @@ public class SystemTable
     public static ColumnFamily getDroppedCFs() throws IOException
     {
         ColumnFamilyStore cfs = Table.open(Table.SYSTEM_TABLE).getColumnFamilyStore(SystemTable.STATUS_CF);
-        return cfs.getColumnFamily(QueryFilter.on(Table.SYSTEM_TABLE, STATUS_CF).forKey(decorate(GRAVEYARD_KEY)).forSlice(1, "".getBytes(), "".getBytes(), null, false, 100));
+        return cfs.getColumnFamily(QueryFilter.on(Table.SYSTEM_TABLE, STATUS_CF).forKey(decorate(GRAVEYARD_KEY)).forSlice(1, "".getBytes(), "".getBytes(), null, false).limitedTo(100));
     }
     
     public static void deleteDroppedCfMarkers(Collection<IColumn> cols) throws IOException
