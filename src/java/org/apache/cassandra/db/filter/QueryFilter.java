@@ -136,19 +136,41 @@ public final class QueryFilter
     }
 
     /**
+     * Composes the MatchResults for each level into a final result which describes what the FilteredScanner should do next.
+     *
      * @return A MatchResult indicating whether the Slice between the given keys may match the filter, and where
      * the next possible match is.
      */
     public MatchResult<ColumnKey> matches(ColumnKey begin, ColumnKey end)
     {
-        if (!keyFilter().matchesBetween(begin.dk, end.dk).matched)
-            return MatchResult.NOMATCH_CONT;
+        boolean matched = true;
+        int hint = MatchResult.OP_CONT;
+        ColumnKey seekkey = null;
+
+        // match the rowkey
+        MatchResult<DecoratedKey> dkm = keyFilter().matchesBetween(begin.dk, end.dk);
+        matched &= dkm.matched;
+        if (dkm.hint == MatchResult.OP_SEEK)
+        {
+            // FIXME: when a parent level needs to seek, we should call something like initialName() for remaining
+            // levels: see the IFilter doc
+            hint = dkm.hint;
+            seekkey = new ColumnKey(dkm.seekkey, comp.columnDepth());
+        }
+        else if (dkm.hint == MatchResult.OP_DONE)
+        {
+            hint = dkm.hint;
+        }
+
+        // and each name
+        // FIXME: ignoring seek requests from lower levels
         for (int i = 1; i <= comp.columnDepth(); i++)
         {
-            if (!nameFilter(i).matchesBetween(begin.name(i), end.name(i)).matched)
-                return MatchResult.NOMATCH_CONT;
+            MatchResult<byte[]> nm = nameFilter(i).matchesBetween(begin.name(i), end.name(i));
+            matched &= nm.matched;
         }
-        return MatchResult.MATCH_CONT;
+
+        return MatchResult.get(matched, hint, seekkey);
     }
 
     public String getColumnFamilyName()

@@ -40,6 +40,9 @@ public class FilteredScanner extends AbstractIterator<ASlice> implements Scanner
     private final SeekableScanner scanner;
     private final QueryFilter filter;
 
+    // the result of our previous filtering attempt: when null, we have not begun scanning
+    private MatchResult<ColumnKey> result;
+
     public FilteredScanner(SeekableScanner scanner, QueryFilter filter)
     {
         this.scanner = scanner;
@@ -68,21 +71,56 @@ public class FilteredScanner extends AbstractIterator<ASlice> implements Scanner
     }
 
     /**
-     * Checks whether the current slice matches our embedded filter. If not, skips
-     * forward through slices looking for the next possible match.
-     *
-     * FIXME: Totally naive at the moment: filters individual slices, and never seeks. See the comments in
-     * QueryFilter for "the plan".
+     * Tries to perform the suggested 'hint' from our last MatchResult.
+     * @return True if taking the hint resulted in our being positioned at a slice that might match.
+     */
+    private boolean takeHint()
+    {
+        if (result == null)
+            // no hints available: be naive
+            // TODO: before the first match, the filter should still be able to hint at where to seek first
+            return scanner.hasNext();
+
+        switch (result.hint)
+        {
+            case MatchResult.OP_DONE:
+                // no more matches to be found
+                return false;
+            case MatchResult.OP_CONT:
+                // the next slice might be interesting
+                return scanner.hasNext();
+            case MatchResult.OP_SEEK:
+            {
+                // seek to the next possible match
+                try
+                {
+                    return scanner.seekNear(result.seekkey);
+                }
+                catch (IOException e)
+                {
+                    throw new IOError(e);
+                }
+            }
+            default:
+                throw new RuntimeException("Unknown MatchResult hint code: " + result.hint);
+        }
+    }
+
+    /**
+     * Checks whether the current slice matches our embedded filter, and follows hints returned by the
+     * filter to help find the next matching slice.
      *
      * @return The next slice matching the filter.
      */
     @Override
     public ASlice computeNext()
     {
-        while (scanner.hasNext())
+        while (takeHint())
         {
             ASlice slice = scanner.next();
-            if (filter.matches(slice.begin, slice.end).matched)
+            result = filter.matches(slice.begin, slice.end);
+            if (result.matched)
+                // slice matched the filter: the hint will be stored for the next call to computeNext
                 return slice;
         }
         
