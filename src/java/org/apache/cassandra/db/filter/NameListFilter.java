@@ -40,13 +40,13 @@ public class NameListFilter implements IFilter<byte[]>
     }
 
     @Override
-    public boolean matchesBetween(byte[] begin, byte[] end)
+    public MatchResult<byte[]> matchesBetween(byte[] begin, byte[] end)
     {
         // TODO: could be made _much_ more efficient using sorted set properties
         for (byte[] name : columns)
             if (comp.compare(begin, name) <= 0 && comp.compare(name, end) <= 0)
-                return true;
-        return false;
+                return MatchResult.MATCH_CONT;
+        return MatchResult.NOMATCH_CONT;
     }
 
     @Override

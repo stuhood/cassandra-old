@@ -42,9 +42,9 @@ class NameIdentityFilter implements IFilter<byte[]>
     }
 
     @Override
-    public boolean matchesBetween(byte[] begin, byte[] end)
+    public MatchResult<byte[]> matchesBetween(byte[] begin, byte[] end)
     {
-        return true;
+        return MatchResult.MATCH_CONT;
     }
 
     @Override

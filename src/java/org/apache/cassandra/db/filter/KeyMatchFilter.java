@@ -34,12 +34,15 @@ class KeyMatchFilter implements IFilter<DecoratedKey>
     }
 
     @Override
-    public boolean matchesBetween(DecoratedKey begin, DecoratedKey end)
+    public MatchResult<DecoratedKey> matchesBetween(DecoratedKey begin, DecoratedKey end)
     {
-        // TODO: by convention slices always contain children/metadata for a single key, but if we wanted to support
-        // range deletes, we could break that convention
-        assert begin.equals(end);
-        return matches(begin);
+        if (end.compareTo(key) < 0)
+            // positioned before our key: instruct the scanner to seek forward
+            return MatchResult.<DecoratedKey>get(false, MatchResult.OP_SEEK, key);
+        if (key.compareTo(begin) < 0)
+            // positioned after our key: indicate that we are finished
+            return MatchResult.NOMATCH_DONE;
+        return MatchResult.MATCH_CONT;
     }
 
     @Override

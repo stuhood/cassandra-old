@@ -57,12 +57,19 @@ public class NameSliceFilter implements IFilter<byte[]>
         this.bitmasks = bitmasks;
     }
 
+    /**
+     * Performs non-wrapping intersection: column name slices are (inclusive, inclusive).
+     */
     @Override
-    public boolean matchesBetween(byte[] begin, byte[] end)
+    public MatchResult<byte[]> matchesBetween(byte[] begin, byte[] end)
     {
-        // non-wrapping intersection
-        // TODO: replace finish.length check with ColumnKey.NAME_END
-        return comp.compare(start, end) <= 0 && (finish.length == 0 || comp.compare(begin, finish) <= 0);
+        if (comp.compare(end, start) < 0)
+            // we are before our interesting slice: seek forward
+            return MatchResult.<byte[]>get(false, MatchResult.OP_SEEK, start);
+        if (comp.compare(finish, begin) < 0 && finish.length != 0)
+            // we are after our interesting slice: indicate that we are finished
+            return MatchResult.NOMATCH_DONE;
+        return MatchResult.MATCH_CONT;
     }
 
     @Override

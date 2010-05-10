@@ -29,18 +29,21 @@ import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.util.FileDataInput;
 
 /**
- * Given an implementation-specific description of what columns to look for, provides methods
- * to extract the desired columns from a Memtable, SSTable, or SuperColumn.  Either the get*ColumnIterator
- * methods will be called, or filterSuperColumn, but not both on the same object.  QueryFilter
- * takes care of putting the two together if subcolumn filtering needs to be done, based on the
- * querypath that it knows (but that IFilter implementations are oblivious to).
+ * Given an implementation-specific description of what columns to look for, provides methods to match Slices from
+ * from a Scanner. QueryFilter takes care of layering IFilters together, so each IFilter deals with a particular
+ * level.
+ *
+ * FIXME: IFilter needs an initialName() method, which will return the first interesting name at its level. This would be
+ * used to generate the very first position to seek to in the scanner, and subsequent seek values, when a parent wants
+ * to seek.
  */
 public interface IFilter<T>
 {
     /**
-     * @return True if this filter might match columns between the given names.
+     * @return A MatchResult describing whether the filter might match columns between the given names, and
+     * how to look for the next column that might match the filter.
      */
-    public abstract boolean matchesBetween(T begin, T end);
+    public abstract MatchResult<T> matchesBetween(T begin, T end);
 
     /**
      * @return True if this filter matches the given name (assuming that parents match).

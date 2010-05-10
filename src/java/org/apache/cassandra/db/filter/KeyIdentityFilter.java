@@ -38,9 +38,9 @@ class KeyIdentityFilter implements IFilter<DecoratedKey>
     }
 
     @Override
-    public boolean matchesBetween(DecoratedKey begin, DecoratedKey end)
+    public MatchResult<DecoratedKey> matchesBetween(DecoratedKey begin, DecoratedKey end)
     {
-        return true;
+        return MatchResult.MATCH_CONT;
     }
 
     @Override

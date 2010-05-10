@@ -136,18 +136,19 @@ public final class QueryFilter
     }
 
     /**
-     * @return True if the slice represented by the given ColumnKeys might contain matching columns.
+     * @return A MatchResult indicating whether the Slice between the given keys may match the filter, and where
+     * the next possible match is.
      */
-    public boolean matches(ColumnKey begin, ColumnKey end)
+    public MatchResult<ColumnKey> matches(ColumnKey begin, ColumnKey end)
     {
-        if (!keyFilter().matchesBetween(begin.dk, end.dk))
-            return false;
+        if (!keyFilter().matchesBetween(begin.dk, end.dk).matched)
+            return MatchResult.NOMATCH_CONT;
         for (int i = 1; i <= comp.columnDepth(); i++)
         {
-            if (!nameFilter(i).matchesBetween(begin.name(i), end.name(i)))
-                return false;
+            if (!nameFilter(i).matchesBetween(begin.name(i), end.name(i)).matched)
+                return MatchResult.NOMATCH_CONT;
         }
-        return true;
+        return MatchResult.MATCH_CONT;
     }
 
     public String getColumnFamilyName()

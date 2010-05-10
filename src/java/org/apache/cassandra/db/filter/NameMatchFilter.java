@@ -39,9 +39,15 @@ public class NameMatchFilter implements IFilter<byte[]>
     }
 
     @Override
-    public boolean matchesBetween(byte[] begin, byte[] end)
+    public MatchResult<byte[]> matchesBetween(byte[] begin, byte[] end)
     {
-        return comp.compare(begin, name) <= 0 && comp.compare(name, end) <= 0;
+        if (comp.compare(end, name) < 0)
+            // positioned before our name: instruct the scanner to seek forward
+            return MatchResult.<byte[]>get(false, MatchResult.OP_SEEK, name);
+        if (comp.compare(name, begin) < 0)
+            // positioned after our name: indicate that we are finished
+            return MatchResult.NOMATCH_DONE;
+        return MatchResult.MATCH_CONT;
     }
 
     @Override

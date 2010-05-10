@@ -82,7 +82,7 @@ public class FilteredScanner extends AbstractIterator<ASlice> implements Scanner
         while (scanner.hasNext())
         {
             ASlice slice = scanner.next();
-            if (filter.matches(slice.begin, slice.end))
+            if (filter.matches(slice.begin, slice.end).matched)
                 return slice;
         }
         

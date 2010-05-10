@@ -39,16 +39,19 @@ class KeyRangeFilter implements IFilter<DecoratedKey>
     }
 
     @Override
-    public boolean matchesBetween(DecoratedKey begin, DecoratedKey end)
+    public MatchResult<DecoratedKey> matchesBetween(DecoratedKey begin, DecoratedKey end)
     {
-        // TODO: by convention slices always contain children/metadata for a single key, but if we wanted to support range deletes, we could break that convention
+        // TODO: by convention slices always contain children/metadata for a single key, but if we wanted to support
+        // range deletes, we could break that convention
         assert begin.equals(end);
-        return matches(begin);
+
+        if (matches(begin))
+            return MatchResult.MATCH_CONT;
+        // FIXME: should determine if we are before/after our range, and return SEEK/DONE
+        return MatchResult.NOMATCH_CONT;
     }
 
     /**
-     * TODO: Since Tokens may describe multiple Keys, this filter can not be specific to one Key. See #1034.
-     *
      * @return True if this filter matches the given key.
      */
     @Override
