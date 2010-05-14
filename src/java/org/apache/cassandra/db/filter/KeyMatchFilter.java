@@ -34,6 +34,12 @@ class KeyMatchFilter implements IFilter<DecoratedKey>
     }
 
     @Override
+    public DecoratedKey initial()
+    {
+        return key;
+    }
+
+    @Override
     public MatchResult<DecoratedKey> matchesBetween(DecoratedKey begin, DecoratedKey end)
     {
         if (end.compareTo(key) < 0)

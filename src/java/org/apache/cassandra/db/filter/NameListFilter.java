@@ -34,9 +34,16 @@ public class NameListFilter implements IFilter<byte[]>
 
     public NameListFilter(Comparator<byte[]> comp, Collection<byte[]> columns)
     {
+        assert !columns.isEmpty();
         this.comp = comp;
         this.columns = new TreeSet<byte[]>(comp);
         this.columns.addAll(columns);
+    }
+
+    @Override
+    public byte[] initial()
+    {
+        return columns.first();
     }
 
     @Override

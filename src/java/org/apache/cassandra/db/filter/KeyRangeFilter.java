@@ -39,6 +39,13 @@ class KeyRangeFilter implements IFilter<DecoratedKey>
     }
 
     @Override
+    public DecoratedKey initial()
+    {
+        // even if our bounds won't match the left token, we need to begin our search there
+        return new DecoratedKey(bounds.left, null);
+    }
+
+    @Override
     public MatchResult<DecoratedKey> matchesBetween(DecoratedKey begin, DecoratedKey end)
     {
         // TODO: by convention slices always contain children/metadata for a single key, but if we wanted to support

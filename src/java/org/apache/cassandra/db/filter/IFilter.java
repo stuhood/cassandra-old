@@ -32,13 +32,14 @@ import org.apache.cassandra.io.util.FileDataInput;
  * Given an implementation-specific description of what columns to look for, provides methods to match Slices from
  * from a Scanner. QueryFilter takes care of layering IFilters together, so each IFilter deals with a particular
  * level.
- *
- * FIXME: IFilter needs an initialName() method, which will return the first interesting name at its level. This would be
- * used to generate the very first position to seek to in the scanner, and subsequent seek values, when a parent wants
- * to seek.
  */
 public interface IFilter<T>
 {
+    /**
+     * @return The name for the first possible match at this level.
+     */
+    public abstract T initial();
+
     /**
      * @return A MatchResult describing whether the filter might match columns between the given names, and
      * how to look for the next column that might match the filter.

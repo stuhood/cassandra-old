@@ -22,6 +22,7 @@
 package org.apache.cassandra.db.filter;
 
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.service.StorageService;
 
 class KeyIdentityFilter implements IFilter<DecoratedKey>
 {
@@ -35,6 +36,12 @@ class KeyIdentityFilter implements IFilter<DecoratedKey>
     public static KeyIdentityFilter get()
     {
         return SINGLETON;
+    }
+
+    @Override
+    public DecoratedKey initial()
+    {
+        return new DecoratedKey(StorageService.getPartitioner().getMinimumToken(), null);
     }
 
     @Override

@@ -34,13 +34,14 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.service.StorageService;
 
 /**
  * Describes a simple query plan for ranges of columns, with a filter per column parent.
  *
  * TODO: should support the concept of a reversed query natively.
  */
-public final class QueryFilter
+public final class QueryFilter implements IFilter<ColumnKey>
 {
     private final String cfname;
     private final ColumnKey.Comparator comp;
@@ -136,41 +137,67 @@ public final class QueryFilter
     }
 
     /**
+     * @return The initial names for each byte[] name level.
+     */
+    private byte[][] initialNames()
+    {
+        byte[][] names = new byte[comp.columnDepth()][];
+        for (int i = 1; i <= comp.columnDepth(); i++)
+            names[i - 1] = nameFilter(i).initial();
+        return names;
+    }
+
+    @Override
+    public ColumnKey initial()
+    {
+        return new ColumnKey(keyfilter.initial(), initialNames());
+    }
+
+    /**
      * Composes the MatchResults for each level into a final result which describes what the FilteredScanner should do next.
      *
      * @return A MatchResult indicating whether the Slice between the given keys may match the filter, and where
      * the next possible match is.
      */
-    public MatchResult<ColumnKey> matches(ColumnKey begin, ColumnKey end)
+    @Override
+    public MatchResult<ColumnKey> matchesBetween(ColumnKey begin, ColumnKey end)
     {
-        boolean matched = true;
-        int hint = MatchResult.OP_CONT;
-        ColumnKey seekkey = null;
-
         // match the rowkey
         MatchResult<DecoratedKey> dkm = keyFilter().matchesBetween(begin.dk, end.dk);
-        matched &= dkm.matched;
-        if (dkm.hint == MatchResult.OP_SEEK)
+        switch (dkm.hint)
         {
-            // FIXME: when a parent level needs to seek, we should call something like initialName() for remaining
-            // levels: see the IFilter doc
-            hint = dkm.hint;
-            seekkey = new ColumnKey(dkm.seekkey, comp.columnDepth());
-        }
-        else if (dkm.hint == MatchResult.OP_DONE)
-        {
-            hint = dkm.hint;
+            case MatchResult.OP_SEEK:
+                return MatchResult.get(dkm.matched, dkm.hint, new ColumnKey(dkm.seekkey, initialNames()));
+            case MatchResult.OP_DONE:
+                return MatchResult.get(dkm.matched, dkm.hint, null);
+            case MatchResult.OP_CONT:
+                break;
+            default:
+                throw new RuntimeException("Unknown OP for MatchResult.hint: " + dkm.hint);
         }
 
-        // and each name
-        // FIXME: ignoring seek requests from lower levels
+        // continue, and match each name
+        boolean matched = dkm.matched;
+        int hint = dkm.hint;
+        // FIXME: currently ignoring seek requests from lower levels
         for (int i = 1; i <= comp.columnDepth(); i++)
         {
             MatchResult<byte[]> nm = nameFilter(i).matchesBetween(begin.name(i), end.name(i));
             matched &= nm.matched;
         }
 
-        return MatchResult.get(matched, hint, seekkey);
+        return MatchResult.get(matched, hint, null);
+    }
+
+    @Override
+    public boolean matches(ColumnKey key)
+    {
+        if (!keyfilter.matches(key.dk))
+            return false;
+        for (int i = 1; i <= comp.columnDepth(); i++)
+            if (!nameFilter(i).matches(key.name(i)))
+                return false;
+        return true;
     }
 
     public String getColumnFamilyName()

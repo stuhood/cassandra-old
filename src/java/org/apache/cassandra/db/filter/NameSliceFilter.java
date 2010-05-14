@@ -57,6 +57,12 @@ public class NameSliceFilter implements IFilter<byte[]>
         this.bitmasks = bitmasks;
     }
 
+    @Override
+    public byte[] initial()
+    {
+        return start;
+    }
+
     /**
      * Performs non-wrapping intersection: column name slices are (inclusive, inclusive).
      */

@@ -39,6 +39,12 @@ public class NameMatchFilter implements IFilter<byte[]>
     }
 
     @Override
+    public byte[] initial()
+    {
+        return name;
+    }
+
+    @Override
     public MatchResult<byte[]> matchesBetween(byte[] begin, byte[] end)
     {
         if (comp.compare(end, name) < 0)

@@ -77,9 +77,17 @@ public class FilteredScanner extends AbstractIterator<ASlice> implements Scanner
     private boolean takeHint()
     {
         if (result == null)
-            // no hints available: be naive
-            // TODO: before the first match, the filter should still be able to hint at where to seek first
-            return scanner.hasNext();
+        {
+            // first call: seek to the initial hint for the filter
+            try
+            {
+                return scanner.seekNear(filter.initial());
+            }
+            catch (IOException e)
+            {
+                throw new IOError(e);
+            }
+        }
 
         switch (result.hint)
         {
@@ -118,7 +126,7 @@ public class FilteredScanner extends AbstractIterator<ASlice> implements Scanner
         while (takeHint())
         {
             ASlice slice = scanner.next();
-            result = filter.matches(slice.begin, slice.end);
+            result = filter.matchesBetween(slice.begin, slice.end);
             if (result.matched)
                 // slice matched the filter: the hint will be stored for the next call to computeNext
                 return slice;

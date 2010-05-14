@@ -25,7 +25,6 @@ import java.util.Comparator;
 import org.apache.commons.lang.ArrayUtils;
 
 import org.apache.cassandra.db.ColumnKey;
-import org.apache.cassandra.db.SuperColumn;
 
 class NameIdentityFilter implements IFilter<byte[]>
 {
@@ -39,6 +38,12 @@ class NameIdentityFilter implements IFilter<byte[]>
     public static NameIdentityFilter get()
     {
         return SINGLETON;
+    }
+
+    @Override
+    public byte[] initial()
+    {
+        return ColumnKey.NAME_BEGIN;
     }
 
     @Override
