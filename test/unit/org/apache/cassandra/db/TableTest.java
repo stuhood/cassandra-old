@@ -339,9 +339,9 @@ public class TableTest extends CleanupHelper
                 cf = cfStore.getColumnFamily(ROW, new QueryPath("Standard1"), "col5".getBytes(), ArrayUtils.EMPTY_BYTE_ARRAY, false, 2);
                 assertColumns(cf, "col5", "col7");
 
-                cf = cfStore.getColumnFamily(ROW, new QueryPath("Standard1"), "col4".getBytes(), ArrayUtils.EMPTY_BYTE_ARRAY, false, 2);
-                assertColumns(cf, "col4", "col5", "col7");
-                assertColumns(ColumnFamilyStore.removeDeleted(cf, Integer.MAX_VALUE), "col5", "col7");
+                QueryFilter qf = QueryFilter.on(cfStore).forKey(ROW).forSlice(1, "col4".getBytes(), ArrayUtils.EMPTY_BYTE_ARRAY, null, false, 2);
+                assertColumns(cfStore.getColumnFamily(qf), "col4", "col5", "col7");
+                assertColumns(cfStore.getColumnFamily(qf, Integer.MAX_VALUE), "col5", "col7");
 
                 cf = cfStore.getColumnFamily(ROW, new QueryPath("Standard1"), "col5".getBytes(), ArrayUtils.EMPTY_BYTE_ARRAY, true, 2);
                 assertColumns(cf, "col3", "col4", "col5");

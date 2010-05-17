@@ -175,7 +175,7 @@ public class HintedHandOffManager
             while (true)
             {
                 QueryFilter filter = QueryFilter.on(tableName, HINTS_CF).forKey(tableNameKey).forSlice(1, startColumn, ArrayUtils.EMPTY_BYTE_ARRAY, null, false, PAGE_SIZE);
-                ColumnFamily hintColumnFamily = ColumnFamilyStore.removeDeleted(hintStore.getColumnFamily(filter), Integer.MAX_VALUE);
+                ColumnFamily hintColumnFamily = hintStore.getColumnFamily(filter, Integer.MAX_VALUE);
                 if (pagingFinished(hintColumnFamily, startColumn))
                     break;
                 Collection<IColumn> keys = hintColumnFamily.getSortedColumns();
@@ -240,7 +240,7 @@ public class HintedHandOffManager
             while (true)
             {
                 QueryFilter filter = QueryFilter.on(tableName, HINTS_CF).forKey(tableNameKey).forSlice(1, startColumn, ArrayUtils.EMPTY_BYTE_ARRAY, null, false, PAGE_SIZE);
-                ColumnFamily hintColumnFamily = ColumnFamilyStore.removeDeleted(hintStore.getColumnFamily(filter), Integer.MAX_VALUE);
+                ColumnFamily hintColumnFamily = hintStore.getColumnFamily(filter, Integer.MAX_VALUE);
                 if (pagingFinished(hintColumnFamily, startColumn))
                     break;
                 Collection<IColumn> keys = hintColumnFamily.getSortedColumns();
@@ -282,7 +282,7 @@ public class HintedHandOffManager
         while (true)
         {
             QueryFilter filter = QueryFilter.on(Table.SYSTEM_TABLE, HINTS_CF).forKey(oldTableKey).forSlice(1, startCol, ArrayUtils.EMPTY_BYTE_ARRAY, null, false, PAGE_SIZE);
-            ColumnFamily cf = ColumnFamilyStore.removeDeleted(hintStore.getColumnFamily(filter), Integer.MAX_VALUE);
+            ColumnFamily cf = hintStore.getColumnFamily(filter, Integer.MAX_VALUE);
             if (pagingFinished(cf, startCol))
                 break;
             if (newTable != null)

@@ -462,74 +462,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     }
 
     /*
-     FIXME: Deprecated: use ASlice.GCFunction.
-
-     This is complicated because we need to preserve deleted columns, supercolumns, and columnfamilies
-     until they have been deleted for at least GC_GRACE_IN_SECONDS.  But, we do not need to preserve
-     their contents; just the object itself as a "tombstone" that can be used to repair other
-     replicas that do not know about the deletion.
-     */
-    @Deprecated
-    public static ColumnFamily removeDeleted(ColumnFamily cf, int gcBefore)
-    {
-        if (cf == null)
-        {
-            return null;
-        }
-
-        if (cf.isSuper())
-            removeDeletedSuper(cf, gcBefore);
-        else
-            removeDeletedStandard(cf, gcBefore);
-
-        // in case of a timestamp tie, tombstones get priority over non-tombstones.
-        // (we want this to be deterministic to avoid confusion.)
-        if (cf.getColumnCount() == 0 && cf.getLocalDeletionTime() <= gcBefore)
-        {
-            return null;
-        }
-        return cf;
-    }
-
-    private static void removeDeletedStandard(ColumnFamily cf, int gcBefore)
-    {
-        for (byte[] cname : cf.getColumnNames())
-        {
-            IColumn c = cf.getColumnsMap().get(cname);
-            if ((c.isMarkedForDelete() && c.getLocalDeletionTime() <= gcBefore)
-                || c.timestamp() <= cf.getMarkedForDeleteAt())
-            {
-                cf.remove(cname);
-            }
-        }
-    }
-
-    private static void removeDeletedSuper(ColumnFamily cf, int gcBefore)
-    {
-        // TODO assume deletion means "most are deleted?" and add to clone, instead of remove from original?
-        // this could be improved by having compaction, or possibly even removeDeleted, r/m the tombstone
-        // once gcBefore has passed, so if new stuff is added in it doesn't used the wrong algorithm forever
-        for (byte[] cname : cf.getColumnNames())
-        {
-            IColumn c = cf.getColumnsMap().get(cname);
-            long minTimestamp = Math.max(c.getMarkedForDeleteAt(), cf.getMarkedForDeleteAt());
-            for (IColumn subColumn : c.getSubColumns())
-            {
-                if (subColumn.timestamp() <= minTimestamp
-                    || (subColumn.isMarkedForDelete() && subColumn.getLocalDeletionTime() <= gcBefore))
-                {
-                    ((SuperColumn)c).remove(subColumn.name());
-                }
-            }
-            if (c.getSubColumns().isEmpty() && c.getLocalDeletionTime() <= gcBefore)
-            {
-                cf.remove(c.name());
-            }
-        }
-    }
-
-    /*
-     * Called after the Memtable flushes its in-memory data, or we add a file
+    * Called after the Memtable flushes its in-memory data, or we add a file
      * via bootstrap. This information is
      * cached in the ColumnFamilyStore. This is useful for reads because the
      * ColumnFamilyStore first looks in the in-memory store and the into the
@@ -769,7 +702,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             if (cached == null)
                 return null;
 
-            // TODO: excessive nesting? scans, filters, gcs, and then converts to a cf
+            // the cache entry is a full copy of the on-disk content: filter and garbage collect it before returning
             List<ASlice> slices = new ArrayList<ASlice>();
             Scanner rowscanner = filter.filter(new ListScanner(cached, comparator));
             Iterators.addAll(slices, Iterators.transform(rowscanner, new ASlice.GCFunction(gcBefore)));
@@ -785,7 +718,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * @return A filtered list of Slices representing a single row.
      * TODO: Should assert that the QueryFilter only matches a single row.
      */
-    private List<ASlice> getTopLevelColumns(QueryFilter filter, int gcBefore)
+    List<ASlice> getTopLevelColumns(QueryFilter filter, int gcBefore)
     {
         Scanner scanner = getScanner(filter, gcBefore, DatabaseDescriptor.GET_BUFFER_SIZE);
         try

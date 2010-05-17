@@ -27,17 +27,32 @@ import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.AbstractType;
 
-public class NameMatchFilter extends NameListFilter
+public class NameMatchFilter implements IFilter<byte[]>
 {
+    private final Comparator<byte[]> comp;
+    public final byte[] name;
+
     public NameMatchFilter(Comparator<byte[]> comp, byte[] name)
     {
-        super(comp, single(comp, name));
+        this.comp = comp;
+        this.name = name;
     }
 
-    private static SortedSet<byte[]> single(Comparator<byte[]> comp, byte[] name)
+    @Override
+    public boolean matchesBetween(byte[] begin, byte[] end)
     {
-        SortedSet<byte[]> single = new TreeSet<byte[]>(comp);
-        single.add(name);
-        return single;
+        return comp.compare(begin, name) <= 0 && comp.compare(name, end) <= 0;
+    }
+
+    @Override
+    public boolean matches(byte[] name)
+    {
+        return comp.compare(this.name, name) == 0;
+    }
+
+    @Override
+    public String toString()
+    {
+        return "#<NameMatchFilter " + name + ">";
     }
 }

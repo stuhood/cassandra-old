@@ -27,17 +27,18 @@ import org.apache.commons.lang.ArrayUtils;
 import org.apache.cassandra.db.ColumnKey;
 import org.apache.cassandra.db.SuperColumn;
 
-class NameIdentityFilter extends NameSliceFilter
+class NameIdentityFilter implements IFilter<byte[]>
 {
-    public NameIdentityFilter(Comparator<byte[]> comp)
-    {
-        super(comp, ArrayUtils.EMPTY_BYTE_ARRAY, ArrayUtils.EMPTY_BYTE_ARRAY, null, false, Integer.MAX_VALUE);
-    }
+    private final static NameIdentityFilter SINGLETON = new NameIdentityFilter();
 
-    public SuperColumn filterSuperColumn(SuperColumn superColumn, int gcBefore)
+    private NameIdentityFilter() {}
+
+    /**
+     * @return The NameIdentityFilter singleton.
+     */
+    public static NameIdentityFilter get()
     {
-        // no filtering done, deliberately
-        return superColumn;
+        return SINGLETON;
     }
 
     @Override

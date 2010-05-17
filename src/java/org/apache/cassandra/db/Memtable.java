@@ -37,7 +37,7 @@ import org.apache.cassandra.SeekableScanner;
 import org.apache.cassandra.MergingScanner;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.filter.*;
+import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.io.sstable.SSTableReader;
@@ -277,108 +277,6 @@ public class Memtable implements Comparable<Memtable>, IFlushable
     public String getColumnFamilyName()
     {
         return cfs.getColumnFamilyName();
-    }
-
-    /**
-     * obtain an iterator of columns in this memtable in the specified order starting from a given column.
-     */
-    public static IColumnIterator getSliceIterator(final DecoratedKey key, final ColumnFamily cf, NameSliceFilter filter, AbstractType typeComparator)
-    {
-        assert cf != null;
-        Collection<IColumn> rawColumns = cf.getSortedColumns();
-        Collection<IColumn> filteredColumns = filter.applyPredicate(rawColumns);
-
-        final IColumn columns[] = filteredColumns.toArray(new IColumn[0]);
-        // TODO if we are dealing with supercolumns, we need to clone them while we have the read lock since they can be modified later
-        if (filter.reversed)
-            ArrayUtils.reverse(columns);
-        IColumn startIColumn;
-        final boolean isStandard = !cf.isSuper();
-        if (isStandard)
-            startIColumn = new Column(filter.start);
-        else
-            startIColumn = new SuperColumn(filter.start, null); // ok to not have subcolumnComparator since we won't be adding columns to this object
-
-        // can't use a ColumnComparatorFactory comparator since those compare on both name and time (and thus will fail to match
-        // our dummy column, since the time there is arbitrary).
-        Comparator<IColumn> comparator = filter.getColumnComparator(typeComparator);
-        int index;
-        if (filter.start.length == 0 && filter.reversed)
-        {
-            /* scan from the largest column in descending order */
-            index = 0;
-        }
-        else
-        {
-            index = Arrays.binarySearch(columns, startIColumn, comparator);
-        }
-        final int startIndex = index < 0 ? -(index + 1) : index;
-
-        return new AbstractColumnIterator()
-        {
-            private int curIndex_ = startIndex;
-
-            public ColumnFamily getColumnFamily()
-            {
-                return cf;
-            }
-
-            public DecoratedKey getKey()
-            {
-                return key;
-            }
-
-            public boolean hasNext()
-            {
-                return curIndex_ < columns.length;
-            }
-
-            public IColumn next()
-            {
-                // clone supercolumns so caller can freely removeDeleted or otherwise mutate it
-                return isStandard ? columns[curIndex_++] : ((SuperColumn)columns[curIndex_++]).cloneMe();
-            }
-        };
-    }
-
-    public static IColumnIterator getNamesIterator(final DecoratedKey key, final ColumnFamily cf, final NameListFilter filter)
-    {
-        assert cf != null;
-        final boolean isStandard = !cf.isSuper();
-
-        return new SimpleAbstractColumnIterator()
-        {
-            private Iterator<byte[]> iter = filter.columns.iterator();
-            private byte[] current;
-
-            public ColumnFamily getColumnFamily()
-            {
-                return cf;
-            }
-
-            public DecoratedKey getKey()
-            {
-                return key;
-            }
-
-            protected IColumn computeNext()
-            {
-                while (iter.hasNext())
-                {
-                    current = iter.next();
-                    IColumn column = cf.getColumn(current);
-                    if (column != null)
-                        // clone supercolumns so caller can freely removeDeleted or otherwise mutate it
-                        return isStandard ? column : ((SuperColumn)column).cloneMe();
-                }
-                return endOfData();
-            }
-        };
-    }
-
-    public ColumnFamily getColumnFamily(DecoratedKey dk)
-    {
-        return ColumnFamily.fromSlices(cfs.table_, cfs.columnFamily_, rows.get(dk));
     }
 
     void clearUnsafe()

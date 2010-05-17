@@ -28,7 +28,7 @@ import org.apache.cassandra.dht.AbstractBounds;
  * Filters keys that match a given AbstractBounds, which must not wrap. To support
  * wrapping bounds, use an And*Filter of two unwrapped bounds.
  */
-class KeyRangeFilter extends StubFilter<DecoratedKey>
+class KeyRangeFilter implements IFilter<DecoratedKey>
 {
     final AbstractBounds bounds;
 

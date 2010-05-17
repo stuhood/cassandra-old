@@ -100,13 +100,12 @@ public class RemoveSuperColumnTest extends CleanupHelper
     private void validateRemoveTwoSources(DecoratedKey dk) throws IOException
     {
         ColumnFamilyStore store = Table.open("Keyspace1").getColumnFamilyStore("Super1");
-        ColumnFamily resolved = store.getColumnFamily(QueryFilter.on(store).forKey(dk).forName(1, "SC1".getBytes()));
+        QueryFilter keyqf = QueryFilter.on(store).forKey(dk);
+        ColumnFamily resolved = store.getColumnFamily(keyqf.forName(1, "SC1".getBytes()));
         assert resolved.getSortedColumns().iterator().next().getMarkedForDeleteAt() == 1 : resolved;
         assert resolved.getSortedColumns().iterator().next().getSubColumns().size() == 0 : resolved;
-        assertNull(ColumnFamilyStore.removeDeleted(resolved, Integer.MAX_VALUE));
-        assertNull(store.getColumnFamily(QueryFilter.on(store).forKey(dk).forName(1, "SC1".getBytes()), Integer.MAX_VALUE));
-        assertNull(store.getColumnFamily(QueryFilter.on(store).forKey(dk), Integer.MAX_VALUE));
-        assertNull(ColumnFamilyStore.removeDeleted(store.getColumnFamily(QueryFilter.on(store).forKey(dk)), Integer.MAX_VALUE));
+        assertEquals(null, store.getColumnFamily(keyqf.forName(1, "SC1".getBytes()), Integer.MAX_VALUE));
+        assertEquals(null, store.getColumnFamily(keyqf, Integer.MAX_VALUE));
     }
 
     private void validateRemoveCompacted(DecoratedKey dk) throws IOException

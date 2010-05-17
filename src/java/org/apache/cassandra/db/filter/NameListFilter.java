@@ -39,11 +39,6 @@ public class NameListFilter implements IFilter<byte[]>
         this.columns.addAll(columns);
     }
 
-    public IColumnIterator getMemtableColumnIterator(ColumnFamily cf, DecoratedKey key, AbstractType comparator)
-    {
-        return Memtable.getNamesIterator(key, cf, this);
-    }
-
     @Override
     public boolean matchesBetween(byte[] begin, byte[] end)
     {
@@ -58,33 +53,6 @@ public class NameListFilter implements IFilter<byte[]>
     public boolean matches(byte[] name)
     {
         return columns.contains(name);
-    }
-
-    public SuperColumn filterSuperColumn(SuperColumn superColumn, int gcBefore)
-    {
-        for (IColumn column : superColumn.getSubColumns())
-        {
-            if (!columns.contains(column.name()) || !QueryFilter.isRelevant(column, superColumn, gcBefore))
-            {
-                superColumn.remove(column.name());
-            }
-        }
-        return superColumn;
-    }
-
-    public void collectReducedColumns(IColumnContainer container, Iterator<IColumn> reducedColumns, int gcBefore)
-    {
-        while (reducedColumns.hasNext())
-        {
-            IColumn column = reducedColumns.next();
-            if (QueryFilter.isRelevant(column, container, gcBefore))
-                container.addColumn(column);
-        }
-    }
-
-    public Comparator<IColumn> getColumnComparator(AbstractType comparator)
-    {
-        return QueryFilter.getColumnComparator(comparator);
     }
 
     @Override

@@ -50,9 +50,9 @@ public class RemoveColumnFamilyWithFlush2Test extends CleanupHelper
         rm.apply();
         store.forceBlockingFlush();
 
-        ColumnFamily retrieved = store.getColumnFamily(QueryFilter.on(store).forKey(dk).forName(1, "Column1".getBytes()));
-        assert retrieved.isMarkedForDelete();
-        assertNull(retrieved.getColumn("Column1".getBytes()));
-        assertNull(ColumnFamilyStore.removeDeleted(retrieved, Integer.MAX_VALUE));
+        QueryFilter qf = QueryFilter.on(store).forKey(dk).forName(1, "Column1".getBytes());
+        assert store.getColumnFamily(qf).isMarkedForDelete();
+        assertNull(store.getColumnFamily(qf).getColumn("Column1".getBytes()));
+        assertNull(store.getColumnFamily(qf, Integer.MAX_VALUE));
     }
 }

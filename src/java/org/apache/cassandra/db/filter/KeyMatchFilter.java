@@ -23,7 +23,7 @@ package org.apache.cassandra.db.filter;
 
 import org.apache.cassandra.db.DecoratedKey;
 
-class KeyMatchFilter extends StubFilter<DecoratedKey>
+class KeyMatchFilter implements IFilter<DecoratedKey>
 {
     final DecoratedKey key;
 

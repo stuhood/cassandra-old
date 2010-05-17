@@ -29,12 +29,11 @@ import java.security.NoSuchAlgorithmException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.db.filter.SimpleAbstractColumnIterator;
 import org.apache.cassandra.io.ICompactSerializer;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
 
-public class Row extends SimpleAbstractColumnIterator
+public class Row
 {
     private static Logger logger_ = LoggerFactory.getLogger(Row.class);
     private static RowSerializer serializer = new RowSerializer();
@@ -62,28 +61,6 @@ public class Row extends SimpleAbstractColumnIterator
                "key=" + key +
                ", cf=" + cf +
                ')';
-    }
-
-    /**************************************************************
-     * FIXME: shims for temporary implementation of IColumnIterator
-     **************************************************************/
-
-    private Iterator<IColumn> iter = null;
-
-    @Override
-    public void close() {}
-    @Override
-    public DecoratedKey getKey() { return key; }
-    @Override
-    public ColumnFamily getColumnFamily() { return cf; }
-    @Override
-    public IColumn computeNext()
-    {
-        if (iter == null)
-            iter = cf.getSortedColumns().iterator();
-        if (!iter.hasNext())
-            return endOfData();
-        return iter.next();
     }
 }
 

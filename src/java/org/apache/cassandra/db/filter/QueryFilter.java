@@ -58,7 +58,7 @@ public final class QueryFilter
         int depth = comp.columnDepth();
         this.filters = new ArrayList<IFilter<byte[]>>(depth);
         for (int i = 1; i <= depth; i++)
-            this.filters.add(new NameIdentityFilter(comp.comparatorAt(i)));
+            this.filters.add(NameIdentityFilter.get());
     }
 
     protected QueryFilter(String cfname, ColumnKey.Comparator comp, IFilter<DecoratedKey> keyfilter, List<IFilter<byte[]>> filters)
@@ -134,86 +134,9 @@ public final class QueryFilter
         return true;
     }
 
-    public IColumnIterator getMemtableColumnIterator(Memtable memtable, AbstractType comparator)
-    {
-        ColumnFamily cf = memtable.getColumnFamily(key());
-        if (cf == null)
-            return null;
-        return getMemtableColumnIterator(cf, key(), comparator);
-    }
-
-    public IColumnIterator getMemtableColumnIterator(ColumnFamily cf, DecoratedKey key, AbstractType comparator)
-    {
-        assert cf != null;
-        return filters.get(0).getMemtableColumnIterator(cf, key, comparator);
-    }
-
-    public static Comparator<IColumn> getColumnComparator(final AbstractType comparator)
-    {
-        return new Comparator<IColumn>()
-        {
-            public int compare(IColumn c1, IColumn c2)
-            {
-                return comparator.compare(c1.name(), c2.name());
-            }
-        };
-    }
-    
-    public void collectCollatedColumns(final ColumnFamily returnCF, Iterator<IColumn> collatedColumns, final int gcBefore)
-    {
-        // define a 'reduced' iterator that merges columns w/ the same name, which
-        // greatly simplifies computing liveColumns in the presence of tombstones.
-        ReducingIterator<IColumn, IColumn> reduced = new ReducingIterator<IColumn, IColumn>(collatedColumns)
-        {
-            ColumnFamily curCF = returnCF.cloneMeShallow();
-
-            protected boolean isEqual(IColumn o1, IColumn o2)
-            {
-                return Arrays.equals(o1.name(), o2.name());
-            }
-
-            public void reduce(IColumn current)
-            {
-                curCF.addColumn(current);
-            }
-
-            protected IColumn getReduced()
-            {
-                IColumn c = curCF.getSortedColumns().iterator().next();
-                if (filters.size() == 2)
-                {
-                    // filterSuperColumn only looks at immediate parent (the supercolumn) when determining if a subcolumn
-                    // is still live, i.e., not shadowed by the parent's tombstone.  so, bump it up temporarily to the tombstone
-                    // time of the cf, if that is greater.
-                    long deletedAt = c.getMarkedForDeleteAt();
-                    if (returnCF.getMarkedForDeleteAt() > deletedAt)
-                        ((SuperColumn)c).markForDeleteAt(c.getLocalDeletionTime(), returnCF.getMarkedForDeleteAt());
-
-                    // subcolumn filter
-                    c = nameFilter(2).filterSuperColumn((SuperColumn)c, gcBefore);
-                    ((SuperColumn)c).markForDeleteAt(c.getLocalDeletionTime(), deletedAt); // reset sc tombstone time to what it should be
-                }
-                curCF.clear();
-                return c;
-            }
-        };
-
-        filters.get(0).collectReducedColumns(returnCF, reduced, gcBefore);
-    }
-
     public String getColumnFamilyName()
     {
         return cfname;
-    }
-
-    public static boolean isRelevant(IColumn column, IColumnContainer container, int gcBefore)
-    {
-        // the column itself must be not gc-able (it is live, or a still relevant tombstone, or has live subcolumns), (1)
-        // and if its container is deleted, the column must be changed more recently than the container tombstone (2)
-        // (since otherwise, the only thing repair cares about is the container tombstone)
-        long maxChange = column.mostRecentLiveChangeAt();
-        return (!column.isMarkedForDelete() || column.getLocalDeletionTime() > gcBefore || maxChange > column.getMarkedForDeleteAt()) // (1)
-               && (!container.isMarkedForDelete() || maxChange > container.getMarkedForDeleteAt()); // (2)
     }
 
     /**

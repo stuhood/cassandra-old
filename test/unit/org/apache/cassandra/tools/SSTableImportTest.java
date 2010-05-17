@@ -54,8 +54,7 @@ public class SSTableImportTest extends SchemaLoader
         // Verify results
         SSTableReader reader = SSTableReader.open(tempSS.getPath(), DatabaseDescriptor.getPartitioner());
         QueryFilter qf = QueryFilter.on("Keyspace1", "Standard1").forKey(Util.dk("rowA")).forName(1, "colAA".getBytes());
-        Scanner scanner = qf.filter(reader.getScanner(1024));
-        ColumnFamily cf = new SliceToRowIterator(scanner, reader).next().getColumnFamily();
+        ColumnFamily cf = new SliceToRowIterator(qf.filter(reader.getScanner(1024)), reader).next().cf;
         assert Arrays.equals(cf.getColumn("colAA".getBytes()).value(), hexToBytes("76616c4141"));
     }
 
@@ -69,8 +68,7 @@ public class SSTableImportTest extends SchemaLoader
         // Verify results
         SSTableReader reader = SSTableReader.open(tempSS.getPath(), DatabaseDescriptor.getPartitioner());
         QueryFilter qf = QueryFilter.on("Keyspace1", "Super4").forKey(Util.dk("rowA")).forName(1, "superA".getBytes());
-        Scanner scanner = qf.filter(reader.getScanner(1024));
-        ColumnFamily cf = new SliceToRowIterator(scanner, reader).next().getColumnFamily();
+        ColumnFamily cf = new SliceToRowIterator(qf.filter(reader.getScanner(1024)), reader).next().cf;
         IColumn superCol = cf.getColumn("superA".getBytes());
         assert Arrays.equals(superCol.getSubColumn("colAA".getBytes()).value(), hexToBytes("76616c75654141"));
     }

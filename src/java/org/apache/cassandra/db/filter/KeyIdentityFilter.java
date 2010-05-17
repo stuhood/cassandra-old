@@ -23,7 +23,7 @@ package org.apache.cassandra.db.filter;
 
 import org.apache.cassandra.db.DecoratedKey;
 
-class KeyIdentityFilter extends StubFilter<DecoratedKey>
+class KeyIdentityFilter implements IFilter<DecoratedKey>
 {
     private final static KeyIdentityFilter SINGLETON = new KeyIdentityFilter();
 

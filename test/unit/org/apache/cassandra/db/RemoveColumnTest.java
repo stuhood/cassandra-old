@@ -51,9 +51,9 @@ public class RemoveColumnTest extends CleanupHelper
         rm.delete(new QueryPath("Standard1", null, "Column1".getBytes()), 1);
         rm.apply();
 
-        ColumnFamily retrieved = store.getColumnFamily(QueryFilter.on(store).forKey(dk).forName(1, "Column1".getBytes()));
-        assert retrieved.getColumn("Column1".getBytes()).isMarkedForDelete();
-        assertNull(ColumnFamilyStore.removeDeleted(retrieved, Integer.MAX_VALUE));
-        assertNull(ColumnFamilyStore.removeDeleted(store.getColumnFamily(QueryFilter.on(store).forKey(dk)), Integer.MAX_VALUE));
+        QueryFilter qf = QueryFilter.on(store).forKey(dk).forName(1, "Column1".getBytes());
+        assert store.getColumnFamily(qf).getColumn("Column1".getBytes()).isMarkedForDelete();
+        assertNull(store.getColumnFamily(qf, Integer.MAX_VALUE));
+        assertNull(store.getColumnFamily(QueryFilter.on(store).forKey(dk), Integer.MAX_VALUE));
     }
 }

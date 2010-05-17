@@ -38,12 +38,6 @@ import org.apache.cassandra.io.util.FileDataInput;
 public interface IFilter<T>
 {
     /**
-     * returns an iterator that returns columns from the given memtable
-     * matching the Filter criteria in sorted order.
-     */
-    public abstract IColumnIterator getMemtableColumnIterator(ColumnFamily cf, DecoratedKey key, AbstractType comparator);
-
-    /**
      * @return True if this filter might match columns between the given names.
      */
     public abstract boolean matchesBetween(T begin, T end);
@@ -52,19 +46,4 @@ public interface IFilter<T>
      * @return True if this filter matches the given name (assuming that parents match).
      */
     public abstract boolean matches(T name);
-
-    /**
-     * collects columns from reducedColumns into returnCF.  Termination is determined
-     * by the filter code, which should have some limit on the number of columns
-     * to avoid running out of memory on large rows.
-     */
-    public abstract void collectReducedColumns(IColumnContainer container, Iterator<IColumn> reducedColumns, int gcBefore);
-
-    /**
-     * subcolumns of a supercolumn are unindexed, so to pick out parts of those we operate in-memory.
-     * @param superColumn may be modified by filtering op.
-     */
-    public abstract SuperColumn filterSuperColumn(SuperColumn superColumn, int gcBefore);
-
-    public Comparator<IColumn> getColumnComparator(AbstractType comparator);
 }
