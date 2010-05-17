@@ -29,6 +29,9 @@ import java.nio.MappedByteBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.Scanner;
+import org.apache.cassandra.SeekableScanner;
+
 import org.apache.cassandra.cache.InstrumentedCache;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.service.StorageService;
@@ -217,14 +220,6 @@ public abstract class SSTableReader extends SSTable implements Comparable<SSTabl
     public abstract PositionSize getPosition(DecoratedKey decoratedKey) throws IOException;
 
     /**
-     * Like getPosition, but if key is not found will return the location of the
-     * first key _greater_ than the desired one, or -1 if no such key exists.
-     * FIXME: should not be public: use Scanner.
-     */
-    @Deprecated
-    public abstract long getNearestPosition(DecoratedKey decoratedKey) throws IOException;
-
-    /**
      * @return The length in bytes of the data file for this SSTable.
      */
     public abstract long length();
@@ -249,14 +244,13 @@ public abstract class SSTableReader extends SSTable implements Comparable<SSTabl
      * @param bufferSize Buffer size in bytes for this Scanner.
      * @return A Scanner for seeking over the rows of the SSTable.
      */
-    public abstract SSTableScanner getScanner(int bufferSize);
+    public abstract SeekableScanner getScanner(int bufferSize);
 
     /**
-     * @param bufferSize Buffer size in bytes for this Scanner.
-     * @param filter filter to use when reading the columns
-     * @return A Scanner for seeking over the rows of the SSTable.
+     * FIXME: Shim
      */
-    public abstract SSTableScanner getScanner(int bufferSize, QueryFilter filter);
+    @Deprecated
+    public abstract RowIndexedIColumnIteratorIterator getIterator(int bufferSize, QueryFilter filter);
     
     /**
      * FIXME: should not be public: use Scanner.

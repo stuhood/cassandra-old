@@ -30,10 +30,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.commons.lang.StringUtils;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.utils.BloomFilter;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.ColumnKey;
 
 import com.google.common.base.Objects;
 
@@ -61,6 +63,7 @@ public abstract class SSTable
     public static final String COMPONENT_COMPACTED = "Compacted";
 
     protected Descriptor desc;
+    protected final ColumnKey.Comparator comparator;
     protected IPartitioner partitioner;
     protected BloomFilter bf;
     protected IndexSummary indexSummary;
@@ -69,15 +72,20 @@ public abstract class SSTable
 
     protected SSTable(String filename, IPartitioner partitioner)
     {
-        assert filename.endsWith("-" + COMPONENT_DATA);
-        this.desc = Descriptor.fromFilename(filename);
-        this.partitioner = partitioner;
+        this(Descriptor.fromFilename(filename), partitioner);
     }
 
     protected SSTable(Descriptor desc, IPartitioner partitioner)
     {
         this.desc = desc;
         this.partitioner = partitioner;
+
+        comparator = ColumnKey.getComparator(getTableName(), getColumnFamilyName());
+    }
+
+    public ColumnKey.Comparator getComparator()
+    {
+        return comparator;
     }
 
     public IPartitioner getPartitioner()

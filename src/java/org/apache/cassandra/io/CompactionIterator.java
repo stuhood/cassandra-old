@@ -33,13 +33,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.commons.collections.iterators.CollatingIterator;
 
+import org.apache.cassandra.Scanner;
+
 import org.apache.cassandra.utils.ReducingIterator;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.io.sstable.SSTableReader;
-import org.apache.cassandra.io.sstable.SSTableScanner;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 
 public class CompactionIterator extends ReducingIterator<SSTableIdentityIterator, CompactionIterator.CompactedRow> implements Closeable
@@ -67,7 +68,7 @@ public class CompactionIterator extends ReducingIterator<SSTableIdentityIterator
         super(iter);
         row = 0;
         totalBytes = bytesRead = 0;
-        for (SSTableScanner scanner : getScanners())
+        for (Scanner scanner : getScanners())
         {
             totalBytes += scanner.getFileLength();
         }
@@ -153,7 +154,7 @@ public class CompactionIterator extends ReducingIterator<SSTableIdentityIterator
             if ((row++ % 1000) == 0)
             {
                 bytesRead = 0;
-                for (SSTableScanner scanner : getScanners())
+                for (Scanner scanner : getScanners())
                 {
                     bytesRead += scanner.getFilePointer();
                 }
@@ -164,13 +165,13 @@ public class CompactionIterator extends ReducingIterator<SSTableIdentityIterator
 
     public void close() throws IOException
     {
-        for (SSTableScanner scanner : getScanners())
+        for (Scanner scanner : getScanners())
         {
             scanner.close();
         }
     }
 
-    protected Iterable<SSTableScanner> getScanners()
+    protected Iterable<Scanner> getScanners()
     {
         return ((CollatingIterator)source).getIterators();
     }

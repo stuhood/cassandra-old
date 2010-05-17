@@ -31,6 +31,7 @@ import javax.management.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.Scanner;
 
 import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
 import org.apache.cassandra.dht.Range;
@@ -554,7 +555,7 @@ public class CompactionManager implements CompactionManagerMBean
 
     private static class AntiCompactionIterator extends CompactionIterator
     {
-        private Set<SSTableScanner> scanners;
+        private Set<Scanner> scanners;
 
         public AntiCompactionIterator(Collection<SSTableReader> sstables, Collection<Range> ranges, int gcBefore, boolean isMajor)
                 throws IOException
@@ -575,20 +576,20 @@ public class CompactionManager implements CompactionManagerMBean
             CollatingIterator iter = FBUtilities.<SSTableIdentityIterator>getCollatingIterator();
             for (SSTableReader sstable : sstables)
             {
-                SSTableScanner scanner = sstable.getScanner(FILE_BUFFER_SIZE);
+                Scanner scanner = sstable.getScanner(FILE_BUFFER_SIZE);
                 iter.addIterator(new FilterIterator(scanner, rangesPredicate));
             }
             return iter;
         }
 
-        public Iterable<SSTableScanner> getScanners()
+        public Iterable<Scanner> getScanners()
         {
             if (scanners == null)
             {
-                scanners = new HashSet<SSTableScanner>();
+                scanners = new HashSet<Scanner>();
                 for (Object o : ((CollatingIterator)source).getIterators())
                 {
-                    scanners.add((SSTableScanner)((FilterIterator)o).getIterator());
+                    scanners.add((Scanner)((FilterIterator)o).getIterator());
                 }
             }
             return scanners;

@@ -29,6 +29,8 @@ import java.nio.MappedByteBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.SeekableScanner;
+
 import org.apache.cassandra.cache.InstrumentedCache;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Range;
@@ -395,7 +397,7 @@ class RowIndexedReader extends SSTableReader
     }
 
     /** like getPosition, but if key is not found will return the location of the first key _greater_ than the desired one, or -1 if no such key exists. */
-    public long getNearestPosition(DecoratedKey decoratedKey) throws IOException
+    long getNearestPosition(DecoratedKey decoratedKey) throws IOException
     {
         IndexSummary.KeyPosition sampledPosition = getIndexScanPosition(decoratedKey);
         if (sampledPosition == null)
@@ -446,14 +448,20 @@ class RowIndexedReader extends SSTableReader
         bf = BloomFilter.alwaysMatchingBloomFilter();
     }
 
-    public SSTableScanner getScanner(int bufferSize)
+    public SeekableScanner getScanner(int bufferSize)
     {
+        if (makeColumnFamily().isSuper())
+            return new RowIndexedSuperScanner(this, bufferSize);
         return new RowIndexedScanner(this, bufferSize);
     }
 
-    public SSTableScanner getScanner(int bufferSize, QueryFilter filter)
+    /**
+     * FIXME: Shim
+     */
+    @Deprecated
+    public RowIndexedIColumnIteratorIterator getIterator(int bufferSize, QueryFilter filter)
     {
-        return new RowIndexedScanner(this, filter, bufferSize);
+        return new RowIndexedIColumnIteratorIterator(this, filter, bufferSize);
     }
     
     public FileDataInput getFileDataInput(DecoratedKey decoratedKey, int bufferSize)

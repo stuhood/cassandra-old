@@ -22,6 +22,8 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 
+import org.apache.cassandra.Scanner;
+
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamily;
@@ -29,6 +31,7 @@ import org.apache.cassandra.db.IColumn;
 import org.apache.cassandra.db.filter.NamesQueryFilter;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.filter.QueryPath;
+import org.apache.cassandra.db.SliceToRowIterator;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import static org.apache.cassandra.utils.FBUtilities.hexToBytes;
 import static org.apache.cassandra.io.sstable.SSTableUtils.tempSSTableFile;

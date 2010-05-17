@@ -19,177 +19,320 @@
 
 package org.apache.cassandra.io.sstable;
 
-import java.io.IOException;
-import java.io.IOError;
-import java.util.Iterator;
-import java.util.Arrays;
+import java.io.*;
+import java.util.*;
 
-import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.ASlice;
+import org.apache.cassandra.Slice;
+import org.apache.cassandra.SeekableScanner;
+
+import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.IColumnIterator;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
 
+import com.google.common.collect.AbstractIterator;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
-public class RowIndexedScanner extends SSTableScanner
+/**
+ * Scanner for the file format containing per-row indexes and filters.
+ */
+public class RowIndexedScanner implements SeekableScanner
 {
     private static Logger logger = LoggerFactory.getLogger(RowIndexedScanner.class);
 
-    private final BufferedRandomAccessFile file;
-    private final SSTableReader sstable;
-    private IColumnIterator row;
-    private boolean exhausted = false;
-    private Iterator<IColumnIterator> iterator;
-    private QueryFilter filter;
+    private final RowIndexedReader reader;
+    private final long length;
+    private final int bufferSize;
+    private BufferedRandomAccessFile file;
+    private final ColumnFamily emptycf; // always empty: just a metadata holder
 
     /**
-     * @param sstable SSTable to scan.
+     * State related to the current row.
      */
-    RowIndexedScanner(SSTableReader sstable, int bufferSize)
+    protected Slice.Metadata rowmeta;
+    protected DecoratedKey rowkey;
+    private long rowoffset;            // immediately before the key
+    private long rowdataoffset;        // after key and length
+    private long rowcolsoffset;        // at first column
+    private int rowlength;
+    private List<IndexHelper.IndexInfo> rowindex;
+    private int chunkpos; // position of current chunk in the rowindex
+
+    /**
+     * @param reader SSTable to scan.
+     * @param bufferSize Buffer size for the file backing the scanner (if supported).
+     */
+    RowIndexedScanner(RowIndexedReader reader, int bufferSize)
     {
-        try
-        {
-            this.file = new BufferedRandomAccessFile(sstable.getFilename(), "r", bufferSize);
-        }
-        catch (IOException e)
-        {
-            throw new IOError(e);
-        }
-        this.sstable = sstable;
+        super();
+        this.reader = reader;
+        this.length = reader.length();
+        this.bufferSize = bufferSize;
+        emptycf = reader.makeColumnFamily();
     }
     
-    /**
-     * @param sstable SSTable to scan.
-     * @param filter filter to use when scanning the columns
-     */
-    RowIndexedScanner(SSTableReader sstable, QueryFilter filter, int bufferSize)
+    @Override
+    public ColumnKey.Comparator comparator()
     {
-        try
-        {
-            this.file = new BufferedRandomAccessFile(sstable.getFilename(), "r", bufferSize);
-        }
-        catch (IOException e)
-        {
-            throw new IOError(e);
-        }
-        this.sstable = sstable;
-        this.filter = filter;
+        return reader.getComparator();
     }
 
+    /**
+     * Moves to the row at the given offset, lazily (re)opening the file if necessary.
+     */
+    protected void repositionRow(long offset) throws IOException
+    {
+        if (file == null)
+            file = new BufferedRandomAccessFile(reader.getFilename(), "r", bufferSize);
+        file.seek(offset);
+
+        // update mutable state for the row
+        rowoffset = offset;
+        rowkey = reader.getPartitioner().convertFromDiskFormat(FBUtilities.readShortByteArray(file));
+        rowlength = file.readInt();
+        rowdataoffset = file.getFilePointer();
+        // TODO: selectively load bloom filter?
+        IndexHelper.skipBloomFilter(file);
+        rowindex = IndexHelper.deserializeIndex(file);
+        // row metadata
+        ColumnFamily.serializer().deserializeFromSSTableNoColumns(emptycf, file);
+        rowmeta = new Slice.Metadata(emptycf.getMarkedForDeleteAt(),
+                                     emptycf.getLocalDeletionTime());
+
+        // current slice within the cf
+        chunkpos = -1;
+        file.readInt(); // column count
+        rowcolsoffset = file.getFilePointer();
+    }
+
+    /**
+     * @return True if this row has no chunks/columns.
+     */
+    protected boolean rowIsTombstone()
+    {
+        return rowindex.isEmpty();
+    }
+
+    /**
+     * Moves to the next index chunk: assumes a row is open.
+     */
+    protected boolean incrementChunk() throws IOException
+    {
+        if (chunkpos < rowindex.size() - 1)
+        {
+            // next index chunk in the current row
+            chunkpos++;
+            return true;
+        }
+        if (chunkpos == -1 && rowIsTombstone())
+        {
+            // row is a tombstone: read the single empty slice for its metadata
+            chunkpos++;
+            return true;
+        }
+        if (rowdataoffset + rowlength < length)
+        {
+            // next row in the file
+            repositionRow(rowdataoffset + rowlength);
+            chunkpos++;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Un-positions a Scanner, so that it isn't pointed anywhere.
+     */
+    protected void clearPosition()
+    {
+        rowmeta = null;
+    }
+
+    @Override
     public void close() throws IOException
     {
-        file.close();
+        if (file != null)
+            file.close();
     }
 
-    public void seekTo(DecoratedKey seekKey)
+    @Override
+    public long getBytesRemaining()
+    {
+        if (file == null)
+            return length;
+        return length - file.getFilePointer();
+    }
+
+    @Override
+    public boolean first()
     {
         try
         {
-            long position = sstable.getNearestPosition(seekKey);
-            if (position < 0)
-            {
-                exhausted = true;
-                return;
-            }
-            file.seek(position);
-            row = null;
+            repositionRow(0);
         }
         catch (IOException e)
         {
-            throw new RuntimeException("corrupt sstable", e);
+            return false;
         }
+        return true;
     }
 
-    public long getFileLength()
+    @Override
+    public boolean seekNear(DecoratedKey seekKey) throws IOException
     {
+        long position = reader.getNearestPosition(seekKey);
+        if (position < 0)
+        {
+            clearPosition();
+            return false;
+        }
+        repositionRow(position);
+        return true;
+    }
+
+    @Override
+    public boolean seekNear(ColumnKey seekKey) throws IOException
+    {
+        if (!seekNear(seekKey.dk))
+            return false;
+        // positioned at row: seek within rowindex
+        chunkpos = IndexHelper.indexFor(seekKey.name(1), rowindex, reader.getColumnComparator(), false) - 1;
+        return true;
+    }
+
+    @Override
+    public boolean seekTo(DecoratedKey seekKey) throws IOException
+    {
+        SSTable.PositionSize position = reader.getPosition(seekKey);
+        if (position == null)
+        {
+            clearPosition();
+            return false;
+        }
+        repositionRow(position.position);
+        return true;
+    }
+
+    @Override
+    public boolean seekTo(ColumnKey seekKey) throws IOException
+    {
+        if (!seekTo(seekKey.dk))
+            return false;
+        // positioned at row: seek within rowindex
+        chunkpos = IndexHelper.indexFor(seekKey.name(1), rowindex,
+                                        reader.getColumnComparator(), false);
+        if (chunkpos >= rowindex.size())
+            return false;
+        // position before matching chunk
+        chunkpos--;
+        return true;
+    }
+
+    @Override
+    public boolean hasNext()
+    {
+        if (file == null)
+            first();
+
+        if (rowdataoffset + rowlength < length)
+            // more rows in the file
+            return true;
+        if (chunkpos < rowindex.size() - 1)
+            // more chunks in the row
+            return true;
+        if (chunkpos == -1 && rowIsTombstone())
+            // row is a tombstone (no chunks: just metadata)
+            return true;
+        return false;
+    }
+
+    @Override
+    public ASlice next()
+    {
+        if (file == null)
+            first();
         try
         {
-            return file.length();
+            if (incrementChunk())
+                return getChunkSlice();
         }
         catch (IOException e)
         {
             throw new IOError(e);
         }
+        throw new NoSuchElementException();
     }
 
-    public long getFilePointer()
-    {
-        return file.getFilePointer();
-    }
-
-    public boolean hasNext()
-    {
-        if (iterator == null)
-            iterator = exhausted ? Arrays.asList(new IColumnIterator[0]).iterator() : new KeyScanningIterator();
-        return iterator.hasNext();
-    }
-
-    public IColumnIterator next()
-    {
-        if (iterator == null)
-            iterator = exhausted ? Arrays.asList(new IColumnIterator[0]).iterator() : new KeyScanningIterator();
-        return iterator.next();
-    }
-
-    public void remove()
+    @Override
+    public final void remove()
     {
         throw new UnsupportedOperationException();
     }
 
-    private class KeyScanningIterator implements Iterator<IColumnIterator>
+    /**
+     * @return The slice for the current chunk of the index, or an empty (tombstone) slice
+     * if this Row contains no chunks.
+     */
+    private ASlice getChunkSlice() throws IOException
     {
-        private long dataStart;
-        private long finishedAt;
+        assert rowmeta != null;
+
+        ColumnKey begin, end;
+        List<Column> columns;
+        if (!rowIsTombstone())
+        {
+            // slices are inclusive,exclusive, but row indexes are inclusive,inclusive
+            
+            // first column of the chunk (rounded down to NAME_BEGIN for first chunk)
+            byte[] beginb = (chunkpos == 0) ? ColumnKey.NAME_BEGIN : rowindex.get(chunkpos).firstName;
+            begin = new ColumnKey(rowkey, beginb);
+            // first column of next chunk (rounded up to NAME_END for last chunk)
+            byte[] endb = (chunkpos < rowindex.size()-1) ? rowindex.get(chunkpos+1).lastName : ColumnKey.NAME_END;
+            end = new ColumnKey(rowkey, endb);
+
+            // read the columns
+            columns = (List<Column>)getRawColumns();
+        }
+        else
+        {
+            // row is a tombstone: metadata covers entire row
+            begin = new ColumnKey(rowkey, ColumnKey.NAME_BEGIN);
+            end = new ColumnKey(rowkey, ColumnKey.NAME_END);
+            columns = skipRow();
+        }
+
+        return new Slice(rowmeta, begin, end, columns);
+    }
+
+    /**
+     * @return Un-typed columns from disk for the current chunk of the index.
+     */
+    protected List getRawColumns() throws IOException
+    {
+        if (rowmeta == null)
+            return null;
         
-        public boolean hasNext()
-        {
-            try
-            {
-                if (row == null)
-                    return !file.isEOF();
-                return finishedAt < file.length();
-            }
-            catch (IOException e)
-            {
-                throw new RuntimeException(e);
-            }
-        }
+        // read sequential columns from the chunk
+        ArrayList<IColumn> columns = new ArrayList<IColumn>();
+        file.seek(rowcolsoffset + rowindex.get(chunkpos).offset);
+        long chunkend = file.getFilePointer() + rowindex.get(chunkpos).width;
+        while (file.getFilePointer() < chunkend)
+            columns.add(emptycf.getColumnSerializer().deserialize(file));
+        return columns;
+    }
 
-        public IColumnIterator next()
-        {
-            try
-            {
-                if (row != null)
-                    file.seek(finishedAt);
-                assert !file.isEOF();
-
-                DecoratedKey key = StorageService.getPartitioner().convertFromDiskFormat(FBUtilities.readShortByteArray(file));
-                int dataSize = file.readInt();
-                dataStart = file.getFilePointer();
-                finishedAt = dataStart + dataSize;
-
-                if (filter == null)
-                {
-                    return row = new SSTableIdentityIterator(sstable, file, key, dataStart, finishedAt);
-                }
-                else
-                {
-                    return row = filter.getSSTableColumnIterator(sstable, file, key, dataStart);
-                }
-            }
-            catch (IOException e)
-            {
-                throw new RuntimeException(e);
-            }
-        }
-
-        public void remove()
-        {
-            throw new UnsupportedOperationException();
-        }
+    /**
+     * Skip entirely past this row.
+     * @return An empty list.
+     */
+    private List skipRow() throws IOException
+    {
+        file.seek(rowlength + rowdataoffset);
+        return Collections.<IColumn>emptyList();
     }
 }

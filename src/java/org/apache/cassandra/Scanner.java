@@ -17,20 +17,30 @@
  * under the License.
  */
 
-package org.apache.cassandra.io.sstable;
+package org.apache.cassandra;
 
-import java.io.Closeable;
+import java.io.*;
 import java.util.Iterator;
 
-import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.filter.IColumnIterator;
+import org.apache.cassandra.db.ColumnKey;
 
-
-public abstract class SSTableScanner implements Iterator<IColumnIterator>, Closeable
+/**
+ * A Scanner is an Iterator for reading slices in sorted order.
+ */
+public interface Scanner extends Iterator<ASlice>,Closeable
 {
-    public abstract void seekTo(DecoratedKey seekKey);
+    /**
+     * @return The Comparator for the returned Slices.
+     */
+    public ColumnKey.Comparator comparator();
 
-    public abstract long getFileLength();
+    /**
+     * @return The approximate number of bytes remaining in the Scanner.
+     */
+    public long getBytesRemaining();
 
-    public abstract long getFilePointer();
+    /**
+     * Releases any resources associated with this scanner.
+     */
+    public void close() throws IOException;
 }

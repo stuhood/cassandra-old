@@ -28,15 +28,23 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 
+import org.apache.cassandra.Util;
+
 public class SSTableUtils
 {
     // first configured table and cf
     public static String TABLENAME = "Keyspace1";
     public static String CFNAME = "Standard1";
+    public static String SUPERCFNAME = "Super4";
 
     public static ColumnFamily createCF(long mfda, int ldt, IColumn... cols)
     {
-        ColumnFamily cf = ColumnFamily.create(TABLENAME, CFNAME);
+        return createCF(TABLENAME, CFNAME, mfda, ldt, cols);
+    }
+
+    public static ColumnFamily createCF(String ksname, String cfname, long mfda, int ldt, IColumn... cols)
+    {
+        ColumnFamily cf = ColumnFamily.create(ksname, cfname);
         cf.delete(ldt, mfda);
         for (IColumn col : cols)
             cf.addColumn(col);
@@ -61,34 +69,39 @@ public class SSTableUtils
 
     public static SSTableReader writeSSTable(Set<String> keys) throws IOException
     {
-        Map<String, ColumnFamily> map = new HashMap<String, ColumnFamily>();
+        SortedMap<DecoratedKey, ColumnFamily> map = new TreeMap<DecoratedKey, ColumnFamily>();
         for (String key : keys)
         {
             ColumnFamily cf = ColumnFamily.create(TABLENAME, CFNAME);
             cf.addColumn(new Column(key.getBytes(), key.getBytes(), 0));
-            map.put(key, cf);
+            map.put(Util.dk(key), cf);
         }
         return writeSSTable(map);
     }
 
-    public static SSTableReader writeSSTable(Map<String, ColumnFamily> entries) throws IOException
+    public static SSTableReader writeSSTable(SortedMap<DecoratedKey, ColumnFamily> entries) throws IOException
     {
-        Map<byte[], byte[]> map = new HashMap<byte[], byte[]>();
-        for (Map.Entry<String, ColumnFamily> entry : entries.entrySet())
+        return writeSSTable(TABLENAME, CFNAME, entries);
+    }
+
+    public static SSTableReader writeSSTable(String ksname, String cfname, SortedMap<DecoratedKey, ColumnFamily> entries) throws IOException
+    {
+        SortedMap<DecoratedKey, byte[]> map = new TreeMap<DecoratedKey, byte[]>();
+        for (Map.Entry<DecoratedKey, ColumnFamily> entry : entries.entrySet())
         {
             DataOutputBuffer buffer = new DataOutputBuffer();
             ColumnFamily.serializer().serializeWithIndexes(entry.getValue(), buffer);
-            map.put(entry.getKey().getBytes(), buffer.getData());
+            map.put(entry.getKey(), buffer.toByteArray());
         }
-        return writeRawSSTable(TABLENAME, CFNAME, map);
+        return writeRawSSTable(ksname, cfname, map);
     }
 
-    public static SSTableReader writeRawSSTable(String tablename, String cfname, Map<byte[], byte[]> entries) throws IOException
+    public static SSTableReader writeRawSSTable(String tablename, String cfname, Map<DecoratedKey, byte[]> entries) throws IOException
     {
         return writeRawSSTable(null, tablename, cfname, entries);
     }
 
-    public static SSTableReader writeRawSSTable(File datafile, String tablename, String cfname, Map<byte[], byte[]> entries) throws IOException
+    public static SSTableReader writeRawSSTable(File datafile, String tablename, String cfname, Map<DecoratedKey, byte[]> entries) throws IOException
     {
         boolean temporary = false;
         if (datafile == null)
@@ -97,10 +110,7 @@ public class SSTableUtils
             temporary = true;
         }
         SSTableWriter writer = new SSTableWriter(datafile.getAbsolutePath(), entries.size(), StorageService.getPartitioner());
-        SortedMap<DecoratedKey, byte[]> sortedEntries = new TreeMap<DecoratedKey, byte[]>();
-        for (Map.Entry<byte[], byte[]> entry : entries.entrySet())
-            sortedEntries.put(writer.partitioner.decorateKey(entry.getKey()), entry.getValue());
-        for (Map.Entry<DecoratedKey, byte[]> entry : sortedEntries.entrySet())
+        for (Map.Entry<DecoratedKey, byte[]> entry : entries.entrySet())
             writer.append(entry.getKey(), entry.getValue());
         if (temporary)
         {
