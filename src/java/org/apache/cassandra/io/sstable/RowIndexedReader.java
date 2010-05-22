@@ -61,17 +61,16 @@ class RowIndexedReader extends SSTableReader
     // in a perfect world, BUFFER_SIZE would be final, but we need to test with a smaller size to stay sane.
     static long BUFFER_SIZE = Integer.MAX_VALUE;
 
-    // jvm can only map up to 2GB at a time, so we split index/data into segments of that size when using mmap i/o
     private final MappedByteBuffer[] indexBuffers;
     private final MappedByteBuffer[] buffers;
 
     private InstrumentedCache<Pair<Descriptor,DecoratedKey>, PositionSize> keyCache;
 
-    RowIndexedReader(Descriptor desc,
-                     IPartitioner partitioner,
-                     IndexSummary indexSummary,
-                     BloomFilter bloomFilter,
-                     long maxDataAge)
+    private RowIndexedReader(Descriptor desc,
+                             IPartitioner partitioner,
+                             IndexSummary indexSummary,
+                             BloomFilter bloomFilter,
+                             long maxDataAge)
             throws IOException
     {
         super(desc, partitioner, maxDataAge);
@@ -115,24 +114,27 @@ class RowIndexedReader extends SSTableReader
         this.bf = bloomFilter;
     }
 
-    RowIndexedReader(Descriptor desc, IPartitioner partitioner) throws IOException
+    /**
+     * Open a RowIndexedReader.
+     * @param isummary IndexSummary for the reader, or null to load it.
+     * @param bf BloomFilter for the reader, or null to load it.
+     */
+    public static RowIndexedReader open(Descriptor desc, IPartitioner partitioner, IndexSummary isummary, BloomFilter bf, long maxDataAge) throws IOException
     {
-        this(desc, partitioner, null, null, System.currentTimeMillis());
-    }
-
-    public static RowIndexedReader open(Descriptor desc, IPartitioner partitioner) throws IOException
-    {
-        RowIndexedReader sstable = new RowIndexedReader(desc, partitioner);
+        RowIndexedReader sstable = new RowIndexedReader(desc, partitioner, isummary, bf, maxDataAge);
 
         if (desc.versionCompareTo("c") < 0)
         {
             // versions before 'c' encoded keys as utf-16 before hashing to the filter
-            sstable.loadIndexFile(true);
+            if (isummary == null || bf == null)
+                sstable.loadIndexFile(true);
         }
         else
         {
-            sstable.loadIndexFile(false);
-            sstable.loadBloomFilter();
+            if (isummary == null)
+                sstable.loadIndexFile(false);
+            if (bf == null)
+                sstable.loadBloomFilter();
         }
 
         return sstable;
@@ -154,7 +156,7 @@ class RowIndexedReader extends SSTableReader
                                       });
     }
 
-    void loadBloomFilter() throws IOException
+    private void loadBloomFilter() throws IOException
     {
         DataInputStream stream = new DataInputStream(new FileInputStream(filterFilename()));
         try
@@ -170,9 +172,8 @@ class RowIndexedReader extends SSTableReader
     /**
      * @param recreatebloom If true, rebuild the bloom filter based on keys from the index.
      */
-    void loadIndexFile(boolean recreatebloom) throws IOException
+    private void loadIndexFile(boolean recreatebloom) throws IOException
     {
-
         // we read the positions in a BRAF so we don't have to worry about an entry spanning a mmap boundary.
         // any entries that do, we force into the in-memory sample so key lookup can always bsearch within
         // a single mmapped segment.

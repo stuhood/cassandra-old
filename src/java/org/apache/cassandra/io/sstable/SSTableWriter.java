@@ -156,7 +156,7 @@ public class SSTableWriter extends SSTable
         rename(getFilename());
 
         indexSummary.complete();
-        return new RowIndexedReader(newdesc, partitioner, indexSummary, bf, maxDataAge);
+        return RowIndexedReader.open(newdesc, partitioner, indexSummary, bf, maxDataAge);
     }
 
     static String rename(String tmpFilename)
