@@ -74,7 +74,7 @@ public abstract class SSTableReader extends SSTable implements Comparable<SSTabl
                     }
                     catch (IOException e)
                     {
-                        logger.error("Error deleting " + r.path, e);
+                        logger.error("Error deleting " + r.desc, e);
                     }
                 }
             }

@@ -90,19 +90,9 @@ public abstract class SSTable
         return desc;
     }
 
-    public static String indexFilename(String dataFile)
-    {
-        return Descriptor.fromFilename(dataFile).filenameFor(COMPONENT_INDEX);
-    }
-
     public String indexFilename()
     {
         return desc.filenameFor(COMPONENT_INDEX);
-    }
-
-    protected static String compactedFilename(String dataFile)
-    {
-        return Descriptor.fromFilename(dataFile).filenameFor(COMPONENT_COMPACTED);
     }
 
     /**
@@ -116,14 +106,14 @@ public abstract class SSTable
      */
     public static boolean deleteIfCompacted(String dataFilename)
     {
-        if (new File(compactedFilename(dataFilename)).exists())
+        Descriptor desc = Descriptor.fromFilename(dataFilename);
+        if (new File(desc.filenameFor(COMPONENT_COMPACTED)).exists())
         {
             try
             {
-                FileUtils.deleteWithConfirm(new File(dataFilename));
-                FileUtils.deleteWithConfirm(new File(SSTable.indexFilename(dataFilename)));
-                FileUtils.deleteWithConfirm(new File(SSTable.filterFilename(dataFilename)));
-                FileUtils.deleteWithConfirm(new File(SSTable.compactedFilename(dataFilename)));
+                for (String component : getAllComponents())
+                    FileUtils.deleteWithConfirm(new File(desc.filenameFor(component)));
+                FileUtils.deleteWithConfirm(new File(desc.filenameFor(COMPONENT_COMPACTED)));
             }
             catch (IOException e)
             {
@@ -140,11 +130,6 @@ public abstract class SSTable
         return desc.filenameFor(COMPONENT_COMPACTED);
     }
 
-    protected static String filterFilename(String dataFile)
-    {
-        return Descriptor.fromFilename(dataFile).filenameFor(COMPONENT_FILTER);
-    }
-
     public String filterFilename()
     {
         return desc.filenameFor(COMPONENT_FILTER);
@@ -155,8 +140,8 @@ public abstract class SSTable
         return desc.filenameFor(COMPONENT_DATA);
     }
 
-    /** @return component names for files associated w/ this SSTable */
-    public List<String> getAllComponents()
+    /** @return component names for files associated w/ a SSTable */
+    public static List<String> getAllComponents()
     {
         // TODO streaming relies on the -Data (getFilename) file to be last, this is clunky
         return Arrays.asList(COMPONENT_FILTER, COMPONENT_INDEX, COMPONENT_DATA);
@@ -170,11 +155,6 @@ public abstract class SSTable
     public String getTableName()
     {
         return desc.ksname;
-    }
-
-    public static String parseTableName(String filename)
-    {
-        return Descriptor.fromFilename(filename).ksname;        
     }
 
     public static long getTotalBytes(Iterable<SSTableReader> sstables)

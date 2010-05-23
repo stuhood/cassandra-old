@@ -155,7 +155,9 @@ public class SSTableExport
     throws IOException
     {
         IPartitioner partitioner = StorageService.getPartitioner();
-        BufferedRandomAccessFile input = new BufferedRandomAccessFile(SSTable.indexFilename(ssTableFile), "r");
+        SSTable.Descriptor desc = SSTable.Descriptor.fromFilename(ssTableFile);
+        // FIXME: needs an abstraction
+        BufferedRandomAccessFile input = new BufferedRandomAccessFile(desc.filenameFor(SSTable.COMPONENT_INDEX), "r");
         while (!input.isEOF())
         {
             DecoratedKey decoratedKey = partitioner.convertFromDiskFormat(FBUtilities.readShortByteArray(input));

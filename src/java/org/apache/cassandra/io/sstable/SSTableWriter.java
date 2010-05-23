@@ -161,7 +161,7 @@ public class SSTableWriter extends SSTable
 
         // finalize in-memory state for the reader
         indexSummary.complete();
-        SegmentedFile ifile = ibuilder.complete(newdesc.filenameFor(SSTable.COMPONENT_IINDEX));
+        SegmentedFile ifile = ibuilder.complete(newdesc.filenameFor(SSTable.COMPONENT_INDEX));
         SegmentedFile dfile = dbuilder.complete(newdesc.filenameFor(SSTable.COMPONENT_DATA));
 
         return RowIndexedReader.internalOpen(newdesc, partitioner, ifile, dfile, indexSummary, bf, maxDataAge);
@@ -189,9 +189,6 @@ public class SSTableWriter extends SSTable
     
     public static SSTableReader renameAndOpen(String dataFileName) throws IOException
     {
-        SSTableWriter.rename(indexFilename(dataFileName));
-        SSTableWriter.rename(filterFilename(dataFileName));
-        dataFileName = SSTableWriter.rename(dataFileName);
-        return SSTableReader.open(dataFileName);
+        return SSTableReader.open(rename(Descriptor.fromFilename(dataFileName)));
     }
 }

@@ -31,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.io.DeletionService;
+import org.apache.cassandra.io.sstable.SSTable.Descriptor;
 import org.apache.cassandra.io.util.FileUtils;
 
 public class SSTableDeletingReference extends PhantomReference<SSTableReader>
@@ -41,7 +42,7 @@ public class SSTableDeletingReference extends PhantomReference<SSTableReader>
     public static final int RETRY_DELAY = 10000;
 
     private final SSTableTracker tracker;
-    public final String path;
+    public final Descriptor desc;
     private final long size;
     private boolean deleteOnCleanup;
 
@@ -49,7 +50,7 @@ public class SSTableDeletingReference extends PhantomReference<SSTableReader>
     {
         super(referent, q);
         this.tracker = tracker;
-        this.path = referent.getFilename();
+        this.desc = referent.getDescriptor();
         this.size = referent.bytesOnDisk();
     }
 
@@ -77,7 +78,7 @@ public class SSTableDeletingReference extends PhantomReference<SSTableReader>
         @Override
         public void run()
         {
-            File datafile = new File(path);
+            File datafile = new File(desc.filenameFor(SSTable.COMPONENT_DATA));
             if (!datafile.delete())
             {
                 if (attempts++ < DeletionService.MAX_RETRIES)
@@ -87,21 +88,21 @@ public class SSTableDeletingReference extends PhantomReference<SSTableReader>
                 }
                 else
                 {
-                    throw new RuntimeException("Unable to delete " + path);
+                    throw new RuntimeException("Unable to delete " + desc);
                 }
             }
             try
             {
-                FileUtils.deleteWithConfirm(new File(SSTable.indexFilename(path)));
-                FileUtils.deleteWithConfirm(new File(SSTable.filterFilename(path)));
-                FileUtils.deleteWithConfirm(new File(SSTable.compactedFilename(path)));
+                FileUtils.deleteWithConfirm(new File(desc.filenameFor(SSTable.COMPONENT_INDEX)));
+                FileUtils.deleteWithConfirm(new File(desc.filenameFor(SSTable.COMPONENT_FILTER)));
+                FileUtils.deleteWithConfirm(new File(desc.filenameFor(SSTable.COMPONENT_COMPACTED)));
             }
             catch (IOException e)
             {
                 throw new IOError(e);
             }
             tracker.spaceReclaimed(size);
-            logger.info("Deleted " + path);
+            logger.info("Deleted " + desc);
         }
     }
 }
