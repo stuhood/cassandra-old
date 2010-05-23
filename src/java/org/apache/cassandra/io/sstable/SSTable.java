@@ -90,11 +90,6 @@ public abstract class SSTable
         return desc;
     }
 
-    protected static String parseColumnFamilyName(String filename)
-    {
-        return new File(filename).getName().split("-")[0];
-    }
-
     public static String indexFilename(String dataFile)
     {
         return Descriptor.fromFilename(dataFile).filenameFor(COMPONENT_INDEX);
@@ -208,18 +203,6 @@ public abstract class SSTable
         return getClass().getName() + "(" +
                "path='" + getFilename() + '\'' +
                ')';
-    }
-
-    public static class PositionSize
-    {
-        public final long position;
-        public final long size;
-
-        public PositionSize(long position, long size)
-        {
-            this.position = position;
-            this.size = size;
-        }
     }
 
     /**

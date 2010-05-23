@@ -52,6 +52,7 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
 import org.apache.cassandra.io.util.DataOutputBuffer;
+import org.apache.cassandra.io.util.SegmentedFile;
 import org.apache.cassandra.utils.BloomFilter;
 import org.apache.cassandra.utils.FBUtilities;
 
@@ -59,15 +60,19 @@ public class SSTableWriter extends SSTable
 {
     private static Logger logger = LoggerFactory.getLogger(SSTableWriter.class);
 
-    private BufferedRandomAccessFile dataFile;
-    private BufferedRandomAccessFile indexFile;
+    private final SegmentedFile.Builder ibuilder;
+    private final SegmentedFile.Builder dbuilder;
+    private final BufferedRandomAccessFile dataFile;
+    private final BufferedRandomAccessFile indexFile;
+    private final BloomFilter bf;
     private DecoratedKey lastWrittenKey;
-    private BloomFilter bf;
 
     public SSTableWriter(String filename, long keyCount, IPartitioner partitioner) throws IOException
     {
         super(filename, partitioner);
         indexSummary = new IndexSummary();
+        ibuilder = SegmentedFile.getBuilder();
+        dbuilder = SegmentedFile.getBuilder();
         dataFile = new BufferedRandomAccessFile(getFilename(), "rw", (int)(DatabaseDescriptor.getFlushDataBufferSizeInMB() * 1024 * 1024));
         indexFile = new BufferedRandomAccessFile(indexFilename(), "rw", (int)(DatabaseDescriptor.getFlushIndexBufferSizeInMB() * 1024 * 1024));
         bf = BloomFilter.getFilter(keyCount, 15);
@@ -102,8 +107,9 @@ public class SSTableWriter extends SSTable
         if (logger.isTraceEnabled())
             logger.trace("wrote index of " + decoratedKey + " at " + indexPosition);
 
-        int rowSize = (int)(dataFile.getFilePointer() - dataPosition);
-        indexSummary.maybeAddEntry(decoratedKey, dataPosition, rowSize, indexPosition, indexFile.getFilePointer());
+        indexSummary.maybeAddEntry(decoratedKey, indexPosition);
+        ibuilder.addPotentialBoundary(indexPosition);
+        dbuilder.addPotentialBoundary(dataPosition);
     }
 
     // TODO make this take a DataOutputStream and wrap the byte[] version to combine them
@@ -150,27 +156,30 @@ public class SSTableWriter extends SSTable
         // main data
         dataFile.close(); // calls force
 
-        Descriptor newdesc = desc.asTemporary(false);
-        rename(indexFilename());
-        rename(filterFilename());
-        rename(getFilename());
+        // remove the 'tmp' marker from all components
+        Descriptor newdesc = rename(desc);
 
+        // finalize in-memory state for the reader
         indexSummary.complete();
-        return RowIndexedReader.open(newdesc, partitioner, indexSummary, bf, maxDataAge);
+        SegmentedFile ifile = ibuilder.complete(newdesc.filenameFor(SSTable.COMPONENT_IINDEX));
+        SegmentedFile dfile = dbuilder.complete(newdesc.filenameFor(SSTable.COMPONENT_DATA));
+
+        return RowIndexedReader.internalOpen(newdesc, partitioner, ifile, dfile, indexSummary, bf, maxDataAge);
     }
 
-    static String rename(String tmpFilename)
+    static Descriptor rename(Descriptor tmpdesc)
     {
-        String filename = tmpFilename.replace("-" + SSTable.TEMPFILE_MARKER, "");
+        Descriptor newdesc = tmpdesc.asTemporary(false);
         try
         {
-            FBUtilities.renameWithConfirm(tmpFilename, filename);
+            for (String component : getAllComponents())
+                FBUtilities.renameWithConfirm(tmpdesc.filenameFor(component), newdesc.filenameFor(component));
         }
         catch (IOException e)
         {
             throw new IOError(e);
         }
-        return filename;
+        return newdesc;
     }
 
     public long getFilePointer()
