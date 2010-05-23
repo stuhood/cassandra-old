@@ -91,6 +91,11 @@ public class MappedFileDataInput extends InputStream implements FileDataInput
         return position == buffer.capacity();
     }
 
+    public long bytesRemaining() throws IOException
+    {
+        return buffer.capacity() - position;
+    }
+
     public String getPath()
     {
         return filename;

@@ -408,6 +408,11 @@ public class BufferedRandomAccessFile extends RandomAccessFile implements FileDa
         return getFilePointer() == length();
     }
 
+    public long bytesRemaining() throws IOException
+    {
+        return length() - getFilePointer();
+    }
+
     public void mark()
     {
         markedPointer = getFilePointer();
