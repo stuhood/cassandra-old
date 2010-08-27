@@ -37,6 +37,8 @@ dev
  * Add CfDef.default_validation_class (CASSANDRA-891)
  * fix EstimatedHistogram.max (CASSANDRA-1413)
  * handle zero-length (or missing) rows during HH paging (CASSANDRA-1432)
+ * support for Hadoop Streaming [non-jvm map/reduce via stdin/out]
+   (CASSANDRA-1368)
 
 
 0.7-beta1
