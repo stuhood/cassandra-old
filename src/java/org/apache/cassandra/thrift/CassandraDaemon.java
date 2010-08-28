@@ -194,7 +194,7 @@ public class CassandraDaemon extends org.apache.cassandra.service.AbstractCassan
             protected void afterExecute(Runnable r, Throwable t)
             {
                 super.afterExecute(r, t);
-                cassandraServer.clientState.logout();
+                cassandraServer.clientState.get().logout();
             }
         };
         serverEngine = new CustomTThreadPoolServer(new TProcessorFactory(processor),

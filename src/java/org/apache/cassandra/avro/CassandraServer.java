@@ -91,7 +91,14 @@ public class CassandraServer implements Cassandra {
     public final static String D_COLDEF_INDEXNAME = null;
     
     // thread local state containing session information
-    private final ClientState clientState = new ClientState();
+    public final ThreadLocal<ClientState> clientState = new ThreadLocal<ClientState>()
+    {
+        @Override
+        public ClientState initialValue()
+        {
+            return new ClientState();
+        }
+    };
 
     /*
      * RequestScheduler to perform the scheduling of incoming requests
@@ -103,13 +110,18 @@ public class CassandraServer implements Cassandra {
         requestScheduler = DatabaseDescriptor.getRequestScheduler();
     }
 
+    public ClientState state()
+    {
+        return clientState.get();
+    }
+
     @Override
     public ColumnOrSuperColumn get(ByteBuffer key, ColumnPath columnPath, ConsistencyLevel consistencyLevel)
     throws AvroRemoteException, InvalidRequestException, NotFoundException, UnavailableException, TimedOutException {
         if (logger.isDebugEnabled())
             logger.debug("get");
 
-        AvroValidation.validateColumnPath(clientState.getKeyspace(), columnPath);
+        AvroValidation.validateColumnPath(state().getKeyspace(), columnPath);
         
         // FIXME: This is repetitive.
         byte[] column, super_column;
@@ -119,7 +131,7 @@ public class CassandraServer implements Cassandra {
         QueryPath path = new QueryPath(columnPath.column_family.toString(), column == null ? null : super_column);
         List<byte[]> nameAsList = Arrays.asList(column == null ? super_column : column);
         AvroValidation.validateKey(key.array());
-        ReadCommand command = new SliceByNamesReadCommand(clientState.getKeyspace(), key.array(), path, nameAsList);
+        ReadCommand command = new SliceByNamesReadCommand(state().getKeyspace(), key.array(), path, nameAsList);
         
         Map<DecoratedKey<?>, ColumnFamily> cfamilies = readColumnFamily(Arrays.asList(command), consistencyLevel);
         ColumnFamily cf = cfamilies.get(StorageService.getPartitioner().decorateKey(command.key));
@@ -290,7 +302,7 @@ public class CassandraServer implements Cassandra {
         GenericArray<ByteBuffer> keys = new GenericData.Array<ByteBuffer>(1, bytesArray);
         keys.add(key);
         
-        return multigetSliceInternal(clientState.getKeyspace(), keys, columnParent, predicate, consistencyLevel).iterator().next().columns;
+        return multigetSliceInternal(state().getKeyspace(), keys, columnParent, predicate, consistencyLevel).iterator().next().columns;
     }
     
     private GenericArray<CoscsMapEntry> multigetSliceInternal(String keyspace, GenericArray<ByteBuffer> keys,
@@ -367,7 +379,7 @@ public class CassandraServer implements Cassandra {
         if (logger.isDebugEnabled())
             logger.debug("multiget_slice");
         
-        return multigetSliceInternal(clientState.getKeyspace(), keys, columnParent, predicate, consistencyLevel);
+        return multigetSliceInternal(state().getKeyspace(), keys, columnParent, predicate, consistencyLevel);
     }
 
     @Override
@@ -378,10 +390,10 @@ public class CassandraServer implements Cassandra {
             logger.debug("insert");
 
         AvroValidation.validateKey(key.array());
-        AvroValidation.validateColumnParent(clientState.getKeyspace(), parent);
-        AvroValidation.validateColumn(clientState.getKeyspace(), parent, column);
+        AvroValidation.validateColumnParent(state().getKeyspace(), parent);
+        AvroValidation.validateColumn(state().getKeyspace(), parent, column);
 
-        RowMutation rm = new RowMutation(clientState.getKeyspace(), key.array());
+        RowMutation rm = new RowMutation(state().getKeyspace(), key.array());
         try
         {
             rm.add(new QueryPath(parent.column_family.toString(),
@@ -408,10 +420,10 @@ public class CassandraServer implements Cassandra {
             logger.debug("remove");
         
         AvroValidation.validateKey(key.array());
-        AvroValidation.validateColumnPath(clientState.getKeyspace(), columnPath);
+        AvroValidation.validateColumnPath(state().getKeyspace(), columnPath);
         IClock dbClock = AvroValidation.validateClock(clock);
         
-        RowMutation rm = new RowMutation(clientState.getKeyspace(), key.array());
+        RowMutation rm = new RowMutation(state().getKeyspace(), key.array());
         byte[] superName = columnPath.super_column == null ? null : columnPath.super_column.array();
         rm.delete(new QueryPath(columnPath.column_family.toString(), superName), dbClock);
         
@@ -460,9 +472,9 @@ public class CassandraServer implements Cassandra {
                 String cfName = cfMutations.getKey().toString();
                 
                 for (Mutation mutation : cfMutations.getValue())
-                    AvroValidation.validateMutation(clientState.getKeyspace(), cfName, mutation);
+                    AvroValidation.validateMutation(state().getKeyspace(), cfName, mutation);
             }
-            rowMutations.add(getRowMutationFromMutations(clientState.getKeyspace(), pair.key.array(), cfToMutations));
+            rowMutations.add(getRowMutationFromMutations(state().getKeyspace(), pair.key.array(), cfToMutations));
         }
         
         try
@@ -612,7 +624,7 @@ public class CassandraServer implements Cassandra {
             throw newInvalidRequestException("Keyspace does not exist");
         }
         
-        clientState.setKeyspace(keyspaceStr);
+        state().setKeyspace(keyspaceStr);
         return null;
     }
 
@@ -768,7 +780,7 @@ public class CassandraServer implements Cassandra {
     {
         try
         {
-            clientState.hasKeyspaceAccess(perm);
+            state().hasKeyspaceAccess(perm);
         }
         catch (org.apache.cassandra.thrift.InvalidRequestException e)
         {
@@ -781,7 +793,7 @@ public class CassandraServer implements Cassandra {
      */
     private void schedule()
     {
-        requestScheduler.queue(Thread.currentThread(), clientState.getSchedulingId());
+        requestScheduler.queue(Thread.currentThread(), state().getSchedulingId());
     }
 
     /**
@@ -891,7 +903,7 @@ public class CassandraServer implements Cassandra {
         
         try
         {
-            applyMigrationOnStage(new RenameColumnFamily(clientState.getKeyspace(), old_name.toString(), new_name.toString()));
+            applyMigrationOnStage(new RenameColumnFamily(state().getKeyspace(), old_name.toString(), new_name.toString()));
             return DatabaseDescriptor.getDefsVersion().toString();
         }
         catch (ConfigurationException e)
@@ -915,7 +927,7 @@ public class CassandraServer implements Cassandra {
         
         try
         {
-            applyMigrationOnStage(new DropColumnFamily(clientState.getKeyspace(), column_family.toString(), true));
+            applyMigrationOnStage(new DropColumnFamily(state().getKeyspace(), column_family.toString(), true));
             return DatabaseDescriptor.getDefsVersion().toString();
         }
         catch (ConfigurationException e)
