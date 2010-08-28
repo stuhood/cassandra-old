@@ -403,7 +403,7 @@ public class CliClient
         System.exit(0);
     }
     
-    KsDef getKSMetaData(String keyspace) throws NotFoundException, TException
+    KsDef getKSMetaData(String keyspace) throws NotFoundException, InvalidRequestException, TException
     {
         // Lazily lookup keyspace meta-data.
         if (!(keyspacesMap.containsKey(keyspace)))
@@ -916,7 +916,7 @@ public class CliClient
     }
 
     // process "show tables" statement
-    private void executeShowTables(CommonTree ast) throws TException
+    private void executeShowTables(CommonTree ast) throws TException, InvalidRequestException
     {
         if (!CliMain.isConnected())
             return;
@@ -942,7 +942,7 @@ public class CliClient
         return keySpace == null ? "unknown" : keySpace;
     }
     
-    public void setKeyspace(String keySpace) throws NotFoundException, TException 
+    public void setKeyspace(String keySpace) throws NotFoundException, InvalidRequestException, TException 
     {
         this.keySpace = keySpace;
         //We do nothing with the return value, but it hits a cache and
@@ -1078,6 +1078,10 @@ public class CliClient
                 //css_.out.println("      flush period: " + flushperiod + " minutes");
                 css_.out.println("    }");
             }
+        }
+        catch (InvalidRequestException e)
+        {
+            css_.out.println("Invalid request: " + e);
         }
         catch (NotFoundException e)
         {

@@ -181,7 +181,7 @@ public class Cassandra {
     /**
      * list the defined keyspaces in this cluster
      */
-    public List<KsDef> describe_keyspaces() throws TException;
+    public List<KsDef> describe_keyspaces() throws InvalidRequestException, TException;
 
     /**
      * get the cluster name
@@ -217,7 +217,7 @@ public class Cassandra {
      * 
      * @param keyspace
      */
-    public KsDef describe_keyspace(String keyspace) throws NotFoundException, TException;
+    public KsDef describe_keyspace(String keyspace) throws NotFoundException, InvalidRequestException, TException;
 
     /**
      * experimental API for hadoop/parallel query support.
@@ -998,7 +998,7 @@ public class Cassandra {
       throw new TApplicationException(TApplicationException.MISSING_RESULT, "check_schema_agreement failed: unknown result");
     }
 
-    public List<KsDef> describe_keyspaces() throws TException
+    public List<KsDef> describe_keyspaces() throws InvalidRequestException, TException
     {
       send_describe_keyspaces();
       return recv_describe_keyspaces();
@@ -1013,7 +1013,7 @@ public class Cassandra {
       oprot_.getTransport().flush();
     }
 
-    public List<KsDef> recv_describe_keyspaces() throws TException
+    public List<KsDef> recv_describe_keyspaces() throws InvalidRequestException, TException
     {
       TMessage msg = iprot_.readMessageBegin();
       if (msg.type == TMessageType.EXCEPTION) {
@@ -1029,6 +1029,9 @@ public class Cassandra {
       iprot_.readMessageEnd();
       if (result.isSetSuccess()) {
         return result.success;
+      }
+      if (result.ire != null) {
+        throw result.ire;
       }
       throw new TApplicationException(TApplicationException.MISSING_RESULT, "describe_keyspaces failed: unknown result");
     }
@@ -1177,7 +1180,7 @@ public class Cassandra {
       throw new TApplicationException(TApplicationException.MISSING_RESULT, "describe_partitioner failed: unknown result");
     }
 
-    public KsDef describe_keyspace(String keyspace) throws NotFoundException, TException
+    public KsDef describe_keyspace(String keyspace) throws NotFoundException, InvalidRequestException, TException
     {
       send_describe_keyspace(keyspace);
       return recv_describe_keyspace();
@@ -1193,7 +1196,7 @@ public class Cassandra {
       oprot_.getTransport().flush();
     }
 
-    public KsDef recv_describe_keyspace() throws NotFoundException, TException
+    public KsDef recv_describe_keyspace() throws NotFoundException, InvalidRequestException, TException
     {
       TMessage msg = iprot_.readMessageBegin();
       if (msg.type == TMessageType.EXCEPTION) {
@@ -1212,6 +1215,9 @@ public class Cassandra {
       }
       if (result.nfe != null) {
         throw result.nfe;
+      }
+      if (result.ire != null) {
+        throw result.ire;
       }
       throw new TApplicationException(TApplicationException.MISSING_RESULT, "describe_keyspace failed: unknown result");
     }
@@ -2040,7 +2046,7 @@ public class Cassandra {
         prot.writeMessageEnd();
       }
 
-      public List<KsDef> getResult() throws TException {
+      public List<KsDef> getResult() throws InvalidRequestException, TException {
         if (getState() != State.RESPONSE_READ) {
           throw new IllegalStateException("Method call not finished!");
         }
@@ -2186,7 +2192,7 @@ public class Cassandra {
         prot.writeMessageEnd();
       }
 
-      public KsDef getResult() throws NotFoundException, TException {
+      public KsDef getResult() throws NotFoundException, InvalidRequestException, TException {
         if (getState() != State.RESPONSE_READ) {
           throw new IllegalStateException("Method call not finished!");
         }
@@ -3088,7 +3094,19 @@ public class Cassandra {
         }
         iprot.readMessageEnd();
         describe_keyspaces_result result = new describe_keyspaces_result();
-        result.success = iface_.describe_keyspaces();
+        try {
+          result.success = iface_.describe_keyspaces();
+        } catch (InvalidRequestException ire) {
+          result.ire = ire;
+        } catch (Throwable th) {
+          LOGGER.error("Internal error processing describe_keyspaces", th);
+          TApplicationException x = new TApplicationException(TApplicationException.INTERNAL_ERROR, "Internal error processing describe_keyspaces");
+          oprot.writeMessageBegin(new TMessage("describe_keyspaces", TMessageType.EXCEPTION, seqid));
+          x.write(oprot);
+          oprot.writeMessageEnd();
+          oprot.getTransport().flush();
+          return;
+        }
         oprot.writeMessageBegin(new TMessage("describe_keyspaces", TMessageType.REPLY, seqid));
         result.write(oprot);
         oprot.writeMessageEnd();
@@ -3234,6 +3252,8 @@ public class Cassandra {
           result.success = iface_.describe_keyspace(args.keyspace);
         } catch (NotFoundException nfe) {
           result.nfe = nfe;
+        } catch (InvalidRequestException ire) {
+          result.ire = ire;
         } catch (Throwable th) {
           LOGGER.error("Internal error processing describe_keyspace", th);
           TApplicationException x = new TApplicationException(TApplicationException.INTERNAL_ERROR, "Internal error processing describe_keyspace");
@@ -17419,12 +17439,15 @@ public class Cassandra {
     private static final TStruct STRUCT_DESC = new TStruct("describe_keyspaces_result");
 
     private static final TField SUCCESS_FIELD_DESC = new TField("success", TType.LIST, (short)0);
+    private static final TField IRE_FIELD_DESC = new TField("ire", TType.STRUCT, (short)1);
 
     public List<KsDef> success;
+    public InvalidRequestException ire;
 
     /** The set of fields this struct contains, along with convenience methods for finding and manipulating them. */
     public enum _Fields implements TFieldIdEnum {
-      SUCCESS((short)0, "success");
+      SUCCESS((short)0, "success"),
+      IRE((short)1, "ire");
 
       private static final Map<String, _Fields> byName = new HashMap<String, _Fields>();
 
@@ -17441,6 +17464,8 @@ public class Cassandra {
         switch(fieldId) {
           case 0: // SUCCESS
             return SUCCESS;
+          case 1: // IRE
+            return IRE;
           default:
             return null;
         }
@@ -17488,6 +17513,8 @@ public class Cassandra {
       tmpMap.put(_Fields.SUCCESS, new FieldMetaData("success", TFieldRequirementType.DEFAULT, 
           new ListMetaData(TType.LIST, 
               new StructMetaData(TType.STRUCT, KsDef.class))));
+      tmpMap.put(_Fields.IRE, new FieldMetaData("ire", TFieldRequirementType.DEFAULT, 
+          new FieldValueMetaData(TType.STRUCT)));
       metaDataMap = Collections.unmodifiableMap(tmpMap);
       FieldMetaData.addStructMetaDataMap(describe_keyspaces_result.class, metaDataMap);
     }
@@ -17496,10 +17523,12 @@ public class Cassandra {
     }
 
     public describe_keyspaces_result(
-      List<KsDef> success)
+      List<KsDef> success,
+      InvalidRequestException ire)
     {
       this();
       this.success = success;
+      this.ire = ire;
     }
 
     /**
@@ -17512,6 +17541,9 @@ public class Cassandra {
           __this__success.add(new KsDef(other_element));
         }
         this.success = __this__success;
+      }
+      if (other.isSetIre()) {
+        this.ire = new InvalidRequestException(other.ire);
       }
     }
 
@@ -17563,6 +17595,30 @@ public class Cassandra {
       }
     }
 
+    public InvalidRequestException getIre() {
+      return this.ire;
+    }
+
+    public describe_keyspaces_result setIre(InvalidRequestException ire) {
+      this.ire = ire;
+      return this;
+    }
+
+    public void unsetIre() {
+      this.ire = null;
+    }
+
+    /** Returns true if field ire is set (has been asigned a value) and false otherwise */
+    public boolean isSetIre() {
+      return this.ire != null;
+    }
+
+    public void setIreIsSet(boolean value) {
+      if (!value) {
+        this.ire = null;
+      }
+    }
+
     public void setFieldValue(_Fields field, Object value) {
       switch (field) {
       case SUCCESS:
@@ -17570,6 +17626,14 @@ public class Cassandra {
           unsetSuccess();
         } else {
           setSuccess((List<KsDef>)value);
+        }
+        break;
+
+      case IRE:
+        if (value == null) {
+          unsetIre();
+        } else {
+          setIre((InvalidRequestException)value);
         }
         break;
 
@@ -17585,6 +17649,9 @@ public class Cassandra {
       case SUCCESS:
         return getSuccess();
 
+      case IRE:
+        return getIre();
+
       }
       throw new IllegalStateException();
     }
@@ -17598,6 +17665,8 @@ public class Cassandra {
       switch (field) {
       case SUCCESS:
         return isSetSuccess();
+      case IRE:
+        return isSetIre();
       }
       throw new IllegalStateException();
     }
@@ -17628,6 +17697,15 @@ public class Cassandra {
           return false;
       }
 
+      boolean this_present_ire = true && this.isSetIre();
+      boolean that_present_ire = true && that.isSetIre();
+      if (this_present_ire || that_present_ire) {
+        if (!(this_present_ire && that_present_ire))
+          return false;
+        if (!this.ire.equals(that.ire))
+          return false;
+      }
+
       return true;
     }
 
@@ -17649,6 +17727,15 @@ public class Cassandra {
         return lastComparison;
       }
       if (isSetSuccess()) {        lastComparison = TBaseHelper.compareTo(this.success, typedOther.success);
+        if (lastComparison != 0) {
+          return lastComparison;
+        }
+      }
+      lastComparison = Boolean.valueOf(isSetIre()).compareTo(typedOther.isSetIre());
+      if (lastComparison != 0) {
+        return lastComparison;
+      }
+      if (isSetIre()) {        lastComparison = TBaseHelper.compareTo(this.ire, typedOther.ire);
         if (lastComparison != 0) {
           return lastComparison;
         }
@@ -17684,6 +17771,14 @@ public class Cassandra {
               TProtocolUtil.skip(iprot, field.type);
             }
             break;
+          case 1: // IRE
+            if (field.type == TType.STRUCT) {
+              this.ire = new InvalidRequestException();
+              this.ire.read(iprot);
+            } else { 
+              TProtocolUtil.skip(iprot, field.type);
+            }
+            break;
           default:
             TProtocolUtil.skip(iprot, field.type);
         }
@@ -17709,6 +17804,10 @@ public class Cassandra {
           oprot.writeListEnd();
         }
         oprot.writeFieldEnd();
+      } else if (this.isSetIre()) {
+        oprot.writeFieldBegin(IRE_FIELD_DESC);
+        this.ire.write(oprot);
+        oprot.writeFieldEnd();
       }
       oprot.writeFieldStop();
       oprot.writeStructEnd();
@@ -17724,6 +17823,14 @@ public class Cassandra {
         sb.append("null");
       } else {
         sb.append(this.success);
+      }
+      first = false;
+      if (!first) sb.append(", ");
+      sb.append("ire:");
+      if (this.ire == null) {
+        sb.append("null");
+      } else {
+        sb.append(this.ire);
       }
       first = false;
       sb.append(")");
@@ -20145,14 +20252,17 @@ public class Cassandra {
 
     private static final TField SUCCESS_FIELD_DESC = new TField("success", TType.STRUCT, (short)0);
     private static final TField NFE_FIELD_DESC = new TField("nfe", TType.STRUCT, (short)1);
+    private static final TField IRE_FIELD_DESC = new TField("ire", TType.STRUCT, (short)2);
 
     public KsDef success;
     public NotFoundException nfe;
+    public InvalidRequestException ire;
 
     /** The set of fields this struct contains, along with convenience methods for finding and manipulating them. */
     public enum _Fields implements TFieldIdEnum {
       SUCCESS((short)0, "success"),
-      NFE((short)1, "nfe");
+      NFE((short)1, "nfe"),
+      IRE((short)2, "ire");
 
       private static final Map<String, _Fields> byName = new HashMap<String, _Fields>();
 
@@ -20171,6 +20281,8 @@ public class Cassandra {
             return SUCCESS;
           case 1: // NFE
             return NFE;
+          case 2: // IRE
+            return IRE;
           default:
             return null;
         }
@@ -20219,6 +20331,8 @@ public class Cassandra {
           new StructMetaData(TType.STRUCT, KsDef.class)));
       tmpMap.put(_Fields.NFE, new FieldMetaData("nfe", TFieldRequirementType.DEFAULT, 
           new FieldValueMetaData(TType.STRUCT)));
+      tmpMap.put(_Fields.IRE, new FieldMetaData("ire", TFieldRequirementType.DEFAULT, 
+          new FieldValueMetaData(TType.STRUCT)));
       metaDataMap = Collections.unmodifiableMap(tmpMap);
       FieldMetaData.addStructMetaDataMap(describe_keyspace_result.class, metaDataMap);
     }
@@ -20228,11 +20342,13 @@ public class Cassandra {
 
     public describe_keyspace_result(
       KsDef success,
-      NotFoundException nfe)
+      NotFoundException nfe,
+      InvalidRequestException ire)
     {
       this();
       this.success = success;
       this.nfe = nfe;
+      this.ire = ire;
     }
 
     /**
@@ -20244,6 +20360,9 @@ public class Cassandra {
       }
       if (other.isSetNfe()) {
         this.nfe = new NotFoundException(other.nfe);
+      }
+      if (other.isSetIre()) {
+        this.ire = new InvalidRequestException(other.ire);
       }
     }
 
@@ -20304,6 +20423,30 @@ public class Cassandra {
       }
     }
 
+    public InvalidRequestException getIre() {
+      return this.ire;
+    }
+
+    public describe_keyspace_result setIre(InvalidRequestException ire) {
+      this.ire = ire;
+      return this;
+    }
+
+    public void unsetIre() {
+      this.ire = null;
+    }
+
+    /** Returns true if field ire is set (has been asigned a value) and false otherwise */
+    public boolean isSetIre() {
+      return this.ire != null;
+    }
+
+    public void setIreIsSet(boolean value) {
+      if (!value) {
+        this.ire = null;
+      }
+    }
+
     public void setFieldValue(_Fields field, Object value) {
       switch (field) {
       case SUCCESS:
@@ -20322,6 +20465,14 @@ public class Cassandra {
         }
         break;
 
+      case IRE:
+        if (value == null) {
+          unsetIre();
+        } else {
+          setIre((InvalidRequestException)value);
+        }
+        break;
+
       }
     }
 
@@ -20336,6 +20487,9 @@ public class Cassandra {
 
       case NFE:
         return getNfe();
+
+      case IRE:
+        return getIre();
 
       }
       throw new IllegalStateException();
@@ -20352,6 +20506,8 @@ public class Cassandra {
         return isSetSuccess();
       case NFE:
         return isSetNfe();
+      case IRE:
+        return isSetIre();
       }
       throw new IllegalStateException();
     }
@@ -20391,6 +20547,15 @@ public class Cassandra {
           return false;
       }
 
+      boolean this_present_ire = true && this.isSetIre();
+      boolean that_present_ire = true && that.isSetIre();
+      if (this_present_ire || that_present_ire) {
+        if (!(this_present_ire && that_present_ire))
+          return false;
+        if (!this.ire.equals(that.ire))
+          return false;
+      }
+
       return true;
     }
 
@@ -20425,6 +20590,15 @@ public class Cassandra {
           return lastComparison;
         }
       }
+      lastComparison = Boolean.valueOf(isSetIre()).compareTo(typedOther.isSetIre());
+      if (lastComparison != 0) {
+        return lastComparison;
+      }
+      if (isSetIre()) {        lastComparison = TBaseHelper.compareTo(this.ire, typedOther.ire);
+        if (lastComparison != 0) {
+          return lastComparison;
+        }
+      }
       return 0;
     }
 
@@ -20454,6 +20628,14 @@ public class Cassandra {
               TProtocolUtil.skip(iprot, field.type);
             }
             break;
+          case 2: // IRE
+            if (field.type == TType.STRUCT) {
+              this.ire = new InvalidRequestException();
+              this.ire.read(iprot);
+            } else { 
+              TProtocolUtil.skip(iprot, field.type);
+            }
+            break;
           default:
             TProtocolUtil.skip(iprot, field.type);
         }
@@ -20475,6 +20657,10 @@ public class Cassandra {
       } else if (this.isSetNfe()) {
         oprot.writeFieldBegin(NFE_FIELD_DESC);
         this.nfe.write(oprot);
+        oprot.writeFieldEnd();
+      } else if (this.isSetIre()) {
+        oprot.writeFieldBegin(IRE_FIELD_DESC);
+        this.ire.write(oprot);
         oprot.writeFieldEnd();
       }
       oprot.writeFieldStop();
@@ -20499,6 +20685,14 @@ public class Cassandra {
         sb.append("null");
       } else {
         sb.append(this.nfe);
+      }
+      first = false;
+      if (!first) sb.append(", ");
+      sb.append("ire:");
+      if (this.ire == null) {
+        sb.append("null");
+      } else {
+        sb.append(this.ire);
       }
       first = false;
       sb.append(")");

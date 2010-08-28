@@ -457,8 +457,10 @@ public class CassandraServer implements Cassandra.Iface
         }
     }
 
-    public KsDef describe_keyspace(String table) throws NotFoundException
+    public KsDef describe_keyspace(String table) throws NotFoundException, InvalidRequestException
     {
+        state().hasKeyspaceListAccess(Permission.READ);
+        
         KSMetaData ksm = DatabaseDescriptor.getTableDefinition(table);
         if (ksm == null)
             throw new NotFoundException();
@@ -581,15 +583,20 @@ public class CassandraServer implements Cassandra.Iface
         return thriftifyKeySlices(rows, column_parent, column_predicate);
     }
 
-    public List<KsDef> describe_keyspaces() throws TException
+    public List<KsDef> describe_keyspaces() throws TException, InvalidRequestException
     {
+        state().hasKeyspaceListAccess(Permission.READ);
+        
         Set<String> keyspaces = DatabaseDescriptor.getTables();
         List<KsDef> ksset = new ArrayList<KsDef>();
-        for (String ks : keyspaces) {
-            try {
+        for (String ks : keyspaces)
+        {
+            try
+            {
                 ksset.add(describe_keyspace(ks));
             }
-            catch (NotFoundException nfe) {
+            catch (NotFoundException nfe)
+            {
                 logger.info("Failed to find metadata for keyspace '" + ks + "'. Continuing... ");
             }
         }
@@ -628,6 +635,7 @@ public class CassandraServer implements Cassandra.Iface
 
     public List<String> describe_splits(String keyspace, String cfName, String start_token, String end_token, int keys_per_split) throws TException
     {
+        // TODO: add keyspace authorization call post CASSANDRA-1425
         Token.TokenFactory tf = StorageService.getPartitioner().getTokenFactory();
         List<Token> tokens = StorageService.instance.getSplits(keyspace, cfName, new Range(tf.fromString(start_token), tf.fromString(end_token)), keys_per_split);
         List<String> splits = new ArrayList<String>(tokens.size());
