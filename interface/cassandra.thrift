@@ -482,7 +482,8 @@ service Cassandra {
        throws (1: InvalidRequestException ire),
 
   /** list the defined keyspaces in this cluster */
-  list<KsDef> describe_keyspaces(),
+  list<KsDef> describe_keyspaces()
+    throws (1:InvalidRequestException ire),
 
   /** get the cluster name */
   string describe_cluster_name(),
@@ -506,7 +507,7 @@ service Cassandra {
 
   /** describe specified keyspace */
   KsDef describe_keyspace(1:required string keyspace)
-        throws (1:NotFoundException nfe),
+    throws (1:NotFoundException nfe, 2:InvalidRequestException ire),
 
   /** experimental API for hadoop/parallel query support.  
       may change violently and without warning. 
