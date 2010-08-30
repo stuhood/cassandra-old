@@ -301,7 +301,7 @@ public class CompactionManager implements CompactionManagerMBean
           logger.debug("Expected bloom filter size : " + expectedBloomFilterSize);
 
         SSTableWriter writer;
-        CompactionIterator ci = new CompactionIterator(cfs, sstables, gcBefore, major); // retain a handle so we can call close()
+        CompactionIterator ci = new CompactionIterator(cfs, sstables, gcBefore, major, false);
         Iterator<AbstractCompactedRow> nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
         executor.beginCompaction(cfs, ci);
 
@@ -387,7 +387,12 @@ public class CompactionManager implements CompactionManagerMBean
           logger.debug("Expected bloom filter size : " + expectedBloomFilterSize);
 
         SSTableWriter writer = null;
-        CompactionIterator ci = new AntiCompactionIterator(cfs, sstables, ranges, (int) (System.currentTimeMillis() / 1000) - cfs.metadata.getGcGraceSeconds(), cfs.isCompleteSSTables(sstables));
+        CompactionIterator ci = new AntiCompactionIterator(cfs,
+                                                           sstables,
+                                                           ranges,
+                                                           (int) (System.currentTimeMillis() / 1000) - cfs.metadata.getGcGraceSeconds(),
+                                                           cfs.isCompleteSSTables(sstables),
+                                                           false);
         Iterator<AbstractCompactedRow> nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
         executor.beginCompaction(cfs, ci);
 
@@ -596,7 +601,7 @@ public class CompactionManager implements CompactionManagerMBean
     {
         public ValidationCompactionIterator(ColumnFamilyStore cfs) throws IOException
         {
-            super(cfs, cfs.getSSTables(), (int) (System.currentTimeMillis() / 1000) - cfs.metadata.getGcGraceSeconds(), true);
+            super(cfs, cfs.getSSTables(), (int) (System.currentTimeMillis() / 1000) - cfs.metadata.getGcGraceSeconds(), true, false);
         }
 
         @Override
@@ -610,10 +615,10 @@ public class CompactionManager implements CompactionManagerMBean
     {
         private Set<SSTableScanner> scanners;
 
-        public AntiCompactionIterator(ColumnFamilyStore cfStore, Collection<SSTableReader> sstables, Collection<Range> ranges, int gcBefore, boolean isMajor)
+        public AntiCompactionIterator(ColumnFamilyStore cfStore, Collection<SSTableReader> sstables, Collection<Range> ranges, int gcBefore, boolean isMajor, boolean preserveValues)
                 throws IOException
         {
-            super(cfStore, getCollatedRangeIterator(sstables, ranges), gcBefore, isMajor);
+            super(cfStore, getCollatedRangeIterator(sstables, ranges), gcBefore, isMajor, preserveValues);
         }
 
         private static Iterator getCollatedRangeIterator(Collection<SSTableReader> sstables, final Collection<Range> ranges)

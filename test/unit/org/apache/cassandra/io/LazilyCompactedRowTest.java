@@ -30,6 +30,7 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.concurrent.ExecutionException;
+import java.util.TreeSet;
 
 import org.apache.cassandra.CleanupHelper;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -50,10 +51,20 @@ import org.junit.Test;
 
 public class LazilyCompactedRowTest extends CleanupHelper
 {
+    private final TreeSet<ColumnObserver> OBSERVERS = new TreeSet<ColumnObserver>();
+
     private void assertBytes(ColumnFamilyStore cfs, int gcBefore, boolean major) throws IOException
     {
+        assertBytes(cfs, gcBefore, major, false);
+        if (!major)
+            // non-major compactions can use the "uncontended rows" optimization: try with it disabled
+            assertBytes(cfs, gcBefore, major, true);
+    }
+
+    private void assertBytes(ColumnFamilyStore cfs, int gcBefore, boolean major, boolean preserveValues) throws IOException
+    {
         Collection<SSTableReader> sstables = cfs.getSSTables();
-        CompactionIterator ci1 = new CompactionIterator(cfs, sstables, gcBefore, major);
+        CompactionIterator ci1 = new CompactionIterator(cfs, sstables, gcBefore, major, preserveValues);
         LazyCompactionIterator ci2 = new LazyCompactionIterator(cfs, sstables, gcBefore, major);
 
         while (true)
@@ -68,8 +79,8 @@ public class LazilyCompactedRowTest extends CleanupHelper
             AbstractCompactedRow row2 = ci2.next();
             DataOutputBuffer out1 = new DataOutputBuffer();
             DataOutputBuffer out2 = new DataOutputBuffer();
-            row1.write(out1);
-            row2.write(out2);
+            row1.write(out1, OBSERVERS);
+            row2.write(out2, OBSERVERS);
             DataInputStream in1 = new DataInputStream(new ByteArrayInputStream(out1.getData(), 0, out1.getLength()));
             DataInputStream in2 = new DataInputStream(new ByteArrayInputStream(out2.getData(), 0, out2.getLength()));
 
@@ -218,7 +229,7 @@ public class LazilyCompactedRowTest extends CleanupHelper
 
         public LazyCompactionIterator(ColumnFamilyStore cfStore, Iterable<SSTableReader> sstables, int gcBefore, boolean major) throws IOException
         {
-            super(cfStore, sstables, gcBefore, major);
+            super(cfStore, sstables, gcBefore, major, true);
             this.cfStore = cfStore;
         }
 

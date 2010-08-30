@@ -89,9 +89,9 @@ public class LazilyCompactedRow extends AbstractCompactedRow implements IIterabl
         iter = null;
     }
 
-    public void write(DataOutput out) throws IOException
+    public void write(DataOutput out, SortedSet<? extends ColumnObserver> observers) throws IOException
     {
-        if (rows.size() == 1 && !shouldPurge)
+        if (rows.size() == 1 && !shouldPurge && observers.isEmpty())
         {
             SSTableIdentityIterator row = rows.get(0);
             out.writeLong(row.dataSize);
@@ -107,7 +107,8 @@ public class LazilyCompactedRow extends AbstractCompactedRow implements IIterabl
         out.write(clockOut.getData(), 0, clockOut.getLength());
         out.writeInt(columnCount);
 
-        Iterator<IColumn> iter = iterator();
+        // wrap the iterator to observe passing columns
+        Iterator<IColumn> iter = ColumnObserver.Iterator.apply(iterator(), observers);
         while (iter.hasNext())
         {
             IColumn column = iter.next();

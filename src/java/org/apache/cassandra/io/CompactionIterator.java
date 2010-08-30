@@ -50,18 +50,24 @@ implements Closeable, ICompactionInfo
     private final ColumnFamilyStore cfs;
     private final int gcBefore;
     private final boolean major;
+    private final boolean preserveValues;
 
     private long totalBytes;
     private long bytesRead;
     private long row;
 
-    public CompactionIterator(ColumnFamilyStore cfs, Iterable<SSTableReader> sstables, int gcBefore, boolean major) throws IOException
+    /**
+     * @param preserveValues True if the contents of individual rows should be preserved in deserialized
+     * form, post-compaction. This disables the 'direct copy without deserialization' optimization, but is a necessary
+     * evil to enable one-pass secondary indexing.
+     */
+    public CompactionIterator(ColumnFamilyStore cfs, Iterable<SSTableReader> sstables, int gcBefore, boolean major, boolean preserveValues) throws IOException
     {
-        this(cfs, getCollatingIterator(sstables), gcBefore, major);
+        this(cfs, getCollatingIterator(sstables), gcBefore, major, preserveValues);
     }
 
     @SuppressWarnings("unchecked")
-    protected CompactionIterator(ColumnFamilyStore cfs, Iterator iter, int gcBefore, boolean major)
+    protected CompactionIterator(ColumnFamilyStore cfs, Iterator iter, int gcBefore, boolean major, boolean preserveValues)
     {
         super(iter);
         row = 0;
@@ -73,6 +79,7 @@ implements Closeable, ICompactionInfo
         this.cfs = cfs;
         this.gcBefore = gcBefore;
         this.major = major;
+        this.preserveValues = preserveValues;
     }
 
     @SuppressWarnings("unchecked")
@@ -135,7 +142,7 @@ implements Closeable, ICompactionInfo
                                       FBUtilities.bytesToHex(rows.get(0).getKey().key), rowSize));
             return new LazilyCompactedRow(cfs, rows, major, gcBefore);
         }
-        return new PrecompactedRow(cfs, rows, major, gcBefore);
+        return new PrecompactedRow(cfs, rows, major, gcBefore, preserveValues);
     }
 
     public void close() throws IOException

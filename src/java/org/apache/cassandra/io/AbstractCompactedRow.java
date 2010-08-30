@@ -24,6 +24,7 @@ package org.apache.cassandra.io;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.security.MessageDigest;
+import java.util.SortedSet;
 
 import org.apache.cassandra.db.DecoratedKey;
 
@@ -41,7 +42,11 @@ public abstract class AbstractCompactedRow
         this.key = key;
     }
 
-    public abstract void write(DataOutput out) throws IOException;
+    /**
+     * Writes the content of this row to the given destination, alerting interested observers when
+     * relevant columns are encountered.
+     */
+    public abstract void write(DataOutput out, SortedSet<? extends ColumnObserver> observers) throws IOException;
     
     public abstract void update(MessageDigest digest);
 
