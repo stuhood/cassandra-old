@@ -22,21 +22,20 @@ package org.apache.cassandra.io.sstable;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
-import java.util.SortedMap;
-import java.util.TreeMap;
+import java.util.*;
 
-import org.apache.cassandra.db.Column;
-import org.apache.cassandra.db.ColumnFamily;
-import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.IColumn;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import org.apache.cassandra.db.*;
 import org.apache.cassandra.io.util.DataOutputBuffer;
+
+import org.apache.cassandra.Util;
 
 public class SSTableUtils
 {
+    private static final Logger logger = LoggerFactory.getLogger(SSTableUtils.class);
+    
     // first configured table and cf
     public static String TABLENAME = "Keyspace1";
     public static String CFNAME = "Standard1";
@@ -68,40 +67,86 @@ public class SSTableUtils
 
     public static SSTableReader writeSSTable(Set<String> keys) throws IOException
     {
+        return writeSSTable(TABLENAME, CFNAME, keys);
+    }
+
+    public static SSTableReader writeSSTable(String ksname, String cfname, Set<String> keys) throws IOException
+    {
         Map<String, ColumnFamily> map = new HashMap<String, ColumnFamily>();
         for (String key : keys)
         {
-            ColumnFamily cf = ColumnFamily.create(TABLENAME, CFNAME);
+            ColumnFamily cf = ColumnFamily.create(ksname, cfname);
             cf.addColumn(new Column(ByteBuffer.wrap(key.getBytes()), ByteBuffer.wrap(key.getBytes()), 0));
             map.put(key, cf);
         }
-        return writeSSTable(map);
+        return writeSSTable(ksname, cfname, map);
     }
 
     public static SSTableReader writeSSTable(Map<String, ColumnFamily> entries) throws IOException
     {
-        Map<ByteBuffer, ByteBuffer> map = new HashMap<ByteBuffer, ByteBuffer>();
+        return writeSSTable(TABLENAME, CFNAME, entries);
+    }
+
+    public static SSTableReader writeSSTable(String ksname, String cfname, Map<String, ColumnFamily> entries) throws IOException
+    {
+        SortedMap<DecoratedKey, ColumnFamily> sorted = new TreeMap<DecoratedKey, ColumnFamily>();
         for (Map.Entry<String, ColumnFamily> entry : entries.entrySet())
+            sorted.put(Util.dk(entry.getKey()), entry.getValue());
+
+        final Iterator<Map.Entry<DecoratedKey, ColumnFamily>> iter = sorted.entrySet().iterator();
+        return writeSSTable(ksname, cfname, sorted.size(), new Appender()
         {
-            DataOutputBuffer buffer = new DataOutputBuffer();
-            ColumnFamily.serializer().serializeWithIndexes(entry.getValue(), buffer);
-            map.put(ByteBuffer.wrap(entry.getKey().getBytes()), ByteBuffer.wrap(Arrays.copyOf(buffer.getData(), buffer.getLength())));
-        }
-        return writeRawSSTable(TABLENAME, CFNAME, map);
+            @Override
+            public boolean append(SSTableWriter writer) throws IOException
+            {
+                if (!iter.hasNext()) return false;
+                Map.Entry<DecoratedKey, ColumnFamily> entry = iter.next();
+                writer.append(entry.getKey(), entry.getValue());
+                return true;
+            }   
+        });
     }
 
     public static SSTableReader writeRawSSTable(String tablename, String cfname, Map<ByteBuffer, ByteBuffer> entries) throws IOException
     {
-        File datafile = tempSSTableFile(tablename, cfname);
-        SSTableWriter writer = new SSTableWriter(datafile.getAbsolutePath(), entries.size());
-        SortedMap<DecoratedKey, ByteBuffer> sortedEntries = new TreeMap<DecoratedKey, ByteBuffer>();
+        SortedMap<DecoratedKey, ByteBuffer> sorted = new TreeMap<DecoratedKey, ByteBuffer>();
         for (Map.Entry<ByteBuffer, ByteBuffer> entry : entries.entrySet())
-            sortedEntries.put(writer.partitioner.decorateKey(entry.getKey()), entry.getValue());
-        for (Map.Entry<DecoratedKey, ByteBuffer> entry : sortedEntries.entrySet())
-            writer.append(entry.getKey(), entry.getValue());
-        new File(writer.descriptor.filenameFor(Component.PRIMARY_INDEX)).deleteOnExit();
-        new File(writer.descriptor.filenameFor(Component.FILTER)).deleteOnExit();
-        return writer.closeAndOpenReader();
+            sorted.put(Util.dk(entry.getKey()), entry.getValue());
+
+        final Iterator<Map.Entry<DecoratedKey, ByteBuffer>> iter = sorted.entrySet().iterator();
+        return writeSSTable(tablename, cfname, sorted.size(), new Appender()
+        {
+            @Override
+            public boolean append(SSTableWriter writer) throws IOException
+            {
+                if (!iter.hasNext()) return false;
+                Map.Entry<DecoratedKey, ByteBuffer> entry = iter.next();
+                writer.append(entry.getKey(), entry.getValue());
+                return true;
+            }
+        });
     }
 
+    public static SSTableReader writeSSTable(String tablename, String cfname, int size, Appender appender) throws IOException
+    {
+        File datafile = tempSSTableFile(tablename, cfname);
+        SSTableWriter writer = new SSTableWriter(datafile.getAbsolutePath(), size);
+        long start = System.currentTimeMillis();
+        while (appender.append(writer)) { /* pass */ }
+        SSTableReader reader = writer.closeAndOpenReader();
+        logger.info("In {} ms, wrote {}", System.currentTimeMillis() - start, writer);
+        // mark all components for removal
+        for (Component component : reader.components)
+            new File(reader.descriptor.filenameFor(component)).deleteOnExit();
+        return reader;
+    }
+
+    /** Inverts control, so that callers decide how to append to the SSTableWriter */ 
+    static abstract class Appender
+    {
+        /**
+         * Called with an open writer until it returns false.
+         */
+        abstract boolean append(SSTableWriter writer) throws IOException;
+    }
 }

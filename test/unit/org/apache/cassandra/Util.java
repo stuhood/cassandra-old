@@ -48,7 +48,12 @@ public class Util
 {
     public static DecoratedKey dk(String key)
     {
-        return StorageService.getPartitioner().decorateKey(ByteBuffer.wrap(key.getBytes(UTF_8)));
+        return dk(key.getBytes(UTF_8));
+    }
+
+    public static DecoratedKey dk(byte[] key)
+    {
+        return StorageService.getPartitioner().decorateKey(ByteBuffer.wrap(key));
     }
 
     public static Column column(String name, String value, long timestamp)
@@ -63,7 +68,7 @@ public class Util
 
     public static Range range(String left, String right)
     {
-        return new Range(token(left), token(right));
+        return range(StorageService.getPartitioner(), left, right);
     }
 
     public static Range range(IPartitioner p, String left, String right)
