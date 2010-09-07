@@ -121,7 +121,7 @@ public class Descriptor
      * Filename of the form "<ksname>/<cfname>-[tmp-][<version>-]<gen>-<component>"
      * @return A Descriptor for the SSTable, and the Component remainder.
      */
-    static Pair<Descriptor,String> fromFilename(File directory, String name)
+    static Pair<Descriptor,StringTokenizer> fromFilename(File directory, String name)
     {
         // name of parent directory is keyspace name
         String ksname = directory.getName();
@@ -151,10 +151,7 @@ public class Descriptor
         }
         int generation = Integer.parseInt(nexttok);
 
-        // component suffix
-        String component = st.nextToken();
-
-        return new Pair<Descriptor,String>(new Descriptor(version, directory, ksname, cfname, generation, temporary), component);
+        return new Pair<Descriptor,StringTokenizer>(new Descriptor(version, directory, ksname, cfname, generation, temporary), st);
     }
 
     /**

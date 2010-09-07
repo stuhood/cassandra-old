@@ -55,7 +55,13 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.thrift.IndexClause;
 import org.apache.cassandra.thrift.IndexExpression;
 import org.apache.cassandra.thrift.IndexOperator;
+import org.apache.cassandra.thrift.IndexType;
 import org.apache.cassandra.utils.*;
+import org.apache.commons.collections.IteratorUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.common.collect.Iterables;
 
 public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 {
@@ -241,7 +247,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         indexedColumns = new ConcurrentSkipListMap<ByteBuffer, ColumnFamilyStore>(getComparator());
         for (ColumnDefinition info : metadata.getColumn_metadata().values())
         {
-            if (info.getIndexType() != null)
+            if (info.getIndexType() == IndexType.KEYS)
                 addIndex(info);
         }
 
@@ -1791,6 +1797,14 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         if (falseCount == 0L && trueCount == 0L)
             return 0d;
         return (double) falseCount / (trueCount + falseCount);
+    }
+
+    public boolean hasBitmapIndexes()
+    {
+        for (ColumnDefinition cdef : metadata.column_metadata.values())
+            if (cdef.index_type == IndexType.KEYS_BITMAP)
+                return true;
+        return false;
     }
 
     public SortedSet<ByteBuffer> getIndexedColumns()

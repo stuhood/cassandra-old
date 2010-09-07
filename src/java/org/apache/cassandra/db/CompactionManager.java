@@ -301,7 +301,7 @@ public class CompactionManager implements CompactionManagerMBean
           logger.debug("Expected bloom filter size : " + expectedBloomFilterSize);
 
         SSTableWriter writer;
-        CompactionIterator ci = new CompactionIterator(cfs, sstables, gcBefore, major, false);
+        CompactionIterator ci = new CompactionIterator(cfs, sstables, gcBefore, major, cfs.hasBitmapIndexes());
         Iterator<AbstractCompactedRow> nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
         executor.beginCompaction(cfs, ci);
 
@@ -392,7 +392,7 @@ public class CompactionManager implements CompactionManagerMBean
                                                            ranges,
                                                            (int) (System.currentTimeMillis() / 1000) - cfs.metadata.getGcGraceSeconds(),
                                                            cfs.isCompleteSSTables(sstables),
-                                                           false);
+                                                           cfs.hasBitmapIndexes());
         Iterator<AbstractCompactedRow> nni = new FilterIterator(ci, PredicateUtils.notNullPredicate());
         executor.beginCompaction(cfs, ci);
 

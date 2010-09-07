@@ -51,6 +51,7 @@ import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.io.ICompactSerializer2;
+import org.apache.cassandra.io.sstable.bitidx.BitmapIndexReader;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
 import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.io.util.SegmentedFile;
@@ -129,6 +130,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
     private IndexSummary indexSummary;
     private BloomFilter bf;
+    private Map<byte[],BitmapIndexReader> secindexes;
 
     private InstrumentedCache<Pair<Descriptor,DecoratedKey>, Long> keyCache;
 
@@ -151,6 +153,23 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         return count;
     }
 
+    private void loadStatistics() throws IOException
+    {
+        File file = new File(descriptor.filenameFor(SSTable.COMPONENT_STATS));
+        if (!file.exists())
+        {
+            estimatedRowSize = SSTable.defaultRowHistogram();
+            estimatedColumnCount = SSTable.defaultColumnHistogram();
+            return;
+        }
+        if (logger.isDebugEnabled())
+            logger.debug("Load statistics for " + descriptor);
+        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        estimatedRowSize = EstimatedHistogram.serializer.deserialize(dis);
+        estimatedColumnCount = EstimatedHistogram.serializer.deserialize(dis);
+        dis.close();
+    }
+
     public static SSTableReader open(Descriptor desc) throws IOException
     {
         Set<Component> components = SSTable.componentsFor(desc);
@@ -169,25 +188,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         long start = System.currentTimeMillis();
         logger.info("Opening " + descriptor);
 
-        EstimatedHistogram rowSizes;
-        EstimatedHistogram columnCounts;
-        File statsFile = new File(descriptor.filenameFor(SSTable.COMPONENT_STATS));
-        if (statsFile.exists())
-        {
-            logger.debug("Load statistics for {}", descriptor);
-            DataInputStream dis = new DataInputStream(new FileInputStream(statsFile));
-            rowSizes = EstimatedHistogram.serializer.deserialize(dis);
-            columnCounts = EstimatedHistogram.serializer.deserialize(dis);
-            dis.close();
-        }
-        else
-        {
-            logger.debug("No statistics for {}", descriptor);
-            rowSizes = SSTable.defaultRowHistogram();
-            columnCounts = SSTable.defaultColumnHistogram();
-        }
-
-        SSTableReader sstable = new SSTableReader(descriptor, components, metadata, partitioner, null, null, null, null, System.currentTimeMillis(), rowSizes, columnCounts);
+        SSTableReader sstable = new SSTableReader(descriptor, components, metadata, partitioner, null, null, null, null, System.currentTimeMillis(), null, null, null);
         sstable.setTrackedBy(tracker);
 
         // versions before 'c' encoded keys as utf-16 before hashing to the filter
@@ -200,6 +201,9 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
             sstable.load(false, savedKeys);
             sstable.loadBloomFilter();
         }
+        sstable.loadStatistics();
+        sstable.loadSecondaryIndexes();
+
         if (logger.isDebugEnabled())
             logger.debug("INDEX LOAD TIME for " + descriptor + ": " + (System.currentTimeMillis() - start) + " ms.");
 
@@ -212,11 +216,11 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     /**
      * Open a RowIndexedReader which already has its state initialized (by SSTableWriter).
      */
-    static SSTableReader internalOpen(Descriptor desc, Set<Component> components, CFMetaData metadata, IPartitioner partitioner, SegmentedFile ifile, SegmentedFile dfile, IndexSummary isummary, BloomFilter bf, long maxDataAge, EstimatedHistogram rowsize,
-                                      EstimatedHistogram columncount) throws IOException
+    static SSTableReader internalOpen(Descriptor desc, Set<Component> components, CFMetaData metadata, IPartitioner partitioner, SegmentedFile ifile, SegmentedFile dfile, IndexSummary isummary, BloomFilter bf, long maxDataAge, EstimatedHistogram rowsize, EstimatedHistogram columncount, Map<byte[],BitmapIndexReader> secindexes) throws IOException
     {
         assert desc != null && partitioner != null && ifile != null && dfile != null && isummary != null && bf != null;
-        return new SSTableReader(desc, components, metadata, partitioner, ifile, dfile, isummary, bf, maxDataAge, rowsize, columncount);
+        assert rowsize != null && columncount != null && secindexes != null;
+        return new SSTableReader(desc, components, metadata, partitioner, ifile, dfile, isummary, bf, maxDataAge, rowsize, columncount, secindexes);
     }
 
     private SSTableReader(Descriptor desc,
@@ -229,7 +233,8 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                           BloomFilter bloomFilter,
                           long maxDataAge,
                           EstimatedHistogram rowSizes,
-                          EstimatedHistogram columnCounts)
+                          EstimatedHistogram columnCounts,
+                          Map<byte[],BitmapIndexReader> secindexes)
     throws IOException
     {
         super(desc, components, metadata, partitioner, rowSizes, columnCounts);
@@ -239,6 +244,9 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         this.dfile = dfile;
         this.indexSummary = indexSummary;
         this.bf = bloomFilter;
+        estimatedRowSize = rowSizes;
+        estimatedColumnCount = columnCounts;
+        this.secindexes = secindexes;
     }
 
     public void setTrackedBy(SSTableTracker tracker)
@@ -251,7 +259,20 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         }
     }
 
-    void loadBloomFilter() throws IOException
+    private void loadSecondaryIndexes() throws IOException
+    {
+        secindexes = new TreeMap<byte[],BitmapIndexReader>(metadata.comparator);
+        for (Component component : components)
+        {
+            if (component.type != Component.Type.BITMAP_INDEX)
+                continue;
+            
+            BitmapIndexReader secindex = BitmapIndexReader.open(descriptor, component);
+            secindexes.put(secindex.name(), secindex);
+        }
+    }
+
+    private void loadBloomFilter() throws IOException
     {
         DataInputStream stream = new DataInputStream(new FileInputStream(descriptor.filenameFor(Component.FILTER)));
         try

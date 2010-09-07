@@ -23,6 +23,8 @@ package org.apache.cassandra.io.sstable;
 
 import java.io.File;
 import java.util.EnumSet;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.StringTokenizer;
 
 import com.google.common.base.Objects;
 
@@ -36,7 +38,7 @@ import org.apache.cassandra.utils.Pair;
 public class Component
 {
     final static EnumSet<Type> TYPES = EnumSet.allOf(Type.class);
-    enum Type
+    public static enum Type
     {
         // the base data for an sstable: the remaining components can be regenerated
         // based on the data component
@@ -117,16 +119,15 @@ public class Component
      */
     public static Pair<Descriptor,Component> fromFilename(File directory, String name)
     {
-        Pair<Descriptor,String> path = Descriptor.fromFilename(directory, name);
+        Pair<Descriptor,StringTokenizer> path = Descriptor.fromFilename(directory, name);
 
         // parse the component suffix
-        String repr = path.right;
         int id = -1;
-        int separatorPos = repr.indexOf('-');
-        if (separatorPos != -1)
+        String repr = path.right.nextToken();
+        if (path.right.hasMoreTokens())
         {
-            id = Integer.parseInt(repr.substring(0, separatorPos));
-            repr = repr.substring(separatorPos+1, repr.length());
+            id = Integer.parseInt(repr);
+            repr = path.right.nextToken();
         }
         Type type = Type.fromRepresentation(repr);
         // build (or retrieve singleton for) the component object
@@ -169,5 +170,15 @@ public class Component
     public int hashCode()
     {
         return hashCode;
+    }
+
+    /** Generates unique component ids. */
+    public static class IdGenerator
+    {
+        private final AtomicInteger next = new AtomicInteger(1);
+        public int getNextId()
+        {
+            return next.getAndIncrement();
+        }
     }
 }

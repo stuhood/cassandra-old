@@ -82,6 +82,17 @@ keyspaces:
               validator_class: LongType
               # index will be added dynamically
 
+        - name: Indexed3
+          compare_with: UTF8Type
+          column_metadata:
+            - name: city
+              validator_class: UTF8Type
+              index_type: KEYS_BITMAP
+
+            - name: state
+              validator_class: UTF8Type
+              index_type: KEYS_BITMAP
+
     - name: Keyspace2
       replica_placement_strategy: org.apache.cassandra.locator.SimpleStrategy
       replication_factor: 1
