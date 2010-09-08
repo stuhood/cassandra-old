@@ -85,8 +85,8 @@ keyspaces:
         - name: Indexed3
           compare_with: UTF8Type
           column_metadata:
-            - name: city
-              validator_class: UTF8Type
+            - name: birthdate
+              validator_class: LongType
               index_type: KEYS_BITMAP
 
             - name: state

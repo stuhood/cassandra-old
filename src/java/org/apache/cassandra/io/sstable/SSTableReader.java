@@ -28,13 +28,8 @@ import java.io.IOException;
 import java.lang.ref.Reference;
 import java.lang.ref.ReferenceQueue;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+
 
 import org.apache.cassandra.cache.InstrumentedCache;
 import org.apache.cassandra.config.CFMetaData;
@@ -52,6 +47,7 @@ import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.io.ICompactSerializer2;
 import org.apache.cassandra.io.sstable.bitidx.BitmapIndexReader;
+import org.apache.cassandra.io.sstable.bitidx.OpenSegment;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
 import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.io.util.SegmentedFile;
@@ -62,7 +58,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Function;
+import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.Collections2;
+
+import org.apache.cassandra.thrift.IndexExpression;
 
 /**
  * SSTableReaders are open()ed by Table.onStart; after that they are created by SSTableWriter.renameAndOpen.
@@ -503,6 +502,28 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     }
 
     /**
+     * @return An ordered iterator over keys that _probably_ match the given parameters. The
+     * frequency of false positives depends on the quality of bin selection, and the cardinality
+     * of the indexed fields. But since an SSTable is only a patch applied to previous points in
+     * time, the keys returned by this method need to be resolved against keys returned by other
+     * SSTables anyway.
+     */
+    public CloseableIterator<DecoratedKey> scan(IndexExpression expr, AbstractBounds range)
+    {
+        // use the primary index to find the bounds of the scan, in terms of rowids
+        final Pair<Long,Long> rowidrange = indexSummary.getRowidRange(range);
+        // TODO: if more than one useful expression, open a BMI for each, and squash
+        // into a CompoundBMI: they should be cheap
+        BitmapIndexReader reader = secindexes.get(expr.column_name);
+
+        // create an iterator for matching rowids in the range
+        final CloseableIterator<OpenSegment> rowids = reader.iterator(expr.op, expr.value, rowidrange);
+
+        // return an iterator that looks up output rowids in the primary index
+        return new PrimaryToSecondary(rowidrange, rowids);
+    }
+
+    /**
      * @return The length in bytes of the data file for this SSTable.
      */
     public long length()
@@ -553,7 +574,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
         return dfile.getSegment(position, bufferSize);
     }
-
 
     public int compareTo(SSTableReader o)
     {
@@ -615,9 +635,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         return p.decorateKey(bytes);
     }
 
-    /**
-     * TODO: Move someplace reusable
-     */
     public abstract static class Operator
     {
         public static final Operator EQ = new Equals();
@@ -643,6 +660,132 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         final static class GreaterThan extends Operator
         {
             public int apply(int comparison) { return comparison > 0 ? 0 : 1; }
+        }
+    }
+
+    /**
+     * An iterator that merge joins a bitmap secondary index (represented by an iterator of
+     * OpenSegments) to the primary index.
+     */
+    final class PrimaryToSecondary extends AbstractIterator<DecoratedKey> implements CloseableIterator<DecoratedKey>
+    {
+        private final Pair<Long,Long> rowidrange;
+        private Iterator<FileDataInput> primary;
+        private FileDataInput pinput;
+        // our absolute rowid position in the primary index on disk
+        private long rowidposition;
+
+        private final CloseableIterator<OpenSegment> secondary;
+        private OpenSegment segment;
+        // relative offset in the segment, and interesting ranges calculated from the absolute rowids
+        private int localid;
+        private int localidmin;
+        private int localidmax;
+
+        public PrimaryToSecondary(Pair<Long,Long> rowidrange, CloseableIterator<OpenSegment> secondary)
+        {
+            this.rowidrange = rowidrange;
+            this.secondary = secondary;
+            // the first lookup to the primary index must seek
+            rowidposition = Long.MIN_VALUE;
+        }
+
+        public DecoratedKey computeNext()
+        {
+            // determine the next rowid in the secondary index
+            secondary_scan: while (true)
+            {
+                if (segment == null)
+                {
+                    if (!secondary.hasNext())
+                        // secondary index is exhausted
+                        return endOfData();
+                    segment = secondary.next();
+                    localid = -1;
+                    // the range of bits in this segment that might represent matches
+                    localidmin = (int)(rowidrange.left - segment.rowid);
+                    localidmax = (int)Math.min(rowidrange.right - segment.rowid, segment.numrows - 1);
+                }
+
+                // find the next matching rowid
+                while ((localid = segment.bitset.nextSetBit(++localid)) != -1)
+                {
+                    if (localid > localidmax)
+                        // exhausted this segment: break inner to try next segment
+                        break; // inner
+                    if (localid < localidmin)
+                        // current row is before the first valid row in this segment
+                        continue;
+                    // matched a valid row in the segment
+                    break secondary_scan;
+                }
+                // segment was exhausted
+                segment = null;
+            }
+
+            // lookup the rowid in the primary index
+            long rowid = localid + segment.rowid;
+            if (rowidposition + DatabaseDescriptor.getIndexInterval() < rowid)
+            {
+                // the matched row is at least INDEX_INTERVAL rows away...
+                if (pinput != null)
+                    closePrimary(true);
+                // seek on the primary index
+                Pair<IndexSummary.KeyPosition,Long> position = indexSummary.getIndexScanPosition(rowid);
+                primary = ifile.iterator(position.left.indexPosition, INDEX_FILE_BUFFER_BYTES);
+                // our new physical position
+                rowidposition = position.right;
+                pinput = primary.next();
+            }
+
+            // scan the primary index
+            while (true)
+            {
+                try
+                {
+                    while (!pinput.isEOF())
+                    {
+                        // count up to the interesting row 
+                        if (rowidposition++ == rowid)
+                        {
+                            DecoratedKey dk = decodeKey(partitioner, descriptor, FBUtilities.readShortByteArray(pinput));
+                            pinput.readLong();
+                            return dk;
+                        }
+                        FBUtilities.readShortByteArray(pinput);
+                        pinput.readLong();
+                    }
+                    // exhausted an input from the primary: the rowid must exist, so we don't bounds check
+                    pinput.close();
+                    pinput = primary.next();
+                }
+                catch (IOException e)
+                {
+                    closePrimary(false);
+                    throw new IOError(e);
+                }
+            }
+        }
+
+        private void closePrimary(boolean shouldThrow) throws IOError
+        {
+            try
+            {
+                pinput.close();
+            }
+            catch (IOException e)
+            {
+                if (shouldThrow)
+                    throw new IOError(e);
+                else
+                    logger.error("error closing file", e);
+            }
+        }
+
+        public void close() throws IOError
+        {
+            secondary.close();
+            closePrimary(true);
         }
     }
 
