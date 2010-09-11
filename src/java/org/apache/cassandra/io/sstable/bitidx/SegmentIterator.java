@@ -114,11 +114,18 @@ final class SegmentIterator implements CloseableIterator<OpenSegment>
         return segment;
     }
 
-    public void close() throws IOException
+    public void close()
     {
         ReusableBinSegment.poolReturn(binSegment);
         binSegment = null;
-        reader.close();
+        try
+        {
+            reader.close();
+        }
+        catch (IOException e)
+        {
+            throw new IOError(e);
+        }
     }
 
     public void remove() { throw new UnsupportedOperationException(); }

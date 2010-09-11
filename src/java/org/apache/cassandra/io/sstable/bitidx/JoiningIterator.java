@@ -19,7 +19,6 @@
 
 package org.apache.cassandra.io.sstable.bitidx;
 
-import java.io.IOException;
 import java.util.Collection;
 
 import org.slf4j.Logger;
@@ -86,7 +85,7 @@ final class JoiningIterator extends ReducingIterator<OpenSegment,OpenSegment> im
         return segment;
     }
 
-    public void close() throws IOException
+    public void close()
     {
         for (CloseableIterator<OpenSegment> source : sources)
             source.close();

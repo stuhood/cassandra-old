@@ -20,11 +20,11 @@ package org.apache.cassandra.utils;
  * 
  */
 
-
-import java.io.Closeable;
+import java.io.IOError;
 import java.util.Iterator;
 
 // so we can instantiate anonymous classes implementing both interfaces
-public interface CloseableIterator<T> extends Iterator<T>, Closeable
+public interface CloseableIterator<T> extends Iterator<T>
 {
+    public void close() throws IOError;
 }
