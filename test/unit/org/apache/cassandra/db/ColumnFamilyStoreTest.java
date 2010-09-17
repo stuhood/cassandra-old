@@ -128,28 +128,38 @@ public class ColumnFamilyStoreTest extends CleanupHelper
     }
 
     @Test
-    public void testIndexScan() throws IOException
+    public void testKeysIndexScan() throws IOException
+    {
+        testIndexScan("Indexed1");
+    }
+
+    @Test
+    public void testKeysBitmapIndexScan() throws IOException
+    {
+        testIndexScan("Indexed3");
+    }
+
+    private void testIndexScan(String cfname) throws IOException
     {
         RowMutation rm;
-
         rm = new RowMutation("Keyspace1", ByteBufferUtil.bytes("k1"));
-        rm.add(new QueryPath("Indexed1", null, ByteBufferUtil.bytes("notbirthdate")), FBUtilities.toByteBuffer(1L), 0);
-        rm.add(new QueryPath("Indexed1", null, ByteBufferUtil.bytes("birthdate")), FBUtilities.toByteBuffer(1L), 0);
+        rm.add(new QueryPath(cfname, null, ByteBufferUtil.bytes("notbirthdate")), FBUtilities.toByteBuffer(1L), 0);
+        rm.add(new QueryPath(cfname, null, ByteBufferUtil.bytes("birthdate")), FBUtilities.toByteBuffer(1L), 0);
         rm.apply();
 
         rm = new RowMutation("Keyspace1", ByteBufferUtil.bytes("k2"));
-        rm.add(new QueryPath("Indexed1", null, ByteBufferUtil.bytes("notbirthdate")), FBUtilities.toByteBuffer(2L), 0);
-        rm.add(new QueryPath("Indexed1", null, ByteBufferUtil.bytes("birthdate")), FBUtilities.toByteBuffer(2L), 0);
+        rm.add(new QueryPath(cfname, null, ByteBufferUtil.bytes("notbirthdate")), FBUtilities.toByteBuffer(2L), 0);
+        rm.add(new QueryPath(cfname, null, ByteBufferUtil.bytes("birthdate")), FBUtilities.toByteBuffer(2L), 0);
         rm.apply();
 
         rm = new RowMutation("Keyspace1", ByteBufferUtil.bytes("k3"));
-        rm.add(new QueryPath("Indexed1", null, ByteBufferUtil.bytes("notbirthdate")), FBUtilities.toByteBuffer(2L), 0);
-        rm.add(new QueryPath("Indexed1", null, ByteBufferUtil.bytes("birthdate")), FBUtilities.toByteBuffer(1L), 0);
+        rm.add(new QueryPath(cfname, null, ByteBufferUtil.bytes("notbirthdate")), FBUtilities.toByteBuffer(2L), 0);
+        rm.add(new QueryPath(cfname, null, ByteBufferUtil.bytes("birthdate")), FBUtilities.toByteBuffer(1L), 0);
         rm.apply();
 
         rm = new RowMutation("Keyspace1", ByteBufferUtil.bytes("k4aaaa"));
-        rm.add(new QueryPath("Indexed1", null, ByteBufferUtil.bytes("notbirthdate")), FBUtilities.toByteBuffer(2L), 0);
-        rm.add(new QueryPath("Indexed1", null, ByteBufferUtil.bytes("birthdate")), FBUtilities.toByteBuffer(3L), 0);
+        rm.add(new QueryPath(cfname, null, ByteBufferUtil.bytes("notbirthdate")), FBUtilities.toByteBuffer(2L), 0);
+        rm.add(new QueryPath(cfname, null, ByteBufferUtil.bytes("birthdate")), FBUtilities.toByteBuffer(3L), 0);
         rm.apply();
 
         // basic single-expression query
@@ -158,7 +168,7 @@ public class ColumnFamilyStoreTest extends CleanupHelper
         IFilter filter = new IdentityQueryFilter();
         IPartitioner p = StorageService.getPartitioner();
         Range range = new Range(p.getMinimumToken(), p.getMinimumToken());
-        List<Row> rows = Table.open("Keyspace1").getColumnFamilyStore("Indexed1").scan(clause, range, filter);
+        List<Row> rows = Table.open("Keyspace1").getColumnFamilyStore(cfname).scan(clause, range, filter);
 
         assert rows != null;
         assert rows.size() == 2 : StringUtils.join(rows, ",");
@@ -175,14 +185,14 @@ public class ColumnFamilyStoreTest extends CleanupHelper
         // add a second expression
         IndexExpression expr2 = new IndexExpression(ByteBufferUtil.bytes("notbirthdate"), IndexOperator.GTE, FBUtilities.toByteBuffer(2L));
         clause = new IndexClause(Arrays.asList(expr, expr2), FBUtilities.EMPTY_BYTE_BUFFER, 100);
-        rows = Table.open("Keyspace1").getColumnFamilyStore("Indexed1").scan(clause, range, filter);
+        rows = Table.open("Keyspace1").getColumnFamilyStore(cfname).scan(clause, range, filter);
 
         assert rows.size() == 1 : StringUtils.join(rows, ",");
         key = new String(rows.get(0).key.key.array(),rows.get(0).key.key.position(),rows.get(0).key.key.remaining()); 
         assert "k3".equals( key );
     
         // same query again, but with resultset not including the subordinate expression
-        rows = Table.open("Keyspace1").getColumnFamilyStore("Indexed1").scan(clause, range, new NamesQueryFilter(ByteBufferUtil.bytes("birthdate")));
+        rows = Table.open("Keyspace1").getColumnFamilyStore(cfname).scan(clause, range, new NamesQueryFilter(ByteBufferUtil.bytes("birthdate")));
 
         assert rows.size() == 1 : StringUtils.join(rows, ",");
         key = new String(rows.get(0).key.key.array(),rows.get(0).key.key.position(),rows.get(0).key.key.remaining()); 
@@ -192,7 +202,7 @@ public class ColumnFamilyStoreTest extends CleanupHelper
 
         // once more, this time with a slice rowset that needs to be expanded
         SliceQueryFilter emptyFilter = new SliceQueryFilter(FBUtilities.EMPTY_BYTE_BUFFER, FBUtilities.EMPTY_BYTE_BUFFER, false, 0);
-        rows = Table.open("Keyspace1").getColumnFamilyStore("Indexed1").scan(clause, range, emptyFilter);
+        rows = Table.open("Keyspace1").getColumnFamilyStore(cfname).scan(clause, range, emptyFilter);
       
         assert rows.size() == 1 : StringUtils.join(rows, ",");
         key = new String(rows.get(0).key.key.array(),rows.get(0).key.key.position(),rows.get(0).key.key.remaining()); 
@@ -204,7 +214,7 @@ public class ColumnFamilyStoreTest extends CleanupHelper
         // doesn't tell the scan loop that it's done
         IndexExpression expr3 = new IndexExpression(ByteBufferUtil.bytes("notbirthdate"), IndexOperator.EQ, FBUtilities.toByteBuffer(-1L));
         clause = new IndexClause(Arrays.asList(expr, expr3), FBUtilities.EMPTY_BYTE_BUFFER, 1);
-        rows = Table.open("Keyspace1").getColumnFamilyStore("Indexed1").scan(clause, range, filter);
+        rows = Table.open("Keyspace1").getColumnFamilyStore(cfname).scan(clause, range, filter);
 
         assert rows.isEmpty();
     }

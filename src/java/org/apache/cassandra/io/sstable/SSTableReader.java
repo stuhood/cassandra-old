@@ -524,6 +524,14 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     }
 
     /**
+     * @return The number of rows matched by the given expression for this sstable.
+     */
+    public long cardinality(IndexExpression expr)
+    {
+        return secindexes.get(expr.column_name).cardinality(expr.op, expr.value);
+    }
+
+    /**
      * @return The length in bytes of the data file for this SSTable.
      */
     public long length()

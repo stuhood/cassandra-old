@@ -48,8 +48,7 @@ import org.apache.cassandra.db.filter.*;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.marshal.LocalByPartionerType;
-import org.apache.cassandra.db.secindex.KeysIndex;
-import org.apache.cassandra.db.secindex.SecondaryIndex;
+import org.apache.cassandra.db.secindex.*;
 import org.apache.cassandra.dht.*;
 import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.io.util.FileUtils;
@@ -253,8 +252,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 // TODO: push private CFS creation into secindex.KeysIndex
                 addIndex(info);
             else if (info.index_type == IndexType.KEYS_BITMAP)
-                // FIXME: need SecondaryIndex subclass for KEYS_BITMAP
-                continue;
+                indexedColumns.put(info.name, new KeysBitmapIndex(this));
         }
 
         // register the mbean
@@ -1072,6 +1070,21 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     public long[] getRecentWriteLatencyHistogramMicros()
     {
         return writeStats.getRecentLatencyHistogramMicros();
+    }
+
+    /**
+     * Opens an iterator that performs brute-force filtering for the given expression over all
+     * memtables. Keys that don't match will return null.
+     */
+    public CloseableIterator<DecoratedKey> filterMemtables(IndexExpression expr, DecoratedKey startKey)
+    {
+        List<Iterator<Map.Entry<DecoratedKey,ColumnFamily>>> iters = new ArrayList<Iterator<Map.Entry<DecoratedKey,ColumnFamily>>>();
+        // grab references to the current memtable and the memtables being flushed
+        iters.add(getMemtableThreadSafe().getEntryIterator(startKey));
+        for (Memtable pending : memtablesPendingFlush)
+            iters.add(pending.getEntryIterator(startKey));
+        // brute force filter: keys which don't match will return null
+        return new MemtableFilteringIterator(expr, iters);
     }
 
     public ColumnFamily getColumnFamily(DecoratedKey key, QueryPath path, ByteBuffer start, ByteBuffer finish, boolean reversed, int limit)
