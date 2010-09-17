@@ -48,6 +48,8 @@ import org.apache.cassandra.db.filter.*;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.marshal.LocalByPartionerType;
+import org.apache.cassandra.db.secindex.KeysIndex;
+import org.apache.cassandra.db.secindex.SecondaryIndex;
 import org.apache.cassandra.dht.*;
 import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.io.util.FileUtils;
@@ -119,7 +121,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     /* active memtable associated with this ColumnFamilyStore. */
     private Memtable memtable;
 
-    private final ConcurrentSkipListMap<ByteBuffer, ColumnFamilyStore> indexedColumns;
+    private final ConcurrentSkipListMap<ByteBuffer, SecondaryIndex> indexedColumns;
 
     // TODO binarymemtable ops are not threadsafe (do they need to be?)
     private AtomicReference<BinaryMemtable> binaryMemtable;
@@ -244,11 +246,15 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         ssTables.add(sstables);
 
         // create the private ColumnFamilyStores for the secondary column indexes
-        indexedColumns = new ConcurrentSkipListMap<ByteBuffer, ColumnFamilyStore>(getComparator());
+        indexedColumns = new ConcurrentSkipListMap<ByteBuffer, SecondaryIndex>(getComparator());
         for (ColumnDefinition info : metadata.getColumn_metadata().values())
         {
             if (info.getIndexType() == IndexType.KEYS)
+                // TODO: push private CFS creation into secindex.KeysIndex
                 addIndex(info);
+            else if (info.index_type == IndexType.KEYS_BITMAP)
+                // FIXME: need SecondaryIndex subclass for KEYS_BITMAP
+                continue;
         }
 
         // register the mbean
@@ -315,7 +321,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // link in indexedColumns.  this means that writes will add new data to the index immediately,
         // so we don't have to lock everything while we do the build.  it's up to the operator to wait
         // until the index is actually built before using in queries.
-        if (indexedColumns.putIfAbsent(info.name, indexedCfs) != null)
+        if (indexedColumns.putIfAbsent((info.name, new KeysIndex(indexedCfs, rowPartitioner)) != null)
             return;
 
         // if we're just linking in the index to indexedColumns on an already-built index post-restart, we're done
@@ -358,7 +364,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         {
             future.get();
             for (ByteBuffer column : columns)
-                getIndexedColumnFamilyStore(column).forceBlockingFlush();
+                getIndexColumnFamilyStore(column).forceBlockingFlush();
         }
         catch (InterruptedException e)
         {
@@ -380,7 +386,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             ObjectName nameObj = new ObjectName(mbeanName);
             if (mbs.isRegistered(nameObj))
                 mbs.unregisterMBean(nameObj);
-            for (ColumnFamilyStore index : indexedColumns.values())
+            for (ColumnFamilyStore index : getIndexColumnFamilyStores())
                 index.unregisterMBean();
         }
         catch (Exception e)
@@ -434,6 +440,15 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             count++;
         }
         return count > 0 ? (int) (sum / count) : 0;
+    }
+
+    public long getMaxColumns()
+    {
+        long max = 0;
+        for (SSTableReader sstable : ssTables)
+            if (sstable.getEstimatedColumnCount().max() > max)
+                max = sstable.getEstimatedColumnCount().max();
+        return max;
     }
 
     public static ColumnFamilyStore createColumnFamilyStore(Table table, String columnFamily)
@@ -645,9 +660,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             logger.info("switching in a fresh Memtable for " + columnFamily + " at " + ctx);
 
             // submit the memtable for any indexed sub-cfses, and our own.
-            List<ColumnFamilyStore> icc = new ArrayList<ColumnFamilyStore>(indexedColumns.size());
+            List<ColumnFamilyStore> icc = new ArrayList<ColumnFamilyStore>(getIndexColumnFamilyStores().size());
             icc.add(this);
-            for (ColumnFamilyStore indexCfs : indexedColumns.values())
+            for (ColumnFamilyStore indexCfs : getIndexColumnFamilyStores())
             {
                 if (!indexCfs.memtable.isClean())
                     icc.add(indexCfs);
@@ -929,7 +944,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     public void removeAllSSTables()
     {
         ssTables.replace(ssTables.getSSTables(), Collections.<SSTableReader>emptyList());
-        for (ColumnFamilyStore indexedCfs : indexedColumns.values())
+        for (ColumnFamilyStore indexedCfs : getIndexColumnFamilyStores())
         {
             indexedCfs.removeAllSSTables();
         }
@@ -1333,18 +1348,27 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // Start with the most-restrictive indexed clause, then apply remaining clauses
         // to each row matching that clause.
         // TODO: allow merge join instead of just one index + loop
-        IndexExpression primary = highestSelectivityPredicate(clause);
-        ColumnFamilyStore indexCFS = getIndexedColumnFamilyStore(primary.column_name);
+        Pair<IndexExpression,SecondaryIndex> selective = highestSelectivityPredicate(clause);
+        IndexExpression primary = selective.left;
+        SecondaryIndex index = selective.right;
         if (logger.isDebugEnabled())
             logger.debug("Primary scan clause is " + getComparator().getString(primary.column_name));
-        assert indexCFS != null;
-        DecoratedKey indexKey = indexCFS.partitioner.decorateKey(primary.value);
+
+        // build a list of expressions that need to be evaluated post-scan
+        List<IndexExpression> postExpressions = new ArrayList<IndexExpression>(clause.expressions.size());
+        for (IndexExpression expr : clause.expressions)
+        {
+            if (expr == primary && index.certainty(primary))
+                // the index will completely eliminate rows that don't match it
+                continue;
+            postExpressions.add(expr);
+        }
 
         // if the slicepredicate doesn't contain all the columns for which we have expressions to evaluate,
         // it needs to be expanded to include those too
         IFilter firstFilter = dataFilter;
         NamesQueryFilter extraFilter = null;
-        if (clause.expressions.size() > 1)
+        if (!postExpressions.isEmpty())
         {
             if (dataFilter instanceof SliceQueryFilter)
             {
@@ -1362,12 +1386,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 {
                     logger.debug("adding extraFilter to cover additional expressions");
                     SortedSet<ByteBuffer> columns = new TreeSet<ByteBuffer>(getComparator());
-                    for (IndexExpression expr : clause.expressions)
-                    {
-                        if (expr == primary)
-                            continue;
+                    for (IndexExpression expr : postExpressions)
                         columns.add(expr.column_name);
-                    }
                     extraFilter = new NamesQueryFilter(columns);
                 }
             }
@@ -1377,12 +1397,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 // just add in columns that are not part of the resultset
                 assert dataFilter instanceof NamesQueryFilter;
                 SortedSet<ByteBuffer> columns = new TreeSet<ByteBuffer>(getComparator());
-                for (IndexExpression expr : clause.expressions)
-                {
-                    if (expr == primary || ((NamesQueryFilter) dataFilter).columns.contains(expr.column_name))
-                        continue;
-                    columns.add(expr.column_name);
-                }
+                for (IndexExpression expr : postExpressions)
+                    if (!((NamesQueryFilter) dataFilter).columns.contains(expr.column_name))
+                        // the user's filter includes columns for the post already
+                        columns.add(expr.column_name);
                 if (columns.size() > 0)
                 {
                     columns.addAll(((NamesQueryFilter) dataFilter).columns);
@@ -1397,41 +1415,12 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         // fetch row keys matching the primary expression, fetch the slice predicate for each
         // and filter by remaining expressions.  repeat until finished w/ assigned range or index row is exhausted.
-        outer:
-        while (true)
+        CloseableIterator<DecoratedKey> keyiter = index.iterator(range, primary, startKey);
+        try
         {
-            /* we don't have a way to get the key back from the DK -- we just have a token --
-             * so, we need to loop after starting with start_key, until we get to keys in the given `range`.
-             * But, if the calling StorageProxy is doing a good job estimating data from each range, the range
-             * should be pretty close to `start_key`. */
-            if (logger.isDebugEnabled())
-                logger.debug(String.format("Scanning index row %s:%s starting with %s",
-                                           indexCFS.columnFamily, indexKey, indexCFS.getComparator().getString(startKey)));
-            QueryFilter indexFilter = QueryFilter.getSliceFilter(indexKey,
-                                                                 new QueryPath(indexCFS.getColumnFamilyName()),
-                                                                 startKey,
-                                                                 FBUtilities.EMPTY_BYTE_BUFFER,
-                                                                 false,
-                                                                 clause.count);
-            ColumnFamily indexRow = indexCFS.getColumnFamily(indexFilter);
-            logger.debug("fetched {}", indexRow);
-            if (indexRow == null)
-                break;
-
-            ByteBuffer dataKey = null;
-            int n = 0;
-            for (IColumn column : indexRow.getSortedColumns())
+            while (keyiter.hasNext())
             {
-                if (column.isMarkedForDelete())
-                    continue;
-                dataKey = column.name();
-                n++;
-                DecoratedKey dk = partitioner.decorateKey(dataKey);
-                if (!range.right.equals(partitioner.getMinimumToken()) && range.right.compareTo(dk.token) < 0)
-                    break outer;
-                if (!range.contains(dk.token))
-                    continue;
-
+                DecoratedKey dk = keyiter.next();
                 // get the row columns requested, and additional columns for the expressions if necessary
                 ColumnFamily data = getColumnFamily(new QueryFilter(dk, path, firstFilter));
                 logger.debug("fetched data row {}", data);
@@ -1440,9 +1429,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                     // we might have gotten the expression columns in with the main data slice, but
                     // we can't know for sure until that slice is done.  So, we'll do the extra query
                     // if we go through and any expression columns are not present.
-                    for (IndexExpression expr : clause.expressions)
+                    for (IndexExpression expr : postExpressions)
                     {
-                        if (expr != primary && data.getColumn(expr.column_name) == null)
+                        if (data.getColumn(expr.column_name) == null)
                         {
                             data.addAll(getColumnFamily(new QueryFilter(dk, path, extraFilter)));
                             break;
@@ -1450,7 +1439,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                     }
                 }
 
-                if (satisfies(data, clause, primary))
+                if (SecondaryIndex.satisfies(data, postExpressions))
                 {
                     logger.debug("row {} satisfies all clauses", data);
                     // cut the resultset back to what was requested, if necessary
@@ -1463,73 +1452,39 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                     }
 
                     rows.add(new Row(dk, data));
+                    if (rows.size() == clause.count)
+                        break;
                 }
-
-                if (rows.size() == clause.count)
-                    break outer;
             }
-            if (n < clause.count || startKey.equals(dataKey))
-                break;
-            startKey = dataKey;
+        }
+        finally
+        {
+            keyiter.close();
         }
 
         return rows;
     }
 
-    private IndexExpression highestSelectivityPredicate(IndexClause clause)
+    private Pair<IndexExpression,SecondaryIndex> highestSelectivityPredicate(IndexClause clause)
     {
         IndexExpression best = null;
-        int bestMeanCount = Integer.MAX_VALUE;
+        SecondaryIndex bestIndex = null;
+        double bestSelectivity = Double.MAX_VALUE;
         for (IndexExpression expression : clause.expressions)
         {
-            ColumnFamilyStore cfs = getIndexedColumnFamilyStore(expression.column_name);
-            if (cfs == null || !expression.op.equals(IndexOperator.EQ))
+            SecondaryIndex index = indexedColumns.get(expression.column_name);
+            if (index == null)
                 continue;
-            int columns = cfs.getMeanColumns();
-            if (columns < bestMeanCount)
+            double selectivity = index.selectivity(expression);
+            if (selectivity < bestSelectivity)
             {
                 best = expression;
-                bestMeanCount = columns;
+                bestIndex = index;
+                bestSelectivity = selectivity;
             }
         }
-        return best;
-    }
-
-    private static boolean satisfies(ColumnFamily data, IndexClause clause, IndexExpression first)
-    {
-        for (IndexExpression expression : clause.expressions)
-        {
-            // (we can skip "first" since we already know it's satisfied)
-            if (expression == first)
-                continue;
-            // check column data vs expression
-            IColumn column = data.getColumn(expression.column_name);
-            if (column == null)
-                return false;
-            int v = data.getComparator().compare(column.value(), expression.value);
-            if (!satisfies(v, expression.op))
-                return false;
-        }
-        return true;
-    }
-
-    private static boolean satisfies(int comparison, IndexOperator op)
-    {
-        switch (op)
-        {
-            case EQ:
-                return comparison == 0;
-            case GTE:
-                return comparison >= 0;
-            case GT:
-                return comparison > 0;
-            case LTE:
-                return comparison <= 0;
-            case LT:
-                return comparison < 0;
-            default:
-                throw new IllegalStateException();
-        }
+        assert best != null : "No indexes available to fulfill " + clause;
+        return new Pair<IndexExpression,SecondaryIndex>(best, bestIndex);
     }
 
     public AbstractType getComparator()
@@ -1705,7 +1660,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             {
                 // putting markCompacted on the commitlogUpdater thread ensures it will run
                 // after any compactions that were in progress when truncate was called, are finished
-                for (ColumnFamilyStore cfs : Iterables.concat(indexedColumns.values(), Arrays.asList(ColumnFamilyStore.this)))
+                for (ColumnFamilyStore cfs : Iterables.concat(getIndexColumnFamilyStores(), Arrays.asList(ColumnFamilyStore.this)))
                 {
                     List<SSTableReader> truncatedSSTables = new ArrayList<SSTableReader>();
                     for (SSTableReader sstable : cfs.getSSTables())
@@ -1745,7 +1700,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         if (mostRecentProblem != null)
             throw new IOException("One or more IOExceptions encountered while renaming files. Most recent problem is included.", mostRecentProblem);
 
-        for (ColumnFamilyStore indexedCfs : indexedColumns.values())
+        for (ColumnFamilyStore indexedCfs : getIndexColumnFamilyStores())
         {
             indexedCfs.renameSSTables(indexedCfs.columnFamily.replace(columnFamily, newCfName));
         }
@@ -1801,8 +1756,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     public boolean hasBitmapIndexes()
     {
-        for (ColumnDefinition cdef : metadata.column_metadata.values())
-            if (cdef.index_type == IndexType.KEYS_BITMAP)
+        for (ColumnDefinition cdef : metadata.getColumn_metadata().values())
+            if (cdef.getIndexType() == IndexType.KEYS_BITMAP)
                 return true;
         return false;
     }
@@ -1812,19 +1767,44 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return (SortedSet<ByteBuffer>) indexedColumns.keySet();
     }
 
-    public ColumnFamilyStore getIndexedColumnFamilyStore(ByteBuffer column)
+    /** @return Columns indexed with the given type of index. */
+    public SortedSet<ByteBuffer> getIndexedColumns(IndexType type)
     {
-        return indexedColumns.get(column);
+        SortedSet<ByteBuffer> columns = new TreeSet<ByteBuffer>(getComparator());
+        for (Map.Entry<ByteBuffer,SecondaryIndex> secindex : indexedColumns.entrySet())
+            if (secindex.getValue().cdef.getIndexType() == IndexType.KEYS)
+                columns.add(secindex.getKey());
+        return columns;
     }
 
-    public ColumnFamily newIndexedColumnFamily(ByteBuffer column)
+    /** NB: Assumes IndexType.KEYS */
+    public Collection<ColumnFamilyStore> getIndexColumnFamilyStores()
     {
-        return ColumnFamily.create(indexedColumns.get(column).metadata);
+        ArrayList<ColumnFamilyStore> cfses = new ArrayList<ColumnFamilyStore>();
+        for (SecondaryIndex secindex : indexedColumns.values())
+            if (secindex.getIndexCFS() != null)
+                cfses.add(secindex.getIndexCFS());
+        return cfses;
     }
 
+    /** @return The index CFS for the given column if it has an index of type KEYS */
+    public ColumnFamilyStore getIndexColumnFamilyStore(ByteBuffer column)
+    {
+        SecondaryIndex index = indexedColumns.get(column);
+        if (index == null) return null;
+        return index.getIndexCFS();
+    }
+
+    /** NB: Assumes IndexType.KEYS */
+    public ColumnFamily newIndexColumnFamily(ByteBuffer column)
+    {
+        return ColumnFamily.create(indexedColumns.get(column).getIndexCFS().metadata);
+    }
+
+    /** NB: Assumes IndexType.KEYS */
     public DecoratedKey<LocalToken> getIndexKeyFor(ByteBuffer name, ByteBuffer value)
     {
-        return indexedColumns.get(name).partitioner.decorateKey(value);
+        return indexedColumns.get(name).getIndexCFS().partitioner.decorateKey(value);
     }
 
     @Override

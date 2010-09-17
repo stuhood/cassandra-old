@@ -31,6 +31,7 @@ import org.apache.cassandra.db.Table;
 import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.net.MessagingService;
 import org.cliffc.high_scale_lib.NonBlockingHashMap;
+import org.apache.cassandra.thrift.IndexType;
 import org.apache.cassandra.utils.Pair;
 
 import org.slf4j.Logger;
@@ -152,8 +153,8 @@ public class StreamInSession
             }
 
             // build secondary indexes
-            if (cfs != null && !cfs.getIndexedColumns().isEmpty())
-                cfs.buildSecondaryIndexes(sstables, cfs.getIndexedColumns());
+            if (cfs != null && !cfs.getIndexedColumns(IndexType.KEYS).isEmpty())
+                cfs.buildSecondaryIndexes(sstables, cfs.getIndexedColumns(IndexType.KEYS));
 
             // send reply to source that we're done
             StreamReply reply = new StreamReply("", getSessionId(), StreamReply.Status.SESSION_FINISHED);
