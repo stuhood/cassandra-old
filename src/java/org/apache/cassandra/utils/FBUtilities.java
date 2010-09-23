@@ -37,7 +37,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.base.Charsets;
+import com.google.common.collect.Iterators;
 import org.apache.commons.collections.iterators.CollatingIterator;
+import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,6 +76,16 @@ public class FBUtilities
             return compareByteArrays(o1, o2);
         }
     };
+
+    @SuppressWarnings(value="unchecked")
+    public static String joinLimited(Collection collection, String separator, int limit)
+    {
+        if (collection.size() < limit)
+            return StringUtils.join(collection, separator);
+        // append count remaining
+        Iterator more = Iterators.singletonIterator("... " + (collection.size() - limit) + " more");
+        return StringUtils.join(Iterators.concat(Iterators.limit(collection.iterator(), limit), more), separator);
+    }
 
     /**
      * Parses a string representing either a fraction, absolute value or percentage.

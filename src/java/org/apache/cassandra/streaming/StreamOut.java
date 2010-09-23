@@ -28,13 +28,13 @@ import java.util.concurrent.Future;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.apache.commons.lang.StringUtils;
 
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.db.Table;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.SSTable;
 import org.apache.cassandra.io.sstable.SSTableReader;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 
 /**
@@ -72,7 +72,7 @@ public class StreamOut
         // this is so that this target shows up as a destination while anticompaction is happening.
         StreamOutSession session = StreamOutSession.create(tableName, target, callback);
 
-        logger.info("Beginning transfer process to {} for ranges {}", target, StringUtils.join(ranges, ", "));
+        logger.info("Beginning transfer process to {} for ranges {}", target, FBUtilities.joinLimited(ranges, ", ", 10));
 
         try
         {
@@ -120,7 +120,7 @@ public class StreamOut
     {
         assert ranges.size() > 0;
 
-        logger.info("Beginning transfer process to {} for ranges {}", session.getHost(), StringUtils.join(ranges, ", "));
+        logger.info("Beginning transfer process to {} for ranges {}", session.getHost(), FBUtilities.joinLimited(ranges, ", ", 10));
 
         try
         {
