@@ -104,7 +104,7 @@ public class AntiEntropyService
     /**
      * A map of repair session ids to a Queue of TreeRequests that have been performed since the session was started.
      */
-    private final ConcurrentMap<String, BlockingQueue<TreeRequest>> sessions;
+    private final ConcurrentMap<String, RepairSession.Callback> sessions;
 
     /**
      * Protected constructor. Use AntiEntropyService.instance.
@@ -112,7 +112,7 @@ public class AntiEntropyService
     protected AntiEntropyService()
     {
         requests = new ExpiringMap<String, Map<TreeRequest, TreePair>>(REQUEST_TIMEOUT);
-        sessions = new ConcurrentHashMap<String, BlockingQueue<TreeRequest>>();
+        sessions = new ConcurrentHashMap<String, RepairSession.Callback>();
     }
 
     /**
@@ -130,11 +130,7 @@ public class AntiEntropyService
     void completedRequest(TreeRequest request)
     {
         // indicate to the waiting session that this request completed
-        BlockingQueue<TreeRequest> session = sessions.get(request.sessionid);
-        if (session == null)
-            // repair client disconnected: ignore
-            return;
-        session.offer(request);
+        sessions.get(request.sessionid).completed(request);
     }
 
     /**
@@ -763,18 +759,21 @@ public class AntiEntropyService
 
     /**
      * Triggers repairs with all neighbors for the given table and cfs. Typical lifecycle is: start() then join().
+     * Executed in client threads.
      */
     class RepairSession extends Thread
     {
         private final String tablename;
         private final String[] cfnames;
         private final SimpleCondition requestsMade;
+        private final ConcurrentHashMap<TreeRequest,Object> requests;
         public RepairSession(String tablename, String... cfnames)
         {
             super("manual-repair-" + UUID.randomUUID());
             this.tablename = tablename;
             this.cfnames = cfnames;
             this.requestsMade = new SimpleCondition();
+            this.requests = new ConcurrentHashMap<TreeRequest,Object>();
         }
 
         /**
@@ -789,39 +788,60 @@ public class AntiEntropyService
         public void run()
         {
             // begin a repair session
-            BlockingQueue<TreeRequest> completed = new LinkedBlockingQueue<TreeRequest>();
-            AntiEntropyService.this.sessions.put(getName(), completed);
+            Callback callback = new Callback();
+            AntiEntropyService.this.sessions.put(getName(), callback);
             try
             {
                 // request that all relevant endpoints generate trees
-                Set<TreeRequest> requests = new HashSet<TreeRequest>();
                 Set<InetAddress> endpoints = AntiEntropyService.getNeighbors(tablename);
                 for (String cfname : cfnames)
                 {
                     // send requests to remote nodes and record them
                     for (InetAddress endpoint : endpoints)
-                        requests.add(AntiEntropyService.this.request(getName(), endpoint, tablename, cfname));
+                        requests.put(AntiEntropyService.this.request(getName(), endpoint, tablename, cfname), this);
                     // send but don't record an outstanding request to the local node
                     AntiEntropyService.this.request(getName(), FBUtilities.getLocalAddress(), tablename, cfname);
                 }
+                logger.info("Waiting for repair requests: " + requests.keySet());
                 requestsMade.signalAll();
 
-                // block until all requests have been returned by completedRequest calls
-                logger.info("Waiting for repair requests: " + requests);
-                while (!requests.isEmpty())
-                {
-                    TreeRequest request = completed.take();
-                    logger.info("Repair request " + request + " completed successfully.");
-                    requests.remove(request);
-                }
+                // block whatever thread started this session until all requests have been returned:
+                // if this thread dies, the session will still complete in the background
+                callback.completed.await();
             }
             catch (InterruptedException e)
             {
                 throw new RuntimeException("Interrupted while waiting for repair: repair will continue in the background.");
             }
-            finally
+        }
+
+        /**
+         * Receives notifications of completed requests, and sets a condition when all requests
+         * triggered by this session have completed.
+         */
+        class Callback
+        {
+            public final SimpleCondition completed = new SimpleCondition();
+            public void completed(TreeRequest request)
             {
+                // don't mark any requests completed until all requests have been made
+                try
+                {
+                    blockUntilRunning();
+                }
+                catch (InterruptedException e)
+                {
+                    throw new AssertionError(e);
+                }
+                requests.remove(request);
+                logger.info("{} completed successfully: {} outstanding.", request, requests.size());
+                if (!requests.isEmpty())
+                    return;
+
+                // all requests completed
+                logger.info("Session " + getName() + " completed successfully.");
                 AntiEntropyService.this.sessions.remove(getName());
+                completed.signalAll();
             }
         }
     }
