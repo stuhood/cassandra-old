@@ -22,6 +22,7 @@ package org.apache.cassandra.io.sstable;
 
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,9 @@ import java.util.Map;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.dht.AbstractBounds;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.utils.Pair;
 
 /**
  * Two approaches to building an IndexSummary:
@@ -79,6 +83,76 @@ public class IndexSummary
     public void complete()
     {
         indexPositions.trimToSize();
+    }
+
+    /**
+     * @return The offset in indexPositions of the first key less than or equal to dk, or -1.
+     */
+    private int binarySearch(DecoratedKey dk)
+    {
+        int index = Collections.binarySearch(indexPositions, new KeyPosition(dk, -1));
+        if (index >= 0)
+            // exact match
+            return index;
+        // binary search gives us the first index _greater_ than the key searched for,
+        // i.e., its insertion position
+        int greaterThan = (index + 1) * -1;
+        if (greaterThan == 0)
+            return -1;
+        return greaterThan - 1;
+    }
+
+    /**
+     * @return The position in the index file to start scanning to find the given key
+     * (at most indexInterval keys away)
+     */
+    KeyPosition getIndexScanPosition(DecoratedKey decoratedKey)
+    {
+        int index = binarySearch(decoratedKey);
+        if (index == -1)
+            // given key is before the beginning of the file
+            return null;
+        return indexPositions.get(index);
+    }
+
+    /**
+     * @return The position in the index file to start scanning to find the given rowid
+     * (at most indexInterval keys away), and the rowid for the position.
+     */
+    Pair<KeyPosition,Long> getIndexScanPosition(long rowid)
+    {
+        int index = (int)(rowid / DatabaseDescriptor.getIndexInterval());
+        return new Pair<KeyPosition,Long>(indexPositions.get(index),
+                                          // round down to the matched rowid
+                                          DatabaseDescriptor.getIndexInterval() * (long)index);
+    }
+
+    /**
+     * @param range An unwrapped AbstractBounds (rhs may either be greater than lhs, or equal to the minimum token).
+     * TODO: Add a method to AbstractBounds that lets us assert that it is unwrapped.
+     * @return The approximate min and max rowids (within INDEX_INTERVAL) matched by the given AbstractBound, or null
+     * if no rows match. Note that because of rounding, the maximum rowid may be past the end of the file.
+     */
+    Pair<Long,Long> getRowidRange(AbstractBounds range)
+    {
+        // max (rounded up)
+        int maxIndex = binarySearch(new DecoratedKey(range.right, null));
+        if (maxIndex == -1 && Range.isWrapAround(range.left, range.right))
+            // wrapping range: rhs is "infinite"
+            maxIndex = indexPositions.size();
+        else if (maxIndex == -1)
+            // entire range falls before the beginning of the file
+            return null;
+        else
+            // round up to next position
+            maxIndex += 1;
+        long maxRowid = maxIndex * DatabaseDescriptor.getIndexInterval();
+
+        // min (already rounded down by summary)
+        int minIndex = binarySearch(new DecoratedKey(range.left, null));
+        long minRowid = minIndex == -1 ? 0 : minIndex * DatabaseDescriptor.getIndexInterval();
+
+        return new Pair<Long,Long>(minRowid, maxRowid);
     }
 
     /**
