@@ -22,6 +22,9 @@
 @namespace("org.apache.cassandra")
 
 protocol InterNode {
+    // import the public client API
+    import idl "../../interface/cassandra.genavro";
+
     @namespace("org.apache.cassandra.utils.avro")
     fixed UUID(16);
 
