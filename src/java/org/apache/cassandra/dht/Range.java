@@ -25,7 +25,6 @@ import org.apache.commons.lang.ObjectUtils;
 
 import org.apache.cassandra.service.StorageService;
 
-
 /**
  * A representation of the range that a node is responsible for on the DHT ring.
  *
@@ -186,6 +185,11 @@ public class Range extends AbstractBounds implements Comparable<Range>, Serializ
         if (other.contains(wrapping.left) && wrapping.left.compareTo(other.right) < 0)
             intersection.add(new Range(wrapping.left, other.right));
         return Collections.unmodifiableSet(intersection);
+    }
+
+    public AbstractBounds cloneLeft(Token token)
+    {
+        return new Range(left, token);
     }
 
     public Set<AbstractBounds> restrictTo(Range range)
