@@ -45,6 +45,11 @@ public class Bounds extends AbstractBounds
         return Range.contains(left, right, token) || left.equals(token);
     }
 
+    public AbstractBounds cloneLeft(Token token)
+    {
+        return new Bounds(left, token);
+    }
+
     public Set<AbstractBounds> restrictTo(Range range)
     {
         Token min = partitioner.getMinimumToken();
