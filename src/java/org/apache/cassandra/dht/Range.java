@@ -192,24 +192,9 @@ public class Range extends AbstractBounds implements Comparable<Range>, Serializ
         return new Range(left, token);
     }
 
-    public Set<AbstractBounds> restrictTo(Range range)
-    {
-        return (Set) intersectionWith(range);
-    }
-
-    public List<AbstractBounds> unwrap()
-    {
-        if (!isWrapAround() || right.equals(partitioner.getMinimumToken()))
-            return (List)Arrays.asList(this);
-        List<AbstractBounds> unwrapped = new ArrayList<AbstractBounds>(2);
-        unwrapped.add(new Range(left, partitioner.getMinimumToken()));
-        unwrapped.add(new Range(partitioner.getMinimumToken(), right));
-        return unwrapped;
-    }
-
     /**
      * Tells if the given range is a wrap around.
-         */
+     */
     public static boolean isWrapAround(Token left, Token right)
     {
         return left.compareTo(right) >= 0;
@@ -245,6 +230,7 @@ public class Range extends AbstractBounds implements Comparable<Range>, Serializ
         return false;
     }
 
+    @Override
     public boolean equals(Object o)
     {
         if (!(o instanceof Range))

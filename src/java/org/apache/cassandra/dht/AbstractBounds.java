@@ -80,8 +80,6 @@ public abstract class AbstractBounds implements Serializable
     /** @return A clone of this AbstractBounds with a new right Token. */
     public abstract AbstractBounds cloneLeft(Token right);
 
-    public abstract List<AbstractBounds> unwrap();
-
     private static class AbstractBoundsSerializer implements ICompactSerializer2<AbstractBounds>
     {
         public void serialize(AbstractBounds range, DataOutput out) throws IOException
