@@ -30,24 +30,38 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.db.DecoratedKey;
 
+/**
+ * Two approaches to building an IndexSummary:
+ * 1. Call maybeAddEntry with every potential index entry
+ * 2. Call shouldAddEntry, add the
+ */
 public class IndexSummary
 {
     private ArrayList<KeyPosition> indexPositions;
     private int keysWritten = 0;
-    private long lastIndexPosition;
+
+    public void incrementRowid()
+    {
+        keysWritten++;
+    }
+
+    public boolean shouldAddEntry()
+    {
+        return keysWritten % DatabaseDescriptor.getIndexInterval() == 0;
+    }
+
+    public void addEntry(DecoratedKey decoratedKey, long indexPosition)
+    {
+        if (indexPositions == null)
+            indexPositions  = new ArrayList<KeyPosition>();
+        indexPositions.add(new KeyPosition(decoratedKey, indexPosition));
+    }
 
     public void maybeAddEntry(DecoratedKey decoratedKey, long indexPosition)
     {
-        if (keysWritten++ % DatabaseDescriptor.getIndexInterval() == 0)
-        {
-            if (indexPositions == null)
-            {
-                indexPositions  = new ArrayList<KeyPosition>();
-            }
-            KeyPosition info = new KeyPosition(decoratedKey, indexPosition);
-            indexPositions.add(info);
-        }
-        lastIndexPosition = indexPosition;
+        if (shouldAddEntry())
+            addEntry(decoratedKey, indexPosition);
+        incrementRowid();
     }
 
     public List<KeyPosition> getIndexPositions()
@@ -58,11 +72,6 @@ public class IndexSummary
     public void complete()
     {
         indexPositions.trimToSize();
-    }
-
-    public long getLastIndexPosition()
-    {
-        return lastIndexPosition;
     }
 
     /**
