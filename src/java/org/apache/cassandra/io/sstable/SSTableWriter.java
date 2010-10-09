@@ -340,7 +340,7 @@ public class SSTableWriter extends SSTable
             this.partitioner = part;
             indexFile = new BufferedRandomAccessFile(desc.filenameFor(SSTable.COMPONENT_INDEX), "rw", 8 * 1024 * 1024);
             builder = SegmentedFile.getBuilder(DatabaseDescriptor.getIndexAccessMode());
-            summary = new IndexSummary();
+            summary = new IndexSummary(keyCount);
             bf = BloomFilter.getFilter(keyCount, 15);
         }
 

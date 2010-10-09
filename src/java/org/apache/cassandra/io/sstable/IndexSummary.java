@@ -38,7 +38,16 @@ import org.apache.cassandra.db.DecoratedKey;
 public class IndexSummary
 {
     private ArrayList<KeyPosition> indexPositions;
-    private int keysWritten = 0;
+    private long keysWritten = 0;
+
+    public IndexSummary(long expectedKeys)
+    {
+        long expectedEntries = expectedKeys / DatabaseDescriptor.getIndexInterval();
+        if (expectedEntries > Integer.MAX_VALUE)
+            // TODO: that's a _lot_ of keys, or a very low interval
+            throw new RuntimeException("Cannot use index_interval of " + DatabaseDescriptor.getIndexInterval() + " with " + expectedKeys + " (expected) keys.");
+        indexPositions = new ArrayList<KeyPosition>((int)expectedEntries);
+    }
 
     public void incrementRowid()
     {
@@ -52,8 +61,6 @@ public class IndexSummary
 
     public void addEntry(DecoratedKey decoratedKey, long indexPosition)
     {
-        if (indexPositions == null)
-            indexPositions  = new ArrayList<KeyPosition>();
         indexPositions.add(new KeyPosition(decoratedKey, indexPosition));
     }
 
@@ -80,7 +87,7 @@ public class IndexSummary
      * to find where to start looking for the index entry containing the data position
      * (which will be turned into a PositionSize object)
      */
-    public static class KeyPosition implements Comparable<KeyPosition>
+    public static final class KeyPosition implements Comparable<KeyPosition>
     {
         public final DecoratedKey key;
         public final long indexPosition;

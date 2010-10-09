@@ -257,7 +257,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         SegmentedFile.Builder dbuilder = SegmentedFile.getBuilder(DatabaseDescriptor.getDiskAccessMode());
 
         // we read the positions in a BRAF so we don't have to worry about an entry spanning a mmap boundary.
-        indexSummary = new IndexSummary();
         BufferedRandomAccessFile input = new BufferedRandomAccessFile(descriptor.filenameFor(Component.PRIMARY_INDEX), "r");
         try
         {
@@ -265,9 +264,11 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                 keyCache.updateCapacity(keyCache.getSize() + keysToLoadInCache.size());
 
             long indexSize = input.length();
+            long estimatedKeys = indexSize / 32;
+            indexSummary = new IndexSummary(estimatedKeys);
             if (recreatebloom)
                 // estimate key count based on index length
-                bf = BloomFilter.getFilter((int)(input.length() / 32), 15);
+                bf = BloomFilter.getFilter((int)estimatedKeys, 15);
             while (true)
             {
                 long indexPosition = input.getFilePointer();
@@ -302,7 +303,6 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         }
 
         // finalize the state of the reader
-        indexSummary.complete();
         ifile = ibuilder.complete(descriptor.filenameFor(Component.PRIMARY_INDEX));
         dfile = dbuilder.complete(descriptor.filenameFor(Component.DATA));
     }
