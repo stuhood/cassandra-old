@@ -277,7 +277,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                 boolean shouldAddEntry = indexSummary.shouldAddEntry();
                 byte[] key = (shouldAddEntry || cacheLoading || recreatebloom) ?
                     FBUtilities.readShortByteArray(input) :
-                    FBUtilities.readShortByteArray(input);
+                    FBUtilities.skipShortByteArray(input);
                 long dataPosition = input.readLong();
                 if (key != null)
                 {

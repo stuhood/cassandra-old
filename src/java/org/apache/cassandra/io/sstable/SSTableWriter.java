@@ -201,7 +201,7 @@ public class SSTableWriter extends SSTable
         while (dataPosition < BYTES_CAP && keys < SAMPLES_CAP)
         {
             dfile.seek(dataPosition);
-            FBUtilities.readShortByteArray(dfile);
+            FBUtilities.skipShortByteArray(dfile);
             long dataSize = SSTableReader.readRowSize(dfile, desc);
             dataPosition = dfile.getFilePointer() + dataSize;
             keys++;
