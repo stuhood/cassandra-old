@@ -264,7 +264,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                 keyCache.updateCapacity(keyCache.getSize() + keysToLoadInCache.size());
 
             long indexSize = input.length();
-            long estimatedKeys = indexSize / 32;
+            long estimatedKeys = SSTable.estimateRowsIndex(descriptor, input);
             indexSummary = new IndexSummary(estimatedKeys);
             if (recreatebloom)
                 // estimate key count based on index length

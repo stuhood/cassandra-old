@@ -189,27 +189,6 @@ public class SSTableWriter extends SSTable
         return dataFile.getFilePointer();
     }
     
-    /**
-     * @return An estimate of the number of keys contained in the given data file.
-     */
-    private static long estimateRows(Descriptor desc, BufferedRandomAccessFile dfile) throws IOException
-    {
-        // collect sizes for the first 1000 keys, or first 100 megabytes of data
-        final int SAMPLES_CAP = 1000, BYTES_CAP = (int)Math.min(100000000, dfile.length());
-        int keys = 0;
-        long dataPosition = 0;
-        while (dataPosition < BYTES_CAP && keys < SAMPLES_CAP)
-        {
-            dfile.seek(dataPosition);
-            FBUtilities.skipShortByteArray(dfile);
-            long dataSize = SSTableReader.readRowSize(dfile, desc);
-            dataPosition = dfile.getFilePointer() + dataSize;
-            keys++;
-        }
-        dfile.seek(0);
-        return dfile.length() / (dataPosition / keys);
-    }
-
     public static Builder createBuilder(Descriptor desc)
     {
         if (!desc.isLatestVersion)
@@ -257,7 +236,7 @@ public class SSTableWriter extends SSTable
             long estimatedRows;
             try
             {
-                estimatedRows = estimateRows(desc, dfile);
+                estimatedRows = SSTable.estimateRowsData(desc, dfile);
                 iwriter = new IndexWriter(desc, StorageService.getPartitioner(), estimatedRows);
             }
             catch(IOException e)
