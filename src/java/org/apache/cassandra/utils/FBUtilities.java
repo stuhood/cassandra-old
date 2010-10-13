@@ -70,6 +70,7 @@ public class FBUtilities
         boolean assertsEnabled = false;
         assert assertsEnabled = true;
         ASSERTS_ENABLED = assertsEnabled;
+        logger_.info("Assertions " + (ASSERTS_ENABLED ? "enabled" : "disabled") + ".");
     };
 
     public static final Comparator<byte[]> byteArrayComparator = new Comparator<byte[]>()

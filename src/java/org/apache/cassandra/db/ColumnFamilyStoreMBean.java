@@ -62,6 +62,11 @@ public interface ColumnFamilyStoreMBean
     public Object forceFlush() throws IOException;
 
     /**
+     * @return a histogram of the number of sstable data files accessed per read: reading this property resets it
+     */
+    public long[] getRecentSSTablesPerReadHistogram();
+
+    /**
      * @return the number of read operations on this column family
      */
     public long getReadCount();

@@ -56,6 +56,7 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.thrift.IndexClause;
 import org.apache.cassandra.thrift.IndexExpression;
 import org.apache.cassandra.thrift.IndexOperator;
+import org.apache.cassandra.utils.EstimatedHistogram;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.LatencyTracker;
 import org.apache.cassandra.utils.Pair;
@@ -126,6 +127,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     private LatencyTracker readStats = new LatencyTracker();
     private LatencyTracker writeStats = new LatencyTracker();
+
+    // counts of sstables accessed by reads since the last jmx request
+    private final EstimatedHistogram recentSSTablesPerRead = new EstimatedHistogram(35);
 
     public final CFMetaData metadata;
 
@@ -914,6 +918,11 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return ssTables.getSSTables();
     }
 
+    public long[] getRecentSSTablesPerReadHistogram()
+    {
+        return recentSSTablesPerRead.get(true);
+    }
+
     public long getReadCount()
     {
         return readStats.getOpCount();
@@ -1115,15 +1124,18 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             }
 
             /* add the SSTables on disk */
+            int sstablesToIterate = 0;
             for (SSTableReader sstable : ssTables)
             {
                 iter = filter.getSSTableColumnIterator(sstable);
-                if (iter != null && iter.getColumnFamily() != null)
-                {
-                    returnCF.delete(iter.getColumnFamily());
-                    iterators.add(iter);
-                }
+                if (iter == null)
+                    continue;
+                returnCF.delete(iter.getColumnFamily());
+                iterators.add(iter);
+                sstablesToIterate++;
             }
+            // record the number of sstables we had to access for this read
+            recentSSTablesPerRead.add(sstablesToIterate);
 
             switch (iterators.size())
             {
