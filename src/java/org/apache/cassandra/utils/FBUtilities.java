@@ -64,6 +64,14 @@ public class FBUtilities
 
     public static final int MAX_UNSIGNED_SHORT = 0xFFFF;
 
+    public static final boolean ASSERTS_ENABLED;
+    static
+    {
+        boolean assertsEnabled = false;
+        assert assertsEnabled = true;
+        ASSERTS_ENABLED = assertsEnabled;
+    };
+
     public static final Comparator<byte[]> byteArrayComparator = new Comparator<byte[]>()
     {
         public int compare(byte[] o1, byte[] o2)

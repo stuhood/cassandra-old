@@ -1118,16 +1118,25 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             for (SSTableReader sstable : ssTables)
             {
                 iter = filter.getSSTableColumnIterator(sstable);
-                if (iter.getColumnFamily() != null)
+                if (iter != null && iter.getColumnFamily() != null)
                 {
                     returnCF.delete(iter.getColumnFamily());
                     iterators.add(iter);
                 }
             }
 
-            Comparator<IColumn> comparator = filter.filter.getColumnComparator(getComparator());
-            Iterator collated = IteratorUtils.collatedIterator(comparator, iterators);
-            filter.collectCollatedColumns(returnCF, collated, gcBefore);
+            switch (iterators.size())
+            {
+                case 0:
+                    break;
+                case 1:
+                    filter.collectCollatedColumns(returnCF, iterators.get(0), gcBefore);
+                    break;
+                default:
+                    Comparator<IColumn> comparator = filter.filter.getColumnComparator(getComparator());
+                    Iterator collated = IteratorUtils.collatedIterator(comparator, iterators);
+                    filter.collectCollatedColumns(returnCF, collated, gcBefore);
+            }
             // Caller is responsible for final removeDeletedCF.  This is important for cacheRow to work correctly:
             // we need to distinguish between "there is no data at all for this row" (BF will let us rebuild that efficiently)
             // and "there used to be data, but it's gone now" (we should cache the empty CF so we don't need to rebuild that slower)

@@ -49,42 +49,7 @@ public class SSTableNamesIterator extends SimpleAbstractColumnIterator implement
     public final SortedSet<byte[]> columns;
     public final DecoratedKey key;
 
-    public SSTableNamesIterator(SSTableReader sstable, DecoratedKey key, SortedSet<byte[]> columns)
-    {
-        assert columns != null;
-        this.columns = columns;
-        this.key = key;
-
-        FileDataInput file = sstable.getFileDataInput(key, DatabaseDescriptor.getIndexedReadBufferSizeInKB() * 1024);
-        if (file == null)
-            return;
-
-        try
-        {
-            DecoratedKey keyInDisk = SSTableReader.decodeKey(sstable.partitioner,
-                                                             sstable.descriptor,
-                                                             FBUtilities.readShortByteArray(file));
-            assert keyInDisk.equals(key) : String.format("%s != %s in %s", keyInDisk, key, file.getPath());
-            SSTableReader.readRowSize(file, sstable.descriptor);
-            read(sstable.metadata, file);
-        }
-        catch (IOException e)
-        {
-            throw new IOError(e);
-        }
-        finally
-        {
-            try
-            {
-                file.close();
-            }
-            catch (IOException ioe)
-            {
-                logger.warn("error closing " + file.getPath());
-            }
-        }
-    }
-
+    /** Use create() if you are not sure the key exists in this sstable. */
     public SSTableNamesIterator(CFMetaData metadata, FileDataInput file, DecoratedKey key, SortedSet<byte[]> columns)
     {
         assert columns != null;
@@ -98,6 +63,25 @@ public class SSTableNamesIterator extends SimpleAbstractColumnIterator implement
         catch (IOException ioe)
         {
             throw new IOError(ioe);
+        }
+    }
+
+    /** @return An SSTableNamesIterator, or null if the sstable does not contain data for the key. */
+    public static SSTableNamesIterator create(SSTableReader sstable, DecoratedKey key, SortedSet<byte[]> columns) throws IOError
+    {
+        try
+        {
+            FileDataInput file = sstable.getFileDataInput(key, DatabaseDescriptor.getIndexedReadBufferSizeInKB() * 1024);
+            if (file == null)
+                // key does not exist in sstable
+                return null;
+            SSTableReader.readAssertedKey(sstable, file, key);
+            SSTableReader.readRowSize(file, sstable.descriptor);
+            return new SSTableNamesIterator(sstable.metadata, file, key, columns);
+        }
+        catch (IOException e)
+        {
+            throw new IOError(e);
         }
     }
 

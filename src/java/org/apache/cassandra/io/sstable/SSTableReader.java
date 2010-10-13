@@ -571,6 +571,22 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         return maxDataAge > age;
     }
 
+    /**
+     * Read a key from the given input, and assert that it equals the given key.
+     */
+    public static void readAssertedKey(SSTableReader sstable, FileDataInput in, DecoratedKey expected) throws IOException
+    {
+        if (!FBUtilities.ASSERTS_ENABLED)
+        {
+            FBUtilities.skipShortByteArray(in);
+            return;
+        }
+        DecoratedKey actual = SSTableReader.decodeKey(sstable.partitioner,
+                                                      sstable.descriptor,
+                                                      FBUtilities.readShortByteArray(in));
+        assert actual.equals(expected) : String.format("%s != %s in %s", actual, expected, in.getPath());
+    }
+
     public static long readRowSize(DataInput in, Descriptor d) throws IOException
     {
         if (d.hasIntRowSize)

@@ -61,7 +61,7 @@ public class SliceQueryFilter implements IFilter
 
     public IColumnIterator getSSTableColumnIterator(SSTableReader sstable, DecoratedKey key)
     {
-        return new SSTableSliceIterator(sstable, key, start, finish, reversed);
+        return SSTableSliceIterator.create(sstable, key, start, finish, reversed);
     }
     
     public IColumnIterator getSSTableColumnIterator(CFMetaData metadata, FileDataInput file, DecoratedKey key)

@@ -55,8 +55,8 @@ public interface IFilter
     public abstract IColumnIterator getSSTableColumnIterator(CFMetaData metadata, FileDataInput file, DecoratedKey key);
 
     /**
-     * returns an iterator that returns columns from the given SSTable
-     * matching the Filter criteria in sorted order.
+     * @return An iterator that returns columns from the given SSTable matching the Filter criteria
+     * in sorted order, or null if the sstable does not contain the key.
      */
     public abstract IColumnIterator getSSTableColumnIterator(SSTableReader sstable, DecoratedKey key);
 

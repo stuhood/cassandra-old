@@ -43,32 +43,17 @@ public class SSTableSliceIterator implements IColumnIterator
     private IColumnIterator reader;
     private DecoratedKey key;
 
-    public SSTableSliceIterator(SSTableReader sstable, DecoratedKey key, byte[] startColumn, byte[] finishColumn, boolean reversed)
+    /** Private: use create() to conditionally create an iterator. */
+    private SSTableSliceIterator(SSTableReader sstable, FileDataInput file, DecoratedKey key, byte[] startColumn, byte[] finishColumn, boolean reversed)
     {
         this.key = key;
-        fileToClose = sstable.getFileDataInput(this.key, DatabaseDescriptor.getSlicedReadBufferSizeInKB() * 1024);
-        if (fileToClose == null)
-            return;
-
-        try
-        {
-            DecoratedKey keyInDisk = SSTableReader.decodeKey(sstable.partitioner,
-                                                             sstable.descriptor,
-                                                             FBUtilities.readShortByteArray(fileToClose));
-            assert keyInDisk.equals(key)
-                   : String.format("%s != %s in %s", keyInDisk, key, fileToClose.getPath());
-            SSTableReader.readRowSize(fileToClose, sstable.descriptor);
-        }
-        catch (IOException e)
-        {
-            throw new IOError(e);
-        }
-
-        reader = createReader(sstable.metadata, fileToClose, startColumn, finishColumn, reversed);
+        this.fileToClose = file;
+        reader = createReader(sstable.metadata, file, startColumn, finishColumn, reversed);
     }
 
     /**
      * An iterator for a slice within an SSTable
+     *
      * @param metadata Metadata for the CFS we are reading from
      * @param file Optional parameter that input is read from.  If null is passed, this class creates an appropriate one automatically.
      * If this class creates, it will close the underlying file when #close() is called.
@@ -86,6 +71,25 @@ public class SSTableSliceIterator implements IColumnIterator
         reader = createReader(metadata, file, startColumn, finishColumn, reversed);
     }
 
+    /** @return An SSTableSliceIterator, or null if the sstable does not contain data for the key. */
+    public static SSTableSliceIterator create(SSTableReader sstable, DecoratedKey key, byte[] startColumn, byte[] finishColumn, boolean reversed) throws IOError
+    {
+        try
+        {
+            FileDataInput file = sstable.getFileDataInput(key, DatabaseDescriptor.getSlicedReadBufferSizeInKB() * 1024);
+            if (file == null)
+                // key does not exist in sstable
+                return null;
+            SSTableReader.readAssertedKey(sstable, file, key);
+            SSTableReader.readRowSize(file, sstable.descriptor);
+            return new SSTableSliceIterator(sstable, file, key, startColumn, finishColumn, reversed);
+        }
+        catch (IOException e)
+        {
+            throw new IOError(e);
+        }
+    }
+
     private static IColumnIterator createReader(CFMetaData metadata, FileDataInput file, byte[] startColumn, byte[] finishColumn, boolean reversed)
     {
         return startColumn.length == 0 && !reversed
@@ -100,7 +104,7 @@ public class SSTableSliceIterator implements IColumnIterator
 
     public ColumnFamily getColumnFamily() throws IOException
     {
-        return reader == null ? null : reader.getColumnFamily();
+        return reader.getColumnFamily();
     }
 
     public boolean hasNext()

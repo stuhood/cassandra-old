@@ -68,7 +68,7 @@ public class QueryFilter
         return superFilter.getMemtableColumnIterator(cf, key, comparator);
     }
 
-    // TODO move gcBefore into a field
+    /** @return An IColumnIterator, or null if the sstable does not contain data for the filter. */
     public IColumnIterator getSSTableColumnIterator(SSTableReader sstable)
     {
         if (path.superColumnName == null)
