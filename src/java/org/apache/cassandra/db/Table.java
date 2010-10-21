@@ -44,6 +44,7 @@ import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.filter.QueryPath;
+import org.apache.cassandra.db.secindex.SecondaryIndex;
 import org.apache.cassandra.dht.LocalToken;
 import org.apache.cassandra.io.ICompactionInfo;
 import org.apache.cassandra.io.sstable.ReducingKeyIterator;
@@ -561,9 +562,12 @@ public class Table
         return fullMemtables;
     }
 
-    public IndexBuilder createIndexBuilder(ColumnFamilyStore cfs, SortedSet<ByteBuffer> columns, ReducingKeyIterator iter)
+    /**
+     * Creates a builder for KEYS indexes: located here because it accesses Keyspace-level locks.
+     */
+    public KeysIndexBuilder createIndexBuilder(ColumnFamilyStore cfs, SortedSet<ByteBuffer> columns, ReducingKeyIterator iter)
     {
-        return new IndexBuilder(cfs, columns, iter);
+        return new KeysIndexBuilder(cfs, columns, iter);
     }
 
     public AbstractReplicationStrategy getReplicationStrategy()
@@ -571,13 +575,13 @@ public class Table
         return replicationStrategy;
     }
 
-    public class IndexBuilder implements ICompactionInfo
+    public class KeysIndexBuilder implements ICompactionInfo
     {
         private final ColumnFamilyStore cfs;
         private final SortedSet<ByteBuffer> columns;
         private final ReducingKeyIterator iter;
 
-        public IndexBuilder(ColumnFamilyStore cfs, SortedSet<ByteBuffer> columns, ReducingKeyIterator iter)
+        public KeysIndexBuilder(ColumnFamilyStore cfs, SortedSet<ByteBuffer> columns, ReducingKeyIterator iter)
         {
             this.cfs = cfs;
             this.columns = columns;

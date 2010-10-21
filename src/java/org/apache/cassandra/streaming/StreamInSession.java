@@ -154,9 +154,9 @@ public class StreamInSession
                 }
             }
 
-            // build secondary indexes
-            if (cfs != null && !cfs.getIndexedColumns(IndexType.KEYS).isEmpty())
-                cfs.buildSecondaryIndexes(sstables, cfs.getIndexedColumns(IndexType.KEYS));
+            // rebuild secondary indexes
+            if (cfs != null)
+                cfs.rebuildSecondaryIndexes(sstables);
 
             // send reply to source that we're done
             StreamReply reply = new StreamReply("", getSessionId(), StreamReply.Status.SESSION_FINISHED);

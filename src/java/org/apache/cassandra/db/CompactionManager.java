@@ -543,7 +543,7 @@ public class CompactionManager implements CompactionManagerMBean
         return tablePairs;
     }
     
-    public Future submitIndexBuild(final ColumnFamilyStore cfs, final Table.IndexBuilder builder)
+    public Future submitIndexBuild(final ColumnFamilyStore cfs, final Table.KeysIndexBuilder builder)
     {
         Runnable runnable = new Runnable()
         {
