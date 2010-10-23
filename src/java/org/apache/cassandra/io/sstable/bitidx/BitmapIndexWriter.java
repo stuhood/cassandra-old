@@ -41,11 +41,16 @@ import org.apache.cassandra.utils.obs.OpenBitSet;
 
 /**
  * Writes a binned bitmap index by observing values for the column we are indexing.
+ * A bitmap index file consists of sorted bins, where each bin starts with a header segment
+ * which is followed by 1 or more data segments. See the Avro schema for more information
+ * on the types involved.
  *
- * TODO: Current implementation is very naive. Problems, in order of importance:
- * 1. Buffers entire index into memory
- *   * Should flush to temporary files and perform compactions
- * 2. Uses the first BitmapIndex.MAX_BINS received values to seed the bins
+ * A complete index is buffered in memory for every SEGMENT_SIZE_BITS rows, and then
+ * flushed to a SCRATCH Component, which is added to a ScratchStack. The stack
+ * handles periodically merging the scratch components, and merges all components
+ * to the final destination of the index on close.
+ *
+ * TODO: Uses the first BitmapIndex.MAX_BINS received values to seed the bins
  *   * Better sampling/heuristics for bin selection
  *   * Non-hardcoded maximum number of bins
  */
@@ -53,31 +58,48 @@ public class BitmapIndexWriter extends BitmapIndex
 {
     static final Logger logger = LoggerFactory.getLogger(BitmapIndexWriter.class);
 
+    public static final int MERGE_FACTOR = 16;
     private static final CodecFactory DEFLATE = CodecFactory.deflateCodec(1);
 
     public final Observer observer;
-    // id generator for scratch components we'll create during flush and merge stages
+    // id generator and stack for scratch components
     private final Component.IdGenerator gen;
+    private final ScratchStack stack;
+    private final int bitsPerSegment;
     // the first rowid in the current segment, and the current rowid
     private long firstRowid;
     private long curRowid;
 
     public BitmapIndexWriter(Descriptor desc, Component.IdGenerator gen, ColumnDefinition cdef, AbstractType nametype)
     {
-        super(desc, new Component(Component.Type.BITMAP_INDEX, gen.getNextId()), cdef);
+        this(desc, gen, cdef, nametype, BitmapIndex.SEGMENT_SIZE_BITS);
+    }
+
+    BitmapIndexWriter(Descriptor desc, Component.IdGenerator gen, ColumnDefinition cdef, AbstractType nametype, int bitsPerSegment)
+    {
+        super(desc, Component.get(Component.Type.BITMAP_INDEX, gen.getNextId()), cdef);
         this.observer = new Observer(cdef.name, nametype);
         this.gen = gen;
+        this.stack = new ScratchStack(desc, gen, 16);
+        this.bitsPerSegment = bitsPerSegment;
         this.firstRowid = 0;
         this.curRowid = 0;
     }
 
     /**
-     * Increment the row number we are interested in observing (initialized to 0).
+     * Increment the row number we are interested in observing (initialized to 0), possibly
+     * triggering flushes or merges.
      */
-    public void incrementRowId()
+    public void incrementRowId() throws IOException
     {
         curRowid++;
-        assert curRowid < BitmapIndex.SEGMENT_SIZE_BITS : "FIXME: Implement flushing.";
+
+        if (curRowid - firstRowid == bitsPerSegment)
+        {
+            // segments within an index should all be exactly the same size
+            flush();
+            firstRowid = curRowid;
+        }
     }
 
     public void observe(ByteBuffer value)
@@ -139,19 +161,39 @@ public class BitmapIndexWriter extends BitmapIndex
     }
 
     /**
-     * Flush and close the index.
+     * Clear all bits at our current rowId so that the caller can attempt error recovery.
+     */
+    public void reset() throws IOException
+    {
+        for (Binnable bin : bins)
+            ((Bin)bin).clear(curRowid);
+    }
+
+    /**
+     * Finish merging, and close the index.
      */
     public void close() throws IOException
     {
         logger.debug("Closing {}", this);
 
-        // open for writing, and set index metadata
+        // force a flush, and merge to our output component
+        flush();
+        stack.complete(component);
+    }
+
+    /**
+     * Flush the bins to a scratch component and add it to our stack.
+     */
+    private void flush() throws IOException
+    {
+        // generate a scratch component, open for writing, and set index metadata
+        Component scratch = Component.get(Component.Type.SCRATCH, gen.getNextId());
         BitmapIndexMeta meta = new BitmapIndexMeta();
         meta.cdef = cdef.deflate();
         DataFileWriter writer = new DataFileWriter(new SpecificDatumWriter<BinSegment>());
         writer.setCodec(DEFLATE);
         writer.setMeta(BitmapIndex.META_KEY, SerDeUtils.serializeWithSchema(meta).array());
-        writer.create(BinSegment.SCHEMA$, new File(desc.filenameFor(component)));
+        writer.create(BinSegment.SCHEMA$, new File(desc.filenameFor(scratch)));
         ReusableBinSegment segment = ReusableBinSegment.poolGet();
         try
         {
@@ -169,15 +211,18 @@ public class BitmapIndexWriter extends BitmapIndex
                 writer.append(segment);
 
                 // reset the bin for reuse
-                bin.bits.clear(0, BitmapIndex.SEGMENT_SIZE_BITS);
+                bin.bits.clear(0, bitsPerSegment);
                 bin.setRowidOffset(curRowid);
             }
         }
+
         finally
         {
             ReusableBinSegment.poolReturn(segment);
             writer.close();
         }
+        // and the flushed file to the stack (which might trigger merges)
+        stack.add(scratch);
     }
 
     /**
@@ -215,6 +260,12 @@ public class BitmapIndexWriter extends BitmapIndex
         public void set(long set)
         {
             bits.set(set - rowid);
+        }
+
+        /** Clear the absolute rowid inside the relative storage of the bin. */
+        public void clear(long clear)
+        {
+            bits.clear(clear - rowid);
         }
 
         /** Set the relative offset of this bin. */

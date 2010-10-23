@@ -220,7 +220,7 @@ public class SSTableWriter extends SSTable
         final Descriptor newdesc = rename(descriptor, components);
 
         // open readers for each secondary index
-        Map<byte[],BitmapIndexReader> secindexes = new TreeMap<byte[],BitmapIndexReader>(metadata.comparator);
+        Map<ByteBuffer,BitmapIndexReader> secindexes = new TreeMap<ByteBuffer,BitmapIndexReader>(metadata.comparator);
         for (BitmapIndexWriter secindex : this.secindexes)
             secindexes.put(secindex.name(), BitmapIndexReader.open(newdesc, secindex.component));
 

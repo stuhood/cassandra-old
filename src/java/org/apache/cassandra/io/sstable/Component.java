@@ -52,7 +52,9 @@ public class Component
         // statistical metadata about the content of the sstable
         STATS("Statistics.db"),
         // a bitmap secondary index: many of these may exist per sstable
-        BITMAP_INDEX("Bitidx.db");
+        BITMAP_INDEX("Bitidx.db"),
+        // a temporary component used during writing and removed before close
+        SCRATCH("Scratch.db");
 
         final String repr;
         Type(String repr)
@@ -80,16 +82,33 @@ public class Component
     public final int id;
     public final int hashCode;
 
-    public Component(Type type)
-    {
-        this(type, -1);
-    }
-
-    public Component(Type type, int id)
+    /** Private: use get. */
+    private Component(Type type, int id)
     {
         this.type = type;
         this.id = id;
         this.hashCode = Objects.hashCode(type, id);
+    }
+
+    public static Component get(Type type)
+    {
+        return get(type, -1);
+    }
+
+    /** @return The Component for the given Type and id (often a singleton) */
+    public static Component get(Type type, int id)
+    {
+        switch(type)
+        {
+            case DATA:              return Component.DATA;
+            case PRIMARY_INDEX:     return Component.PRIMARY_INDEX;
+            case FILTER:            return Component.FILTER;
+            case COMPACTED_MARKER:  return Component.COMPACTED_MARKER;
+            case STATS:             return Component.STATS;
+            case BITMAP_INDEX:      // fall through
+            case SCRATCH:           return new Component(type, id);
+            default:                throw new IllegalStateException();
+        }
     }
 
     /**
@@ -106,6 +125,7 @@ public class Component
             case STATS:
                 return type.repr;
             case BITMAP_INDEX:
+            case SCRATCH:
                 return String.format("%d-%s", id, type.repr);
         }
         throw new IllegalStateException();
@@ -131,21 +151,7 @@ public class Component
         }
         Type type = Type.fromRepresentation(repr);
         // build (or retrieve singleton for) the component object
-        Component component;
-        switch(type)
-        {
-            case DATA:              component = Component.DATA;             break;
-            case PRIMARY_INDEX:     component = Component.PRIMARY_INDEX;    break;
-            case FILTER:            component = Component.FILTER;           break;
-            case COMPACTED_MARKER:  component = Component.COMPACTED_MARKER; break;
-            case STATS:             component = Component.STATS;            break;
-            case BITMAP_INDEX:
-                 component = new Component(type, id);
-                 break;
-            default:
-                 throw new IllegalStateException();
-        }
-
+        Component component = get(type, id);
         return new Pair<Descriptor,Component>(path.left, component);
     }
 

@@ -37,7 +37,7 @@ public class BitmapIndex
     final static String META_KEY = "index_metadata";
 
     // TODO: choose less arbitrary value
-    public final static int MAX_BINS = 128;
+    public final static int MAX_BINS = 32;
 
     /** The target number of bits in a data segment, and a rounded max size in bytes. */
     final static int SEGMENT_SIZE_BITS = 32000;

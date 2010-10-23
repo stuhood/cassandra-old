@@ -129,7 +129,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
     private IndexSummary indexSummary;
     private BloomFilter bf;
-    private Map<byte[],BitmapIndexReader> secindexes;
+    private Map<ByteBuffer,BitmapIndexReader> secindexes;
 
     private InstrumentedCache<Pair<Descriptor,DecoratedKey>, Long> keyCache;
 
@@ -215,7 +215,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
     /**
      * Open a RowIndexedReader which already has its state initialized (by SSTableWriter).
      */
-    static SSTableReader internalOpen(Descriptor desc, Set<Component> components, CFMetaData metadata, IPartitioner partitioner, SegmentedFile ifile, SegmentedFile dfile, IndexSummary isummary, BloomFilter bf, long maxDataAge, EstimatedHistogram rowsize, EstimatedHistogram columncount, Map<byte[],BitmapIndexReader> secindexes) throws IOException
+    static SSTableReader internalOpen(Descriptor desc, Set<Component> components, CFMetaData metadata, IPartitioner partitioner, SegmentedFile ifile, SegmentedFile dfile, IndexSummary isummary, BloomFilter bf, long maxDataAge, EstimatedHistogram rowsize, EstimatedHistogram columncount, Map<ByteBuffer,BitmapIndexReader> secindexes) throws IOException
     {
         assert desc != null && partitioner != null && ifile != null && dfile != null && isummary != null && bf != null;
         assert rowsize != null && columncount != null && secindexes != null;
@@ -233,7 +233,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                           long maxDataAge,
                           EstimatedHistogram rowSizes,
                           EstimatedHistogram columnCounts,
-                          Map<byte[],BitmapIndexReader> secindexes)
+                          Map<ByteBuffer,BitmapIndexReader> secindexes)
     throws IOException
     {
         super(desc, components, metadata, partitioner, rowSizes, columnCounts);
@@ -260,7 +260,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
     private void loadSecondaryIndexes() throws IOException
     {
-        secindexes = new TreeMap<byte[],BitmapIndexReader>(metadata.comparator);
+        secindexes = new TreeMap<ByteBuffer,BitmapIndexReader>(metadata.comparator);
         for (Component component : components)
         {
             if (component.type != Component.Type.BITMAP_INDEX)
