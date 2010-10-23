@@ -46,14 +46,19 @@ import static com.google.common.base.Charsets.UTF_8;
 
 public class Util
 {
-    public static DecoratedKey dk(String key)
+    public static ByteBuffer bytes(String s)
     {
-        return dk(key.getBytes(UTF_8));
+        return ByteBuffer.wrap(s.getBytes(UTF_8));
     }
 
-    public static DecoratedKey dk(byte[] key)
+    public static DecoratedKey dk(String key)
     {
-        return StorageService.getPartitioner().decorateKey(ByteBuffer.wrap(key));
+        return dk(bytes(key));
+    }
+
+    public static DecoratedKey dk(ByteBuffer key)
+    {
+        return StorageService.getPartitioner().decorateKey(key);
     }
 
     public static Column column(String name, String value)
@@ -63,12 +68,12 @@ public class Util
 
     public static Column column(String name, String value, long timestamp)
     {
-        return new Column(ByteBuffer.wrap(name.getBytes()), ByteBuffer.wrap(value.getBytes()), timestamp);
+        return new Column(bytes(name), bytes(value), timestamp);
     }
 
     public static Token token(String key)
     {
-        return StorageService.getPartitioner().getToken(ByteBuffer.wrap(key.getBytes()));
+        return StorageService.getPartitioner().getToken(bytes(key));
     }
 
     public static Range range(String left, String right)
@@ -78,7 +83,7 @@ public class Util
 
     public static Range range(IPartitioner p, String left, String right)
     {
-        return new Range(p.getToken(ByteBuffer.wrap(left.getBytes())), p.getToken(ByteBuffer.wrap(right.getBytes())));
+        return new Range(p.getToken(bytes(left)), p.getToken(bytes(right)));
     }
 
     public static Bounds bounds(String left, String right)
@@ -88,7 +93,7 @@ public class Util
 
     public static void addMutation(RowMutation rm, String columnFamilyName, String superColumnName, long columnName, String value, long timestamp)
     {
-        rm.add(new QueryPath(columnFamilyName, ByteBuffer.wrap(superColumnName.getBytes()), getBytes(columnName)), ByteBuffer.wrap(value.getBytes()), timestamp);
+        rm.add(new QueryPath(columnFamilyName, bytes(superColumnName), getBytes(columnName)), bytes(value), timestamp);
     }
 
     public static ByteBuffer getBytes(long v)

@@ -153,7 +153,7 @@ public class SSTableTest extends CleanupHelper
     private void assertIndexed(SSTableReader sstable, IndexOperator op, Set<DecoratedKey> keys, String value) throws IOException
     {
         HashSet<DecoratedKey> expected = new HashSet<DecoratedKey>(keys);
-        IndexExpression ex = new IndexExpression(INDEXNAME.getBytes(), op, value.getBytes());
+        IndexExpression ex = new IndexExpression(Util.bytes(INDEXNAME), op, Util.bytes(value));
         CloseableIterator<DecoratedKey> dks = sstable.scan(ex, Util.range("0", "99999"));
         boolean matched = false;
         int returned = 0;
@@ -184,5 +184,37 @@ public class SSTableTest extends CleanupHelper
         SSTableReader sstable = populate(STATES);
         for (Map.Entry<String,String> kv : STATES.entrySet())
             assertIndexed(sstable, IndexOperator.EQ, set(kv.getKey()), kv.getValue());
+    }
+
+    @Test
+    public void testGLTEScan() throws IOException
+    {
+        SSTableReader sstable = populate(STATES);
+        // LTE
+        assertIndexed(sstable, IndexOperator.LTE, set(CA), "CA");
+        assertIndexed(sstable, IndexOperator.LTE, set(CA, TX), "TX");
+        // WA is the largest key: LTE would fail to eliminate any bins here
+        // assertIndexed(sstable, IndexOperator.LTE, set(CA, TX, WA), "WA");
+        // GTE
+        assertIndexed(sstable, IndexOperator.GTE, set(CA, TX, WA), "CA");
+        assertIndexed(sstable, IndexOperator.GTE, set(TX, WA), "TX");
+        assertIndexed(sstable, IndexOperator.GTE, set(WA), "WA");
+    }
+
+    /**
+     * Note that without knowing the bins, there is no way to guarantee that a key will be excluded.
+     */
+    @Test
+    public void testGLTScan() throws IOException
+    {
+        SSTableReader sstable = populate(STATES);
+        // LT
+        assertIndexed(sstable, IndexOperator.LT, set(), "CA");
+        assertIndexed(sstable, IndexOperator.LT, set(CA), "TX");
+        assertIndexed(sstable, IndexOperator.LT, set(CA, TX), "WA");
+        // GT
+        assertIndexed(sstable, IndexOperator.GT, set(TX, WA), "CA");
+        assertIndexed(sstable, IndexOperator.GT, set(WA), "TX");
+        assertIndexed(sstable, IndexOperator.GT, set(), "WA");
     }
 }

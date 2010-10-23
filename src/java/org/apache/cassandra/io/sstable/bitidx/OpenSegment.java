@@ -24,8 +24,9 @@ import org.apache.cassandra.utils.obs.OpenBitSet;
 
 /**
  * A deserialized segment for a particular bin: only the first 'numrows' bits in the bitset are valid.
+ * Segments are comparable by their rowid.
  */
-public final class OpenSegment
+public final class OpenSegment implements Comparable<OpenSegment>
 {
     public long rowid;
     public long numrows;
@@ -36,15 +37,55 @@ public final class OpenSegment
         this.bitset = new OpenBitSet(initialSize);
     }
 
+    /**
+     * Deep copies the given segment into this segment, expanding if necessary.
+     */
+    public void copy(OpenSegment that)
+    {
+        this.rowid = that.rowid;
+        this.numrows = that.numrows;
+        // expand if necessary
+        this.bitset.ensureCapacityWords(that.bitset.getNumWords());
+        // and copy valid words
+        System.arraycopy(that.bitset.getBits(), 0, this.bitset.getBits(), 0, that.bitset.getNumWords());
+    }
+
     void deserialize(BinData data)
     {
         rowid = data.rowid;
         numrows = data.numrows;
 
         // determine the number of valid 8-byte words in the serialized repr
-        int words = Math.min(data.bits.limit() << 3, OpenBitSet.bits2words(numrows));
+        int words = Math.min(data.bits.limit() >> 3, OpenBitSet.bits2words(numrows));
         // deserialize bits: only the first 'numrows' bits will be valid
         bitset.ensureCapacityWords(words);
         data.bits.asLongBuffer().get(bitset.getBits(), 0, words);
+    }
+    
+    public int compareTo(OpenSegment that)
+    {
+        if (this.rowid < that.rowid)
+            return -1;
+        if (this.rowid > that.rowid)
+            return 1;
+        return 0;
+    }
+
+    @Override
+    public boolean equals(Object o)
+    {
+        if (!(o instanceof OpenSegment))
+            return false;
+        OpenSegment that = (OpenSegment)o;
+        return this.rowid == that.rowid;
+    }
+
+    @Override
+    public String toString()
+    {
+        StringBuilder buff = new StringBuilder();
+        buff.append("#<Segment ").append(rowid).append(' ');
+        buff.append(bitset.cardinality()).append('/').append(numrows).append('>');
+        return buff.toString();
     }
 }

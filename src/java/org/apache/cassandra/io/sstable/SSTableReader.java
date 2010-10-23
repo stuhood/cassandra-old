@@ -752,7 +752,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
                             pinput.readLong();
                             return dk;
                         }
-                        FBUtilities.readShortByteArray(pinput);
+                        FBUtilities.skipShortByteArray(pinput);
                         pinput.readLong();
                     }
                     // exhausted an input from the primary: the rowid must exist, so we don't bounds check
@@ -769,6 +769,9 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
         private void closePrimary(boolean shouldThrow) throws IOError
         {
+            if (pinput == null)
+                // no matches
+                return;
             try
             {
                 pinput.close();

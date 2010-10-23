@@ -20,6 +20,7 @@
 package org.apache.cassandra.io.sstable.bitidx;
 
 import java.io.*;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 
@@ -83,7 +84,7 @@ public class BitmapIndexReader extends BitmapIndex
         {
             // retrieve the index metadata
             BitmapIndexMeta meta = new BitmapIndexMeta();
-            SerDeUtils.deserializeWithSchema(reader.getMeta(BitmapIndex.META_KEY), meta);
+            SerDeUtils.deserializeWithSchema(ByteBuffer.wrap(reader.getMeta(BitmapIndex.META_KEY)), meta);
             bmir = new BitmapIndexReader(file, desc, component, ColumnDefinition.inflate(meta.cdef));
 
             // summarize the segments in the file
@@ -97,8 +98,8 @@ public class BitmapIndexReader extends BitmapIndex
                 if (segment.header != null)
                 {
                     // beginning of a new bin
-                    bin = new BinSummary(SerDeUtils.copy(segment.header.min),
-                                         SerDeUtils.copy(segment.header.max),
+                    bin = new BinSummary(ByteBuffer.wrap(SerDeUtils.copy(segment.header.min)),
+                                         ByteBuffer.wrap(SerDeUtils.copy(segment.header.max)),
                                          segment.header.cardinality);
                     bmir.bins.add(bin);
                     rowId = 0;
@@ -121,6 +122,7 @@ public class BitmapIndexReader extends BitmapIndex
                 else
                     syncNext = false;
             }
+            bmir.bins.trimToSize();
         }
         finally
         {
@@ -131,31 +133,108 @@ public class BitmapIndexReader extends BitmapIndex
     }
 
     /**
+     * @return The number of rows matched by the given value.
+     */
+    public long cardinality(IndexOperator op, ByteBuffer value)
+    {
+        Pair<Integer,Integer> binRange = findBins(op, value);
+        if (binRange.left == -1 || binRange.right == -1)
+           return 0;
+        long selected = 0;
+        for (int i = binRange.left; i <= binRange.right; i++)
+            selected += ((BinSummary)bins.get(i)).cardinality;
+        return selected;
+    }
+
+    private Pair<Integer,Integer> findBins(IndexOperator op, ByteBuffer value)
+    {
+        int minbin = -1;
+        int maxbin = -1;
+        switch (op)
+        {
+            case EQ:
+                minbin = floor(value);
+                if (minbin != -1 && match(minbin, value) >= 0)
+                    // found exactly one bin
+                    maxbin = minbin;
+                break;
+            case GTE:
+                minbin = floor(value);
+                if (minbin == -1 || match(minbin, value) < 0)
+                    // floored bin doesn't exist/match, exclude it
+                    minbin += 1;
+                maxbin = bins.size() - 1;
+                break;
+            case LTE:
+                // floored bin must contain our bound
+                minbin = 0;
+                maxbin = floor(value);
+                break;
+            case GT:
+                minbin = floor(value);
+                if (minbin == -1)
+                    // round up to first bin
+                    minbin += 1;
+                else
+                {
+                    int match = match(minbin, value);
+                    // exclude floored bin if we matched the max, or didn't match
+                    if (match == 2 || match < 0)
+                        minbin += 1;
+                }
+                maxbin = bins.size() - 1;
+                break;
+            case LT:
+                minbin = 0;
+                maxbin = floor(value);
+                // include floored bin unless we matched the min
+                if (maxbin != -1 && match(maxbin, value) == 0)
+                    maxbin -= 1;
+                break;
+            default: throw new UnsupportedOperationException();
+        }
+        return new Pair<Integer,Integer>(minbin, maxbin);
+    }
+
+    /**
      * @return An iterator over OpenSegments for the given value and operator which intersect the given rowid range.
      */
-    public CloseableIterator<OpenSegment> iterator(IndexOperator op, byte[] value, Pair<Long,Long> rowidrange)
+    public CloseableIterator<OpenSegment> iterator(IndexOperator op, ByteBuffer value, Pair<Long,Long> rowidrange)
     {
-        // FIXME: supporting other IndexOperators will require a Compound BMI
-        if (op != IndexOperator.EQ)
-            throw new UnsupportedOperationException();
-        
-        // find matching bins
-        int idx = floor(value);
-        BinSummary bin = idx == -1 ? null : (BinSummary) bins.get(idx);
-        if (bin == null || !bin.matches(cdef.validator, value))
+        Pair<Integer,Integer> binRange = findBins(op, value);
+        if (logger.isDebugEnabled())
+            logger.debug("For operator " + op + " on " + cdef.validator.getString(value) + " in rows " + rowidrange + ": bins " + binRange + " of " + this);
+
+        // open iterators for covering syncs/rowids within the bins
+        if (binRange.left == -1 || binRange.right == -1)
+            // no bins? no matches.
             return SegmentIterator.EMPTY;
-        
-        // open an iterator for covering sync markers within the bin for the rowids
-        return SegmentIterator.open(file, bin.syncPoint(rowidrange.left), rowidrange.right);
+        if (binRange.left == binRange.right)
+            // exactly one bin
+            return openBin(binRange.left, rowidrange);
+
+        // else, a range of bins is involved: open iterators for each, and join them
+        ArrayList<CloseableIterator<OpenSegment>> sources = new ArrayList<CloseableIterator<OpenSegment>>(binRange.right - binRange.left);
+        for (int i = binRange.left; i <= binRange.right; i++)
+            sources.add(openBin(i, rowidrange));
+        return new JoiningIterator(JoiningIterator.Operator.OR, sources);
+    }
+
+    private SegmentIterator openBin(int idx, Pair<Long, Long> rowidrange)
+    {
+        long syncPoint = ((BinSummary)bins.get(idx)).syncPoint(rowidrange.left);
+        return SegmentIterator.open(file, syncPoint, rowidrange.right);
     }
 
     static final class BinSummary extends Binnable
     {
         public final ArrayList<Offset> segments = new ArrayList<Offset>();
+        public final long cardinality;
 
-        public BinSummary(byte[] min, byte[] max)
+        public BinSummary(ByteBuffer min, ByteBuffer max, long cardinality)
         {
             super(min, max);
+            this.cardinality = cardinality;
         }
         
         /**

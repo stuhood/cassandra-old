@@ -631,8 +631,7 @@ public class CompactionManager implements CompactionManagerMBean
                     return Range.isTokenInRanges(((SSTableIdentityIterator)row).getKey().token, ranges);
                 }
             };
-            // TODO CollatingIterator iter = FBUtilities.<SSTableIdentityIterator>getCollatingIterator();
-            CollatingIterator iter = FBUtilities.getCollatingIterator();
+            CollatingIterator iter = FBUtilities.<SSTableIdentityIterator>getCollatingIterator();
             for (SSTableReader sstable : sstables)
             {
                 SSTableScanner scanner = sstable.getScanner(FILE_BUFFER_SIZE);
