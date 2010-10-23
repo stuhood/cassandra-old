@@ -82,4 +82,55 @@ protocol InterNode {
         string classname;
         union { AddColumnFamily,DropColumnFamily,RenameColumnFamily,AddKeyspace,DropKeyspace,RenameKeyspace,UpdateKeyspace,UpdateColumnFamily } migration;
     }
+
+    /**
+     * The metadata associated with a BitmapIndex file.
+     */
+    @namespace("org.apache.cassandra.io.sstable.bitidx.avro")
+    record BitmapIndexMeta {
+        org.apache.cassandra.avro.ColumnDef cdef;
+    }
+
+    /**
+     * The header before a series of data segments in a bitmap index file.
+     */
+    @namespace("org.apache.cassandra.io.sstable.bitidx.avro")
+    record BinHeader {
+        /**
+         * Min and max define the bounds of values stored in the bin (inclusive).
+         * If this bin represents a single value rather than a range, max will be empty.
+         */
+        bytes min;
+        bytes max;
+        long cardinality;
+    }
+
+    /**
+     * The data for a data segment in a bitmap index file.
+     */
+    @namespace("org.apache.cassandra.io.sstable.bitidx.avro")
+    record BinData {
+        // the rowid of the first row represented by this segment
+        long rowid;
+        // the number of rows stored by this data segment
+        long numrows;
+        // an encoded OpenBitSet, of which the first 'numrows' bits are valid
+        bytes bits;
+    }
+
+    /**
+     * A segment contains either a BinHeader which demarcates the beginning of a series
+     * of data segments for a particular bin, or a BinData containing index bits.
+     *
+     * NB: We use 2 unions here to encourage object reuse: otherwise deserializing the
+     * alternating values of the union would cause the buffer representing the content to
+     * be gc'd. See BitmapIndex.BUFFERS for further explanation.
+     */
+    @namespace("org.apache.cassandra.io.sstable.bitidx.avro")
+    record BinSegment {
+        // a header, or...
+        union {org.apache.cassandra.io.sstable.bitidx.avro.BinHeader,null} header;
+        // ...content for a bin
+        union {org.apache.cassandra.io.sstable.bitidx.avro.BinData,null} data;
+    }
 }

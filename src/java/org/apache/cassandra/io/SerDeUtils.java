@@ -54,6 +54,20 @@ public final class SerDeUtils
         return bytes;
     }
 
+    /**
+     * Attempts to reuse the given ByteBuffer to store the given number of bytes.
+     * @return The given buffer, or a new buffer if more capacity is needed.
+     */
+    public static ByteBuffer reuse(ByteBuffer old, int minBytes)
+    {
+        if (old == null)
+            return ByteBuffer.allocate(minBytes);
+        if (minBytes > old.capacity())
+            return ByteBuffer.allocate(Math.max(old.capacity() << 1, minBytes));
+        old.clear();
+        return old;
+    }
+
 	/**
      * Deserializes a single object based on the given Schema.
      * @param writer writer's schema

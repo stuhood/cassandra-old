@@ -60,6 +60,8 @@ public class FBUtilities
 {
     private static Logger logger_ = LoggerFactory.getLogger(FBUtilities.class);
 
+    public static final byte[] EMPTY_BYTES = new byte[0];
+
     public static final BigInteger TWO = new BigInteger("2");
 
     public static final ByteBuffer EMPTY_BYTE_BUFFER = ByteBuffer.wrap(ArrayUtils.EMPTY_BYTE_ARRAY);
