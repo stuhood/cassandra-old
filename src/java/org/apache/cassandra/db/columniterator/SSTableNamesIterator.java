@@ -50,6 +50,7 @@ public class SSTableNamesIterator extends SimpleAbstractColumnIterator implement
 
     private ColumnFamily cf;
     private Iterator<IColumn> iter;
+    private int totalColumns;
     public final SortedSet<ByteBuffer> columns;
     public final DecoratedKey key;
 
@@ -108,7 +109,6 @@ public class SSTableNamesIterator extends SimpleAbstractColumnIterator implement
     private void read(CFMetaData metadata, FileDataInput file)
     throws IOException
     {
-
         // read the requested columns into `cf`
         /* Read the bloom filter summarizing the columns */
         BloomFilter bf = IndexHelper.defreezeBloomFilter(file);
@@ -140,9 +140,9 @@ public class SSTableNamesIterator extends SimpleAbstractColumnIterator implement
 
     private void readSimpleColumns(FileDataInput file, SortedSet<ByteBuffer> columnNames, List<ByteBuffer> filteredColumnNames) throws IOException
     {
-        int columns = file.readInt();
+        totalColumns = file.readInt();
         int n = 0;
-        for (int i = 0; i < columns; i++)
+        for (int i = 0; i < totalColumns; i++)
         {
             IColumn column = cf.getColumnSerializer().deserialize(file);
             if (columnNames.contains(column.name()))
@@ -157,7 +157,7 @@ public class SSTableNamesIterator extends SimpleAbstractColumnIterator implement
     private void readIndexedColumns(CFMetaData metadata, FileDataInput file, SortedSet<ByteBuffer> columnNames, List<ByteBuffer> filteredColumnNames, List<IndexHelper.IndexInfo> indexList)
     throws IOException
     {
-        file.readInt(); // column count
+        totalColumns = file.readInt();
 
         /* get the various column ranges we have to read */
         AbstractType comparator = metadata.comparator;
@@ -200,6 +200,11 @@ public class SSTableNamesIterator extends SimpleAbstractColumnIterator implement
     public ColumnFamily getColumnFamily()
     {
         return cf;
+    }
+
+    public int getTotalColumns()
+    {
+        return totalColumns;
     }
 
     protected IColumn computeNext()

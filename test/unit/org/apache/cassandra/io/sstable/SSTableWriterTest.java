@@ -31,6 +31,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
+import org.apache.cassandra.Util;
+
 import org.apache.cassandra.CleanupHelper;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.IFilter;
@@ -51,40 +53,49 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 public class SSTableWriterTest extends CleanupHelper {
 
     @Test
-    public void testRecoverAndOpen() throws IOException, ExecutionException, InterruptedException
+    public void testRecoverAndOpenKeys() throws IOException, ExecutionException, InterruptedException
     {
-        RowMutation rm;
+        testRecoverAndOpenIndexed("Keyspace1", "Indexed1");
+    }
 
-        rm = new RowMutation("Keyspace1", ByteBufferUtil.bytes("k1"));
-        rm.add(new QueryPath("Indexed1", null, ByteBufferUtil.bytes("birthdate")), FBUtilities.toByteBuffer(1L), 0);
+    @Test
+    public void testRecoverAndOpenKeysBitmap() throws IOException, ExecutionException, InterruptedException
+    {
+        testRecoverAndOpenIndexed("Keyspace1", "Indexed3");
+    }
+
+    private void testRecoverAndOpenIndexed(String ksname, String cfname) throws IOException, ExecutionException, InterruptedException
+    {
+        // write a mutation managed by the CFS
+        RowMutation rm = new RowMutation(ksname, ByteBufferUtil.bytes("k1"));
+        rm.add(new QueryPath(cfname, null, ByteBufferUtil.bytes("birthdate")), FBUtilities.toByteBuffer(1L), 0);
         rm.apply();
         
-        ColumnFamily cf = ColumnFamily.create("Keyspace1", "Indexed1");        
-        cf.addColumn(new Column(ByteBufferUtil.bytes("birthdate"), FBUtilities.toByteBuffer(1L), 0));
-        cf.addColumn(new Column(ByteBufferUtil.bytes("anydate"), FBUtilities.toByteBuffer(1L), 0));
+        // write a manually managed sstable
+        Map<String, ColumnFamily> entries = new HashMap<String, ColumnFamily>();
+        ColumnFamily cf = ColumnFamily.create(ksname, cfname);        
+        cf.addColumn(new Column(Util.bytes("birthdate"), FBUtilities.toByteBuffer(1L), 0));
+        cf.addColumn(new Column(Util.bytes("anydate"), FBUtilities.toByteBuffer(1L), 0));
+        entries.put("k2", cf);        
         
-        Map<ByteBuffer, ByteBuffer> entries = new HashMap<ByteBuffer, ByteBuffer>();
+        cf = ColumnFamily.create(ksname, cfname);        
+        cf.addColumn(new Column(Util.bytes("anydate"), FBUtilities.toByteBuffer(1L), 0));
+        entries.put("k3", cf);
         
-        DataOutputBuffer buffer = new DataOutputBuffer();
-        ColumnFamily.serializer().serializeWithIndexes(cf, buffer);
-        entries.put(ByteBufferUtil.bytes("k2"), ByteBuffer.wrap(Arrays.copyOf(buffer.getData(), buffer.getLength())));        
-        cf.clear();
-        
-        cf.addColumn(new Column(ByteBufferUtil.bytes("anydate"), FBUtilities.toByteBuffer(1L), 0));
-        buffer = new DataOutputBuffer();
-        ColumnFamily.serializer().serializeWithIndexes(cf, buffer);               
-        entries.put(ByteBufferUtil.bytes("k3"), ByteBuffer.wrap(Arrays.copyOf(buffer.getData(), buffer.getLength())));
-        
-        SSTableReader orig = SSTableUtils.writeRawSSTable("Keyspace1", "Indexed1", entries);        
-        // whack the index to trigger the recover
-        FileUtils.deleteWithConfirm(orig.descriptor.filenameFor(Component.PRIMARY_INDEX));
-        FileUtils.deleteWithConfirm(orig.descriptor.filenameFor(Component.FILTER));
+        SSTableReader orig = SSTableUtils.writeSSTable(ksname, cfname, entries);        
+        // whack non-essential components to trigger the recover
+        for (Component component : orig.components)
+        {
+            if (component.equals(Component.DATA))
+                continue;
+            FileUtils.deleteWithConfirm(orig.descriptor.filenameFor(component));
+        }
 
-        SSTableReader sstr = CompactionManager.instance.submitSSTableBuild(orig.descriptor).get();
-        assert sstr != null;
-        ColumnFamilyStore cfs = Table.open("Keyspace1").getColumnFamilyStore("Indexed1");
+        ColumnFamilyStore cfs = Table.open(ksname).getColumnFamilyStore(cfname);
+        Descriptor desc = CompactionManager.instance.submitSSTableBuild(cfs, orig.descriptor, Component.INDEX_TYPES).get().left;
+        SSTableReader sstr = SSTableReader.open(desc);
         cfs.addSSTable(sstr);
-        cfs.buildSecondaryIndexes(cfs.getSSTables(), cfs.getIndexedColumns());
+        cfs.rebuildSecondaryIndexes(Arrays.asList(sstr));
         
         IndexExpression expr = new IndexExpression(ByteBufferUtil.bytes("birthdate"), IndexOperator.EQ, FBUtilities.toByteBuffer(1L));
         IndexClause clause = new IndexClause(Arrays.asList(expr), FBUtilities.EMPTY_BYTE_BUFFER, 100);

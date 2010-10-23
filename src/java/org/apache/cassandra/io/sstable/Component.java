@@ -37,7 +37,9 @@ import org.apache.cassandra.utils.Pair;
  */
 public class Component
 {
-    final static EnumSet<Type> TYPES = EnumSet.allOf(Type.class);
+    public static final EnumSet<Type> TYPES = EnumSet.allOf(Type.class);
+    public static final EnumSet<Type> INDEX_TYPES = EnumSet.of(Type.FILTER, Type.PRIMARY_INDEX, Type.BITMAP_INDEX);
+
     public static enum Type
     {
         // the base data for an sstable: the remaining components can be regenerated

@@ -48,7 +48,7 @@ public class StreamInSession
     private final Pair<InetAddress, Long> context;
     private final Runnable callback;
     private String table;
-    private final List<Future<SSTableReader>> buildFutures = new ArrayList<Future<SSTableReader>>();
+    private final List<Future<Pair<Descriptor,Set<Component>>>> buildFutures = new ArrayList<Future<Pair<Descriptor,Set<Component>>>>();
     private ColumnFamilyStore cfs;
     private PendingFile current;
 
@@ -108,7 +108,9 @@ public class StreamInSession
         if (logger.isDebugEnabled())
             logger.debug("Finished {}. Sending ack to {}", remoteFile, this);
 
-        Future future = CompactionManager.instance.submitSSTableBuild(localFile.desc);
+        // rebuild necessary components from the data file
+        ColumnFamilyStore cfs = Table.open(localFile.desc.ksname).getColumnFamilyStore(localFile.desc.cfname);
+        Future future = CompactionManager.instance.submitSSTableBuild(cfs, localFile.desc, Component.INDEX_TYPES);
         buildFutures.add(future);
 
         files.remove(remoteFile);
@@ -132,11 +134,11 @@ public class StreamInSession
         {
             // wait for bloom filters and row indexes to finish building
             List<SSTableReader> sstables = new ArrayList<SSTableReader>(buildFutures.size());
-            for (Future<SSTableReader> future : buildFutures)
+            for (Future<Pair<Descriptor,Set<Component>>> future : buildFutures)
             {
                 try
                 {
-                    SSTableReader sstable = future.get();
+                    SSTableReader sstable = SSTableReader.open(future.get().left);
                     if (sstable == null)
                         continue;
                     cfs.addSSTable(sstable);
