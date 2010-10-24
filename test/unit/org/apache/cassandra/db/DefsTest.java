@@ -23,24 +23,18 @@ import static org.junit.Assert.assertEquals;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.SortedSet;
-import java.util.TreeSet;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
 
 import org.apache.cassandra.CleanupHelper;
 import org.apache.cassandra.Util;
-import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.config.ColumnDefinition;
-import org.apache.cassandra.config.ConfigurationException;
-import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.config.KSMetaData;
+import org.apache.cassandra.config.*;
+import org.apache.cassandra.db.columniterator.IdentityQueryFilter;
+import org.apache.cassandra.io.SerDeUtils;
+import org.apache.cassandra.locator.OldNetworkTopologyStrategy;
+import org.apache.cassandra.thrift.*;
+import org.junit.Test;
+
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.filter.QueryPath;
 import org.apache.cassandra.db.marshal.BytesType;
@@ -732,6 +726,55 @@ public class DefsTest extends CleanupHelper
         {
             cf_def.max_compaction_threshold = 33;
         }
+    }
+
+    @Test
+    public void testUpdateColumnFamilyKeysIndex() throws Exception
+    {
+        testUpdateColumnFamilyIndex("KeysIndexedCf", org.apache.cassandra.avro.IndexType.KEYS_BITMAP);
+    }
+
+    @Test
+    public void testUpdateColumnFamilyKeysBitmapIndex() throws Exception
+    {
+        testUpdateColumnFamilyIndex("KeysBitmapIndexedCf", org.apache.cassandra.avro.IndexType.KEYS_BITMAP);
+    }
+
+    private void testUpdateColumnFamilyIndex(final String cf, org.apache.cassandra.avro.IndexType type) throws Exception
+    {
+        final String ks = "Ks_" + cf;
+        final String indexname = "year";
+        final String key = "thekey";
+
+        // create unindexed cf
+        CFMetaData baseCf = addTestCF(ks, cf, "A New Column Family");
+        KSMetaData baseKs = new KSMetaData(ks, SimpleStrategy.class, null, 5, baseCf);
+        new AddKeyspace(baseKs).apply();
+
+        // add some data that should be indexed
+        RowMutation rm = new RowMutation(ks, Util.bytes(key));
+        rm.add(new QueryPath(cf, null, Util.bytes(indexname)), Util.bytes("1970"), 1L);
+        rm.apply();
+
+        // 'just' add an index
+        org.apache.cassandra.avro.ColumnDef index = new org.apache.cassandra.avro.ColumnDef();
+        index.name = Util.bytes(indexname);
+        index.validation_class = UTF8Type.class.getCanonicalName();
+        index.index_type = type;
+        index.index_name = indexname;
+
+        org.apache.cassandra.avro.CfDef upCf = baseCf.deflate();
+        upCf.column_metadata = SerDeUtils.createArray(1, index.SCHEMA$);
+        upCf.column_metadata.add(index);
+        new UpdateColumnFamily(upCf).apply();
+
+        // check that data that should be indexed, is
+        Table table = Table.open(ks);
+        IndexExpression expr = new IndexExpression(Util.bytes(indexname), IndexOperator.EQ, Util.bytes("1970"));
+        IndexClause clause = new IndexClause(Arrays.asList(expr), FBUtilities.EMPTY_BYTE_BUFFER, 100);
+        List<Row> rows = table.getColumnFamilyStore(cf).scan(clause, Util.range("", ""), new IdentityQueryFilter());
+        assert rows.size() == 1 : rows.toString();
+        assert Arrays.equals(key.getBytes(), rows.get(0).key.key.array());
     }
 
     private CFMetaData addTestCF(String ks, String cf, String comment)

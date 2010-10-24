@@ -36,6 +36,7 @@ import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.config.ConfigurationException;
 import org.apache.cassandra.db.columniterator.IdentityQueryFilter;
 import org.apache.cassandra.db.filter.*;
+import org.apache.cassandra.db.secindex.KeysIndex;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.io.sstable.SSTableReader;
@@ -307,36 +308,6 @@ public class ColumnFamilyStoreTest extends CleanupHelper
         rows = table.getColumnFamilyStore("Indexed1").scan(clause, range, filter);
         key = new String(rows.get(0).key.key.array(),rows.get(0).key.key.position(),rows.get(0).key.key.remaining()); 
         assert "k1".equals( key );
-    
-    }
-
-    @Test
-    public void testIndexCreate() throws IOException, ConfigurationException, InterruptedException
-    {
-        Table table = Table.open("Keyspace1");
-
-        // create a row and update the birthdate value, test that the index query fetches the new version
-        RowMutation rm;
-        rm = new RowMutation("Keyspace1", ByteBufferUtil.bytes("k1"));
-        rm.add(new QueryPath("Indexed2", null, ByteBufferUtil.bytes("birthdate")), FBUtilities.toByteBuffer(1L), 1);
-        rm.apply();
-
-        ColumnFamilyStore cfs = table.getColumnFamilyStore("Indexed2");
-        ColumnDefinition old = cfs.metadata.getColumn_metadata().get(ByteBufferUtil.bytes("birthdate"));
-        ColumnDefinition cd = new ColumnDefinition(old.name, old.validator.getClass().getName(), IndexType.KEYS, "birthdate_index");
-        cfs.addIndex(cd);
-        while (!SystemTable.isIndexBuilt("Keyspace1", cfs.getIndexColumnFamilyStore(ByteBufferUtil.bytes("birthdate")).columnFamily))
-            TimeUnit.MILLISECONDS.sleep(100);
-
-        IndexExpression expr = new IndexExpression(ByteBufferUtil.bytes("birthdate"), IndexOperator.EQ, FBUtilities.toByteBuffer(1L));
-        IndexClause clause = new IndexClause(Arrays.asList(expr), FBUtilities.EMPTY_BYTE_BUFFER, 100);
-        IFilter filter = new IdentityQueryFilter();
-        IPartitioner p = StorageService.getPartitioner();
-        Range range = new Range(p.getMinimumToken(), p.getMinimumToken());
-        List<Row> rows = table.getColumnFamilyStore("Indexed2").scan(clause, range, filter);
-        assert rows.size() == 1 : StringUtils.join(rows, ",");
-        String key = new String(rows.get(0).key.key.array(),rows.get(0).key.key.position(),rows.get(0).key.key.remaining()); 
-        assert "k1".equals( key );        
     }
 
     private ColumnFamilyStore insertKey1Key2() throws IOException, ExecutionException, InterruptedException
