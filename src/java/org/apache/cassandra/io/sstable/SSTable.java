@@ -34,6 +34,7 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
+import org.apache.cassandra.utils.CLibrary;
 import org.apache.cassandra.utils.EstimatedHistogram;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
@@ -146,6 +147,41 @@ public abstract class SSTable
         }
         logger.info("Deleted " + desc);
         return true;
+    }
+
+    /**
+     * Marks the given descriptor compacted, and adds the marker to its set of components.
+     */
+    public static void markCompacted(Descriptor desc, Set<Component> components)
+    {
+        if (logger.isDebugEnabled())
+            logger.debug("Marking " + desc + " compacted");
+        try
+        {
+            if (!new File(desc.filenameFor(Component.COMPACTED_MARKER)).createNewFile())
+                throw new IOException("Unable to create compaction marker");
+        }
+        catch (IOException e)
+        {
+            throw new IOError(e);
+        }
+    }
+
+    /**
+     * Creates a clone of the given sstable via hardlinks: the clone will be marked temporary, and located in
+     * the same directory as the source, with identical components.
+     */
+    public static void clone(Descriptor src, Descriptor dest, Set<Component> components)
+    {
+        try
+        {
+            for (Component component : components)
+                CLibrary.createHardLink(new File(src.filenameFor(component)), new File(dest.filenameFor(component)));
+        }
+        catch (IOException e)
+        {
+            throw new IOError(e);
+        }
     }
 
     public String getFilename()

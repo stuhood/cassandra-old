@@ -620,14 +620,16 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return getTempSSTablePath(location);
     }
 
+    public Descriptor getTempSSTable(File directory)
+    {
+        return new Descriptor(directory, table.name, columnFamily, fileIndexGenerator.incrementAndGet(), true);
+    }
+
+    /** Use getTempSSTable to get a Descriptor. */
+    @Deprecated
     public String getTempSSTablePath(String directory)
     {
-        Descriptor desc = new Descriptor(new File(directory),
-                                         table.name,
-                                         columnFamily,
-                                         fileIndexGenerator.incrementAndGet(),
-                                         true);
-        return desc.filenameFor(Component.DATA);
+        return getTempSSTable(new File(directory)).filenameFor(Component.DATA);
     }
 
     /** flush the given memtable and swap in a new one for its CFS, if it hasn't been frozen already.  threadsafe. */

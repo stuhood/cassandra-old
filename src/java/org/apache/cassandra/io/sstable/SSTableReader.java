@@ -541,17 +541,7 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
 
     public void markCompacted()
     {
-        if (logger.isDebugEnabled())
-            logger.debug("Marking " + getFilename() + " compacted");
-        try
-        {
-            if (!new File(descriptor.filenameFor(Component.COMPACTED_MARKER)).createNewFile())
-                throw new IOException("Unable to create compaction marker");
-        }
-        catch (IOException e)
-        {
-            throw new IOError(e);
-        }
+        SSTable.markCompacted(descriptor, components);
         phantomReference.deleteOnCleanup();
     }
 
