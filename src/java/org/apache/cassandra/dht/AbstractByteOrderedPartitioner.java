@@ -24,6 +24,7 @@ import java.util.Arrays;
 import java.util.Random;
 
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 import org.apache.commons.lang.ArrayUtils;

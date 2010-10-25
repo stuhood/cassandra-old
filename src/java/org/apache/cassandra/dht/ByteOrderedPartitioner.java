@@ -23,6 +23,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.cassandra.db.marshal.BytesType;
+
 public class ByteOrderedPartitioner extends AbstractByteOrderedPartitioner
 {
     public BytesToken getToken(ByteBuffer key)
@@ -33,4 +35,9 @@ public class ByteOrderedPartitioner extends AbstractByteOrderedPartitioner
     }
 
     public Map<Token, Float> describeOwnership(List<Token> sortedTokens){ throw new UnsupportedOperationException(); }
+
+    public BytesType equivalentType()
+    {
+        return BytesType.instance;
+    }
 }

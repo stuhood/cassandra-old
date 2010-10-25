@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.marshal.AbstractType;
 
 public interface IPartitioner<T extends Token>
 {
@@ -70,6 +71,11 @@ public interface IPartitioner<T extends Token>
 
     public Token.TokenFactory getTokenFactory();
     
+    /**
+     * @return An AbstractType with an equivalent sort order.
+     */
+    public AbstractType equivalentType();
+
     /**
      * @return True if the implementing class preserves key order in the Tokens
      * it generates.

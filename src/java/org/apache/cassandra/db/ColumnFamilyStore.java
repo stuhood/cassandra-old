@@ -184,17 +184,15 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         {
             if (!metadata.getColumn_metadata().containsKey(indexName))
             {
-                ColumnFamilyStore indexCfs = indexedColumns.remove(indexName);
-                if (indexCfs == null)
-                {
-                    logger.debug("index {} already removed; ignoring", FBUtilities.bytesToHex(indexName));
-                    continue;
-                }
-                SystemTable.setIndexRemoved(metadata.tableName, metadata.cfName);
-                indexCfs.removeAllSSTables();
+                SecondaryIndex idx = indexedColumns.remove(indexName);
+                if (idx != null)
+                    idx.purge();
+                else
+                    logger.warn("index {} already removed; ignoring", FBUtilities.bytesToHex(indexName));
             }
         }
 
+        // FIXME: addIndex is gone: needs to be replaced with SecondaryIndex factory function
         for (ColumnDefinition cdef : metadata.getColumn_metadata().values())
             if (!indexedColumns.containsKey(cdef.name) && cdef.getIndexType() != null)
                 indexedColumns.putIfAbsent(cdef.name, SecondaryIndex.open(cdef, this));
@@ -255,15 +253,13 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         }
         ssTables.add(sstables);
 
-        // create the private ColumnFamilyStores for the secondary column indexes
+        // open secondary column indexes
         indexedColumns = new ConcurrentSkipListMap<ByteBuffer, SecondaryIndex>(getComparator());
         for (ColumnDefinition info : metadata.getColumn_metadata().values())
         {
-            if (info.getIndexType() == IndexType.KEYS)
-                // TODO: push private CFS creation into secindex.KeysIndex
-                addIndex(info);
-            else if (info.index_type == IndexType.KEYS_BITMAP)
-                indexedColumns.put(info.name, SecondaryIndex.open(info, this));
+            if (info.getIndexType() == null)
+                continue;
+            indexedColumns.put(info.name, SecondaryIndex.open(info, this));
         }
 
         // register the mbean
@@ -310,60 +306,6 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             }
         }
         return keys;
-    }
-
-    /** TODO: Adds a single new index at a time. */
-    public void addIndex(final ColumnDefinition info)
-    {
-        assert info.getIndexType() == IndexType.KEYS;
-
-        // create the index CFS
-        IPartitioner rowPartitioner = StorageService.getPartitioner();
-        AbstractType columnComparator = (rowPartitioner instanceof OrderPreservingPartitioner || rowPartitioner instanceof ByteOrderedPartitioner)
-                                        ? BytesType.instance
-                                        : new LocalByPartionerType(StorageService.getPartitioner());
-        final CFMetaData indexedCfMetadata = CFMetaData.newIndexMetadata(table.name, columnFamily, info, columnComparator);
-        ColumnFamilyStore indexedCfs = ColumnFamilyStore.createColumnFamilyStore(table,
-                                                                                 indexedCfMetadata.cfName,
-                                                                                 new LocalPartitioner(metadata.getColumn_metadata().get(info.name).validator),
-                                                                                 indexedCfMetadata);
-        
-        // link in indexedColumns.  this means that writes will add new data to the index immediately,
-        // so we don't have to lock everything while we do the build.  it's up to the operator to wait
-        // until the index is actually built before using in queries.
-        if (indexedColumns.putIfAbsent((info.name, new KeysIndex(indexedCfs, rowPartitioner)) != null)
-            return;
-
-        // if we're just linking in the index to indexedColumns on an already-built index post-restart, we're done
-        if (SystemTable.isIndexBuilt(table.name, indexedCfMetadata.cfName))
-            return;
-
-        // build it asynchronously; addIndex gets called by CFS open and schema update, neither of which
-        // we want to block for a long period.  (actual build is serialized on CompactionManager.)
-        final List<SSTableReader> sstables = getSSTables();
-        Runnable runnable = new Runnable()
-        {
-            public void run()
-            {
-                logger.info("Creating index {}.{}", table, indexedCfMetadata.cfName);
-                try
-                {
-                    forceBlockingFlush();
-                }
-                catch (ExecutionException e)
-                {
-                    throw new RuntimeException(e);
-                }
-                catch (InterruptedException e)
-                {
-                    throw new AssertionError(e);
-                }
-                rebuildSecondaryIndex(index, sstables);
-                logger.info("Index {} complete", indexedCfMetadata.cfName);
-                SystemTable.setIndexBuilt(table.name, indexedCfMetadata.cfName);
-            }
-        };
-        new Thread(runnable, "Create index " + indexedCfMetadata.cfName).start();
     }
 
     /**

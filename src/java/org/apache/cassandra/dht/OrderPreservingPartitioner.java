@@ -28,6 +28,7 @@ import com.google.common.base.Charsets;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
@@ -196,5 +197,10 @@ public class OrderPreservingPartitioner implements IPartitioner<StringToken>
         }
         
         return alltokens;
+    }
+
+    public BytesType equivalentType()
+    {
+        return BytesType.instance;
     }
 }

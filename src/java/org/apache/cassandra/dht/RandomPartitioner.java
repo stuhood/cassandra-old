@@ -26,6 +26,7 @@ import java.nio.ByteBuffer;
 import java.util.*;
 
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.marshal.LocalByPartionerType;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.GuidGenerator;
 import org.apache.cassandra.utils.Pair;
@@ -40,6 +41,8 @@ public class RandomPartitioner implements IPartitioner<BigIntegerToken>
     public static final BigIntegerToken MINIMUM = new BigIntegerToken("0");
 
     private static final byte DELIMITER_BYTE = ":".getBytes()[0];
+
+    private final LocalByPartionerType equivalent = new LocalByPartionerType(this);
 
     public DecoratedKey<BigIntegerToken> decorateKey(ByteBuffer key)
     {
@@ -159,5 +162,10 @@ public class RandomPartitioner implements IPartitioner<BigIntegerToken>
             ownerships.put(start, new BigDecimal(((BigIntegerToken)start).token.subtract(ti).add(ri).mod(ri)).divide(r).floatValue());
         }
         return ownerships;
+    }
+
+    public LocalByPartionerType equivalentType()
+    {
+        return equivalent;
     }
 }

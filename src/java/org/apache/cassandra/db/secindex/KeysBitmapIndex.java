@@ -65,6 +65,11 @@ public class KeysBitmapIndex extends SecondaryIndex
         this.cfs = cfs;
     }
 
+    public void purge()
+    {
+        throw new RuntimeException("Not implemented! Will need to rebuild all SSTables"); // FIXME
+    }
+
     public double selectivity(IndexExpression expr)
     {
         if (cfs.getSSTables().isEmpty())

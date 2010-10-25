@@ -57,6 +57,17 @@ public abstract class SecondaryIndex
     }
 
     /**
+     * Called after construction: default impl is a noop.
+     */
+    public void initialize() {}
+
+    /**
+     * Called when this index is no longer necessary, and persisted data should be
+     * removed from disk.
+     */
+    public abstract void purge();
+
+    /**
      * @return The fraction of rows matched by the given expression for this index, or
      * Double.MAX_VALUE if this index cannot be used.
      */
