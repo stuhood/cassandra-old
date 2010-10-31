@@ -22,6 +22,8 @@ import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 
+import com.google.common.base.Function;
+
 /**
  * Utility methods to make ByteBuffers less painful
  * The following should illustrate the different ways byte buffers can be used 
@@ -60,7 +62,23 @@ import java.nio.charset.Charset;
  * }
  *
  */
-public class ByteBufferUtil {
+public class ByteBufferUtil
+{
+    public final static Function<ByteBuffer,ByteBuffer> COPY_FUNC = new Function<ByteBuffer,ByteBuffer>()
+    {
+        public ByteBuffer apply(ByteBuffer input)
+        {                                        
+            return ByteBufferUtil.copy(input);  
+        }                                        
+    };
+
+    public static ByteBuffer copy(ByteBuffer buff)
+    {
+        byte[] bytes = new byte[buff.remaining()];
+        buff.get(bytes);
+        buff.rewind();
+        return ByteBuffer.wrap(bytes);
+    }
 
     public static int compareUnsigned(ByteBuffer o1, ByteBuffer o2)
     {

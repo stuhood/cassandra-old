@@ -97,6 +97,8 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.thrift.IndexClause;
 import org.apache.cassandra.thrift.IndexExpression;
 import org.apache.cassandra.thrift.IndexOperator;
+import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.InternPool;
 import org.apache.cassandra.utils.EstimatedHistogram;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.LatencyTracker;
@@ -106,6 +108,9 @@ import org.apache.commons.collections.IteratorUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.base.Function;
+import com.google.common.base.Functions;
+import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
 
 public class ColumnFamilyStore implements ColumnFamilyStoreMBean
@@ -171,6 +176,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     /* SSTables on disk for this column family */
     private SSTableTracker ssTables;
 
+    // pool of column names
+    private final InternPool<ByteBuffer, ByteBuffer> namePool;
+
     private LatencyTracker readStats = new LatencyTracker();
     private LatencyTracker writeStats = new LatencyTracker();
 
@@ -222,6 +230,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         if (logger.isDebugEnabled())
             logger.debug("Starting CFS {}", columnFamily);
 
+        // create pool which will always apply interning to column names
+        // TODO: pass a predicate to conditionally intern based on cardinality
+        namePool = new InternPool(ByteBufferUtil.COPY_FUNC, null, Predicates.alwaysTrue());
+
         // scan for sstables corresponding to this cf and load them
         ssTables = new SSTableTracker(table.name, columnFamilyName);
         Set<DecoratedKey> savedKeys = readSavedCache(DatabaseDescriptor.getSerializedKeyCachePath(table.name, columnFamilyName));
@@ -232,7 +244,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             SSTableReader sstable;
             try
             {
-                sstable = SSTableReader.open(sstableFiles.getKey(), sstableFiles.getValue(), savedKeys, ssTables, metadata, this.partitioner);
+                sstable = SSTableReader.open(sstableFiles.getKey(), sstableFiles.getValue(), savedKeys, ssTables, metadata, partitioner);
             }
             catch (FileNotFoundException ex)
             {
@@ -269,6 +281,14 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         {
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Interns a column name.
+     */
+    public ByteBuffer internName(ByteBuffer name, boolean copy)
+    {
+        return namePool.intern(name, copy);
     }
 
     protected Set<DecoratedKey> readSavedCache(File path)
