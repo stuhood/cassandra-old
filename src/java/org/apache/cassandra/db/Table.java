@@ -137,6 +137,11 @@ public class Table
         }
     }
     
+    public ByteBuffer internName(String cfname, ByteBuffer name, boolean copy)
+    {
+        return getColumnFamilyStore(cfname).internName(name, copy);
+    }
+
     public Collection<ColumnFamilyStore> getColumnFamilyStores()
     {
         return Collections.unmodifiableCollection(columnFamilyStores.values());

@@ -256,6 +256,34 @@ public class CassandraServer implements Cassandra.Iface
             return thriftifyColumns(cf.getSortedColumns(), reverseOrder);
     }
 
+    private void internMutation(String ksname, String cfname, Mutation m)
+    {
+        if (m.column_or_supercolumn != null)
+        {
+            if (m.column_or_supercolumn.column != null)
+                m.column_or_supercolumn.column.name = StorageProxy.internName(ksname, cfname, m.column_or_supercolumn.column.name, false);
+            else
+                // TODO: subcolumns would need to be interned separately
+                m.column_or_supercolumn.super_column.name = StorageProxy.internName(ksname, cfname, m.column_or_supercolumn.super_column.name, false);
+        }
+        else // deletion
+        {
+            if (m.deletion.super_column != null)
+                // TODO: ditto
+                m.deletion.super_column = StorageProxy.internName(ksname, cfname, m.deletion.super_column, false);
+            else if (m.deletion.predicate.column_names != null)
+            {
+                // FIXME: need to intern the contents of the column names list
+            }
+            else
+            {
+                SliceRange sr = m.deletion.predicate.slice_range;
+                sr.start = StorageProxy.internName(ksname, cfname, sr.start, false);
+                sr.finish = StorageProxy.internName(ksname, cfname, sr.finish, false);
+            }
+        }
+    }
+
     public List<ColumnOrSuperColumn> get_slice(ByteBuffer key, ColumnParent column_parent, SlicePredicate predicate, ConsistencyLevel consistency_level)
     throws InvalidRequestException, UnavailableException, TimedOutException
     {
@@ -378,7 +406,8 @@ public class CassandraServer implements Cassandra.Iface
         RowMutation rm = new RowMutation(state().getKeyspace(), key);
         try
         {
-            rm.add(new QueryPath(column_parent.column_family, column_parent.super_column, column.name), column.value, column.timestamp, column.ttl);
+            ByteBuffer cname = StorageProxy.internName(state().getKeyspace(), column_parent.column_family, column.name, false);
+            rm.add(new QueryPath(column_parent.column_family, column_parent.super_column, cname), column.value, column.timestamp, column.ttl);
         }
         catch (MarshalException e)
         {
@@ -416,6 +445,7 @@ public class CassandraServer implements Cassandra.Iface
                 for (Mutation mutation : columnFamilyMutations.getValue())
                 {
                     ThriftValidation.validateMutation(state().getKeyspace(), cfName, mutation);
+                    internMutation(state().getKeyspace(), cfName, mutation);
                 }
             }
             rowMutations.add(RowMutation.getRowMutationFromMutations(state().getKeyspace(), key, columnFamilyToMutations));

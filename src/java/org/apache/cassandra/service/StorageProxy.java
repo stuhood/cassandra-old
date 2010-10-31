@@ -80,6 +80,11 @@ public class StorageProxy implements StorageProxyMBean
         }
     }
 
+    public static ByteBuffer internName(String ksname, String cfname, ByteBuffer name, boolean copy)
+    {
+        return Table.open(ksname).internName(cfname, name, copy);
+    }
+
     /**
      * Use this method to have these RowMutations applied
      * across all replicas. This method will take care
