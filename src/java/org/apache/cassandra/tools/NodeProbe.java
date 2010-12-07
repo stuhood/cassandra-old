@@ -391,8 +391,7 @@ public class NodeProbe
 
     public List<InetAddress> getEndpoints(String keyspace, String key)
     {
-        // FIXME: string key
-        return ssProxy.getNaturalEndpoints(keyspace, ByteBuffer.wrap(key.getBytes(UTF_8)));
+        return ssProxy.getNaturalEndpoints(keyspace, key);
     }
 
     public Set<InetAddress> getStreamDestinations()
