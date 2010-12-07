@@ -1400,9 +1400,9 @@ public class StorageService implements IEndpointStateChangeSubscriber, StorageSe
         return getNaturalEndpoints(table, partitioner_.getToken(key));
     }
 
-    public List<InetAddress> getNaturalEndpoints(String table, String key)
+    public List<InetAddress> getNaturalEndpoints(String table, byte[] key)
     {
-        return getNaturalEndpoints(table, ByteBuffer.wrap(key.getBytes(Charsets.UTF_8)));
+        return getNaturalEndpoints(table, ByteBuffer.wrap(key));
     }
 
     /**
