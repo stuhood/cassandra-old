@@ -184,7 +184,14 @@
     </target>
 
     <target name="ivy-retrieve-build" depends="ivy-init">
+      <ivy:resolve file="${basedir}/ivy.xml"/>
       <ivy:retrieve type="jar,source" sync="true"
+             pattern="${build.dir.lib}/[type]s/[artifact]-[revision].[ext]" />
+    </target>
+
+    <target name="ivy-retrieve-whirr" depends="ivy-init">
+      <ivy:resolve file="${basedir}/test/distributed/ivy.xml"/>
+      <ivy:retrieve type="jar,source,tests" sync="true"
              pattern="${build.dir.lib}/[type]s/[artifact]-[revision].[ext]" />
     </target>
 
