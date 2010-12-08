@@ -17,21 +17,9 @@
  ~ under the License.
  -->
 <ivy-module version="2.0">
-  <info organisation="apache-cassandra" module="cassandra"/>
-
+  <info organisation="apache-cassandra" module="cassandra-distributed-test"/>
   <dependencies>
-    <!-- FIXME: paranamer can be dropped after we're depending on avro
-    (since it depends on them). -->
-    <dependency org="com.thoughtworks.paranamer"
-                name="paranamer-ant" rev="2.1"/>
-    <dependency org="junit" name="junit" rev="4.6" />
-    <dependency org="commons-logging" name="commons-logging" rev="1.1.1"/>
-    <dependency org="org.apache.rat" name="apache-rat" rev="0.6" />
-    <dependency org="com.cloudera.hadoop" name="hadoop-core" rev="0.20.2-320"/>
-    <dependency org="com.cloudera.hadoop" name="hadoop-streaming" rev="0.20.2-320"/>
-    <dependency org="net.sf.jopt-simple" name="jopt-simple" rev="3.2"/>
-
-    <dependency org="net.java.dev.jna" name="jna" rev="3.2.7"/>
+    <dependency org="org.apache.whirr" name="whirr-core" rev="0.2.0-incubating"/>
+    <dependency org="org.apache.whirr" name="whirr-cli" rev="0.2.0-incubating"/>
   </dependencies>
 </ivy-module>
-
