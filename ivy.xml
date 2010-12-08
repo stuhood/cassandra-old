@@ -33,9 +33,8 @@
 
     <dependency org="net.java.dev.jna" name="jna" rev="3.2.7"/>
 
-    <dependency org="org.apache.whirr" name="whirr-cassandra" rev="0.2.0-incubating"/>
-    <dependency org="org.apache.whirr" name="whirr-cli" rev="0.2.0-incubating"/>
     <dependency org="org.apache.whirr" name="whirr-core" rev="0.2.0-incubating"/>
+    <dependency org="org.apache.whirr" name="whirr-cli" rev="0.2.0-incubating"/>
   </dependencies>
 </ivy-module>
 
