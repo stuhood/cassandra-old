@@ -40,6 +40,7 @@
     <property name="interface.avro.dir" value="${interface.dir}/avro"/>
     <property name="test.dir" value="${basedir}/test"/>
     <property name="test.resources" value="${test.dir}/resources"/>
+    <property name="test.lib" value="${build.dir}/test/lib"/>
     <property name="test.classes" value="${build.dir}/test/classes"/>
     <property name="test.conf" value="${test.dir}/conf"/>
     <property name="test.data" value="${test.dir}/data"/>
@@ -191,8 +192,8 @@
 
     <target name="ivy-retrieve-whirr" depends="ivy-init">
       <ivy:resolve file="${basedir}/test/distributed/ivy.xml"/>
-      <ivy:retrieve type="jar,source,tests" sync="true"
-             pattern="${build.dir.lib}/[type]s/[artifact]-[revision].[ext]" />
+      <ivy:retrieve type="jar,source" sync="true"
+             pattern="${test.lib}/[type]s/[artifact]-[revision].[ext]" />
     </target>
 
     <!--
