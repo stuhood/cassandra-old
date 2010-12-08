@@ -46,6 +46,7 @@
     <property name="test.name" value="*Test"/>
     <property name="test.unit.src" value="${test.dir}/unit"/>
     <property name="test.long.src" value="${test.dir}/long"/>
+    <property name="test.distributed.src" value="${test.dir}/distributed"/>
     <property name="dist.dir" value="${build.dir}/dist"/>
     <property name="base.version" value="0.7.0-beta3"/>
     <condition property="version" value="${base.version}">
@@ -434,6 +435,7 @@
       <classpath refid="cassandra.classpath"/>
       <src path="${test.unit.src}"/>
       <src path="${test.long.src}"/>
+      <src path="${test.distributed.src}"/>
     </javac>
 
     <!-- Non-java resources needed by the test suite -->
@@ -479,6 +481,10 @@
 
   <target name="long-test" depends="build-test" description="Execute functional tests">
     <testmacro suitename="long" inputdir="${test.long.src}" timeout="300000" />
+  </target>
+
+  <target name="distributed-test" depends="build-test" description="Execute distributed tests: see ${test.distributed.src}/README.txt">
+    <testmacro suitename="distributed" inputdir="${test.distributed.src}" timeout="1200000" />
   </target>
 
   <!-- instruments the classes to later create code coverage reports -->
