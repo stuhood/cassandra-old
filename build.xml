@@ -443,13 +443,28 @@
       <classpath refid="cassandra.classpath"/>
       <src path="${test.unit.src}"/>
       <src path="${test.long.src}"/>
-      <src path="${test.distributed.src}"/>
     </javac>
 
     <!-- Non-java resources needed by the test suite -->
     <copy todir="${test.classes}">
       <fileset dir="${test.resources}"/>
     </copy>
+  </target>
+
+  <target name="build-distributed-test" depends="build-test,ivy-retrieve-whirr" description="Compile distributed test classes (which have additional deps)">
+    <javac
+     debug="true"
+     debuglevel="${debuglevel}"
+     destdir="${test.classes}">
+      <classpath>
+          <path refid="cassandra.classpath"/>
+          <pathelement location="${test.classes}"/>
+          <fileset dir="${test.lib}">
+            <include name="**/*.jar" />
+          </fileset>
+      </classpath>
+      <src path="${test.distributed.src}"/>
+    </javac>
   </target>
 
   <macrodef name="testmacro">
@@ -474,6 +489,9 @@
           <pathelement location="${test.classes}"/>
           <pathelement location="${cobertura.dir}/cobertura.jar"/>
           <pathelement location="${test.conf}"/>
+          <fileset dir="${test.lib}">
+            <include name="**/*.jar" />
+          </fileset>
         </classpath>
         <batchtest todir="${build.test.dir}/output">
           <fileset dir="@{inputdir}" includes="**/${test.name}.java" />
@@ -491,7 +509,7 @@
     <testmacro suitename="long" inputdir="${test.long.src}" timeout="300000" />
   </target>
 
-  <target name="distributed-test" depends="build-test" description="Execute distributed tests: see ${test.distributed.src}/README.txt">
+  <target name="distributed-test" depends="build-distributed-test" description="Execute distributed tests: see ${test.distributed.src}/README.txt">
     <testmacro suitename="distributed" inputdir="${test.distributed.src}" timeout="1200000" />
   </target>
 
