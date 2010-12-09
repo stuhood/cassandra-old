@@ -78,10 +78,6 @@ public class CassandraServiceController {
     public synchronized void startup() throws Exception {
         LOG.info("Starting up cluster...");
         CompositeConfiguration config = new CompositeConfiguration();
-        ClassLoader loader = DatabaseDescriptor.class.getClassLoader();
-        url = loader.getResource(configUrl);
-        if (url == null)
-            throw new ConfigurationException("Cannot locate " + configUrl);
         if (System.getProperty("config") != null) {
             config.addConfiguration(new PropertiesConfiguration(System.getProperty("config")));
         }
