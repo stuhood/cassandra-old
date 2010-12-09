@@ -43,7 +43,7 @@ import org.junit.Test;
 import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertNull;
 
-public abstract class BaseTest
+public abstract class TestBase
 {
     protected static int THRIFT_PORT    = 9160;
     protected static int RPC_PORT       = 8080;

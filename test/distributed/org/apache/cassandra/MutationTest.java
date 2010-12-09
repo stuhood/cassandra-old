@@ -36,7 +36,7 @@ import org.junit.Test;
 import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertNull;
 
-public class MutationTest extends BaseTest
+public class MutationTest extends TestBase
 {
     @Test
     public void testInsert() throws Exception
@@ -47,19 +47,21 @@ public class MutationTest extends BaseTest
         client.setKeyspace("Keyspace1");
         String key = createTemporaryKey();
 
-        ColumnParent     cp = ColumnParent("Standard1");
+        ColumnParent     cp = new ColumnParent("Standard1");
         ConsistencyLevel cl = ConsistencyLevel.ONE;
-        client.insert(key, cp, Column("c1", "v1", 0), cl);
-        client.insert(key, cp, Column("c2", "v2", 0), cl);
+        client.insert(key, cp, new Column("c1", "v1", 0), cl);
+        client.insert(key, cp, new Column("c2", "v2", 0), cl);
 
         Thread.sleep(100);
 
         // verify get
         assertEquals(
-            client.get(key, ColumnPath("Standard1", "c1"), cl).column,
-            Column("c1", "v1", 0))
+            client.get(key, new ColumnPath("Standard1", "c1"), cl).column,
+            new Column("c1", "v1", 0))
 
         // verify slice
-
+        SlicePredicate sp = new SlicePredicate();
+        sp.setSlice_range(new SliceRange(new byte[0], new byte[0], false, 1000));
+        List<ColumnOrSuperColumn> coscs = client.get_slice(
     }
 }
