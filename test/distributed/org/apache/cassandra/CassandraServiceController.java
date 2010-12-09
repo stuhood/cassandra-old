@@ -78,8 +78,8 @@ public class CassandraServiceController {
     public synchronized void startup() throws Exception {
         LOG.info("Starting up cluster...");
         CompositeConfiguration config = new CompositeConfiguration();
-        if (System.getProperty("config") != null) {
-            config.addConfiguration(new PropertiesConfiguration(System.getProperty("config")));
+        if (System.getProperty("whirr.config") != null) {
+            config.addConfiguration(new PropertiesConfiguration(System.getProperty("whirr.config")));
         }
         config.addConfiguration(new PropertiesConfiguration("whirr-default.properties"));
         clusterSpec = new ClusterSpec(config);
