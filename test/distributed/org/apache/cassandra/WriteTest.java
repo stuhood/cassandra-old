@@ -18,27 +18,41 @@
 
 package org.apache.cassandra;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
-import org.junit.runner.RunWith;
-import org.junit.runners.Suite;
+import org.junit.Test;
 
-@RunWith(Suite.class)
-@Suite.SuiteClasses({
-    CassandraServiceTest.class
-})
-public class CassandraBenchmarkSuite {
-    
+import static junit.framework.Assert.assertEquals;
+import static junit.framework.Assert.assertNull;
+
+public class WriteTest
+{
     private static CassandraServiceController controller =
         CassandraServiceController.getInstance();
-    
+
+                
     @BeforeClass
-    public static void setUp() throws Exception {
+    public static void setUp() throws Exception
+    {
         controller.ensureClusterRunning();
     }
-    
+                
     @AfterClass
-    public static void tearDown() throws Exception {
+    public static void tearDown() throws Exception
+    {
         controller.shutdown();
+    }
+    
+    @Test
+    public void test() throws Exception
+    {
+//TODO: IMPLEMENT
+assert false;
     }
 }
