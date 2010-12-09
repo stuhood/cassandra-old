@@ -26,6 +26,14 @@ import java.io.Writer;
 import java.net.InetAddress;
 import java.util.List;
 
+import org.apache.thrift.TException;
+import org.apache.thrift.protocol.TBinaryProtocol;
+import org.apache.thrift.protocol.TProtocol;
+import org.apache.thrift.transport.TSocket;
+import org.apache.thrift.transport.TTransport;
+import org.apache.thrift.transport.TTransportException;
+
+import org.apache.cassandra.thrift.Cassandra;
 import org.apache.cassandra.tools.NodeProbe;
 
 import org.junit.AfterClass;
@@ -37,6 +45,9 @@ import static junit.framework.Assert.assertNull;
 
 public abstract class BaseTest
 {
+    protected static int THRIFT_PORT    = 9160;
+    protected static int RPC_PORT       = 8080;
+
     protected static CassandraServiceController controller =
         CassandraServiceController.getInstance();
     protected NodeProbe probe;
@@ -47,7 +58,7 @@ public abstract class BaseTest
         controller.ensureClusterRunning();
 
         List<InetAddress> hosts = controller.getHosts();
-        probe = new NodeProbe(hosts.get(0), 8080);
+        probe = new NodeProbe(hosts.get(0), RPC_PORT);
     }
 
     @AfterClass
@@ -64,5 +75,16 @@ public abstract class BaseTest
     protected List<InetAddress> getReplicas(String keyspace, String key)
     {
         return probe.getEndPoints(keyspace, key);
+    }
+
+    protected Cassandra.Client createClient(String host) throws TTransportException, TException
+    {
+        TTransport transport    = new TSocket(host, THRIFT_PORT);
+        TProtocol  protocol     = new TBinaryProtocol(transport);
+
+        Cassandra.Client client = new Cassandra.Client(protocol);
+        transport.open();
+
+        return client;
     }
 }

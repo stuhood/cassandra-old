@@ -23,6 +23,9 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.util.List;
+
+import org.apache.cassandra.thrift.*;
 
 import org.apache.cassandra.tools.NodeProbe;
 
@@ -33,12 +36,30 @@ import org.junit.Test;
 import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertNull;
 
-public class IncrementTest extends BaseTest
+public class MutationTest extends BaseTest
 {
     @Test
-    public void test() throws Exception
+    public void testInsert() throws Exception
     {
-//TODO: IMPLEMENT
-assert false;
+        List<InetAddress> hosts = getHosts();
+        Cassandra.Client client = createClient(hosts.get(0));
+
+        client.setKeyspace("Keyspace1");
+        String key = createTemporaryKey();
+
+        ColumnParent     cp = ColumnParent("Standard1");
+        ConsistencyLevel cl = ConsistencyLevel.ONE;
+        client.insert(key, cp, Column("c1", "v1", 0), cl);
+        client.insert(key, cp, Column("c2", "v2", 0), cl);
+
+        Thread.sleep(100);
+
+        // verify get
+        assertEquals(
+            client.get(key, ColumnPath("Standard1", "c1"), cl).column,
+            Column("c1", "v1", 0))
+
+        // verify slice
+
     }
 }
