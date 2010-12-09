@@ -45,48 +45,48 @@ import org.junit.Test;
 
 public class CassandraServiceTest {
 
-  private static CassandraServiceController controller =
-    CassandraServiceController.getInstance();
+    private static CassandraServiceController controller =
+        CassandraServiceController.getInstance();
 
+                
+    @BeforeClass
+    public static void setUp() throws Exception {
+        controller.ensureClusterRunning();
+    }
+                
+    @AfterClass
+    public static void tearDown() throws Exception {
+        controller.shutdown();
+    }
+    
+    @Test
+    public void test() throws Exception {
+        Configuration conf = controller.getConfiguration();
+        JobConf job = new JobConf(conf, CassandraServiceTest.class);
+
+        FileSystem fs = FileSystem.get(conf);
         
-  @BeforeClass
-  public static void setUp() throws Exception {
-    controller.ensureClusterRunning();
-  }
+        OutputStream os = fs.create(new Path("input"));
+        Writer wr = new OutputStreamWriter(os);
+        wr.write("b a\n");
+        wr.close();
         
-  @AfterClass
-  public static void tearDown() throws Exception {
-    controller.shutdown();
-  }
-  
-  @Test
-  public void test() throws Exception {
-    Configuration conf = controller.getConfiguration();
-    JobConf job = new JobConf(conf, CassandraServiceTest.class);
+        job.setMapperClass(TokenCountMapper.class);
+        job.setReducerClass(LongSumReducer.class);
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(LongWritable.class);
+        FileInputFormat.setInputPaths(job, new Path("input"));
+        FileOutputFormat.setOutputPath(job, new Path("output"));
+        
+        JobClient.runJob(job);
 
-    FileSystem fs = FileSystem.get(conf);
-    
-    OutputStream os = fs.create(new Path("input"));
-    Writer wr = new OutputStreamWriter(os);
-    wr.write("b a\n");
-    wr.close();
-    
-    job.setMapperClass(TokenCountMapper.class);
-    job.setReducerClass(LongSumReducer.class);
-    job.setOutputKeyClass(Text.class);
-    job.setOutputValueClass(LongWritable.class);
-    FileInputFormat.setInputPaths(job, new Path("input"));
-    FileOutputFormat.setOutputPath(job, new Path("output"));
-    
-    JobClient.runJob(job);
-
-    FSDataInputStream in = fs.open(new Path("output/part-00000"));
-    BufferedReader reader = new BufferedReader(new InputStreamReader(in));
-    assertEquals("a\t1", reader.readLine());
-    assertEquals("b\t1", reader.readLine());
-    assertNull(reader.readLine());
-    reader.close();
-    
-  }
+        FSDataInputStream in = fs.open(new Path("output/part-00000"));
+        BufferedReader reader = new BufferedReader(new InputStreamReader(in));
+        assertEquals("a\t1", reader.readLine());
+        assertEquals("b\t1", reader.readLine());
+        assertNull(reader.readLine());
+        reader.close();
+        
+    }
 
 }

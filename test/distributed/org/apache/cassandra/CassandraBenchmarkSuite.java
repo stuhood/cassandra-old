@@ -25,20 +25,20 @@ import org.junit.runners.Suite;
 
 @RunWith(Suite.class)
 @Suite.SuiteClasses({
-  CassandraServiceTest.class
+    CassandraServiceTest.class
 })
 public class CassandraBenchmarkSuite {
-  
-  private static CassandraServiceController controller =
-    CassandraServiceController.getInstance();
-  
-  @BeforeClass
-  public static void setUp() throws Exception {
-    controller.ensureClusterRunning();
-  }
-  
-  @AfterClass
-  public static void tearDown() throws Exception {
-    controller.shutdown();
-  }
+    
+    private static CassandraServiceController controller =
+        CassandraServiceController.getInstance();
+    
+    @BeforeClass
+    public static void setUp() throws Exception {
+        controller.ensureClusterRunning();
+    }
+    
+    @AfterClass
+    public static void tearDown() throws Exception {
+        controller.shutdown();
+    }
 }

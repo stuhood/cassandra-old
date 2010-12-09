@@ -45,126 +45,130 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class CassandraServiceController {
-  
-  private static final Logger LOG =
-    LoggerFactory.getLogger(CassandraServiceController.class);
+    
+    private static final Logger LOG =
+        LoggerFactory.getLogger(CassandraServiceController.class);
 
-  private static final CassandraServiceController INSTANCE =
-    new CassandraServiceController();
-  
-  public static CassandraServiceController getInstance() {
-    return INSTANCE;
-  }
-  
-  private boolean running;
-  private ClusterSpec clusterSpec;
-  private HadoopService service;
-  private HadoopProxy proxy;
-  private HadoopCluster cluster;
-  
-  private CassandraServiceController() {
-  }
-  
-  public synchronized boolean ensureClusterRunning() throws Exception {
-    if (running) {
-      LOG.info("Cluster already running.");
-      return false;
-    } else {
-      startup();
-      return true;
-    }
-  }
-  
-  public synchronized void startup() throws Exception {
-    LOG.info("Starting up cluster...");
-    CompositeConfiguration config = new CompositeConfiguration();
-    if (System.getProperty("config") != null) {
-      config.addConfiguration(new PropertiesConfiguration(System.getProperty("config")));
-    }
-    config.addConfiguration(new PropertiesConfiguration("whirr-default.properties"));
-    clusterSpec = new ClusterSpec(config);
-    if (clusterSpec.getPrivateKey() == null) {
-      throw new RuntimeException("FIXME: Must specify private key.");
-      /*
-      Map<String, String> pair = KeyPair.generate();
-      clusterSpec.setPublicKey(pair.get("public"));
-      clusterSpec.setPrivateKey(pair.get("private"));
-      */
-    }
-    Service s = new ServiceFactory().create(clusterSpec.getServiceName());
-    assert s instanceof HadoopService;
-    service = (HadoopService) s;
+    private static final CassandraServiceController INSTANCE =
+        new CassandraServiceController();
     
-    cluster = service.launchCluster(clusterSpec);
-    proxy = new HadoopProxy(clusterSpec, cluster);
-    proxy.start();
+    public static CassandraServiceController getInstance() {
+        return INSTANCE;
+    }
     
-    Configuration conf = getConfiguration();
-    JobConf job = new JobConf(conf, CassandraServiceTest.class);
-    JobClient client = new JobClient(job);
-    waitToExitSafeMode(client);
-    waitForTaskTrackers(client);
-    running = true;
-  }
-  
-  public HadoopCluster getCluster() {
-    return cluster;
-  }
-  
-  public Configuration getConfiguration() {
-    Configuration conf = new Configuration();
-    for (Entry<Object, Object> entry : cluster.getConfiguration().entrySet()) {
-      conf.set(entry.getKey().toString(), entry.getValue().toString());
+    private boolean running;
+    private ClusterSpec clusterSpec;
+    private HadoopService service;
+    private HadoopProxy proxy;
+    private HadoopCluster cluster;
+    
+    private CassandraServiceController() {
     }
-    return conf;
-  }
-  
-  public JobConf getJobConf() {
-    return new JobConf(getConfiguration());
-  }
-  
-  private static void waitToExitSafeMode(JobClient client) throws IOException {
-    LOG.info("Waiting to exit safe mode...");
-    FileSystem fs = client.getFs();
-    DistributedFileSystem dfs = (DistributedFileSystem) fs;
-    boolean inSafeMode = true;
-    while (inSafeMode) {
-      inSafeMode = dfs.setSafeMode(FSConstants.SafeModeAction.SAFEMODE_GET);
-      try {
-        System.out.print(".");
-        Thread.sleep(1000);
-      } catch (InterruptedException e) {
-        break;
-      }
+    
+    public synchronized boolean ensureClusterRunning() throws Exception {
+        if (running) {
+            LOG.info("Cluster already running.");
+            return false;
+        } else {
+            startup();
+            return true;
+        }
     }
-    LOG.info("Exited safe mode");
-  }
-  
-  private static void waitForTaskTrackers(JobClient client) throws IOException {
-    LOG.info("Waiting for tasktrackers...");
-    while (true) {
-      ClusterStatus clusterStatus = client.getClusterStatus();
-      int taskTrackerCount = clusterStatus.getTaskTrackers();
-      if (taskTrackerCount > 0) {
-        LOG.info("{} tasktrackers reported in. Continuing.", taskTrackerCount);
-        break;
-      }
-      try {
-        System.out.print(".");
-        Thread.sleep(1000);
-      } catch (InterruptedException e) {
-        break;
-      }
+    
+    public synchronized void startup() throws Exception {
+        LOG.info("Starting up cluster...");
+        CompositeConfiguration config = new CompositeConfiguration();
+        ClassLoader loader = DatabaseDescriptor.class.getClassLoader();
+        url = loader.getResource(configUrl);
+        if (url == null)
+            throw new ConfigurationException("Cannot locate " + configUrl);
+        if (System.getProperty("config") != null) {
+            config.addConfiguration(new PropertiesConfiguration(System.getProperty("config")));
+        }
+        config.addConfiguration(new PropertiesConfiguration("whirr-default.properties"));
+        clusterSpec = new ClusterSpec(config);
+        if (clusterSpec.getPrivateKey() == null) {
+            throw new RuntimeException("FIXME: Must specify private key.");
+            /*
+            Map<String, String> pair = KeyPair.generate();
+            clusterSpec.setPublicKey(pair.get("public"));
+            clusterSpec.setPrivateKey(pair.get("private"));
+            */
+        }
+        Service s = new ServiceFactory().create(clusterSpec.getServiceName());
+        assert s instanceof HadoopService;
+        service = (HadoopService) s;
+        
+        cluster = service.launchCluster(clusterSpec);
+        proxy = new HadoopProxy(clusterSpec, cluster);
+        proxy.start();
+        
+        Configuration conf = getConfiguration();
+        JobConf job = new JobConf(conf, CassandraServiceTest.class);
+        JobClient client = new JobClient(job);
+        waitToExitSafeMode(client);
+        waitForTaskTrackers(client);
+        running = true;
     }
-  }
-  
-  public synchronized void shutdown() throws IOException, InterruptedException {
-    LOG.info("Shutting down cluster...");
-    if (proxy != null) {
-      proxy.stop();
+    
+    public HadoopCluster getCluster() {
+        return cluster;
     }
-    service.destroyCluster(clusterSpec);
-    running = false;
-  }
+    
+    public Configuration getConfiguration() {
+        Configuration conf = new Configuration();
+        for (Entry<Object, Object> entry : cluster.getConfiguration().entrySet()) {
+            conf.set(entry.getKey().toString(), entry.getValue().toString());
+        }
+        return conf;
+    }
+    
+    public JobConf getJobConf() {
+        return new JobConf(getConfiguration());
+    }
+    
+    private static void waitToExitSafeMode(JobClient client) throws IOException {
+        LOG.info("Waiting to exit safe mode...");
+        FileSystem fs = client.getFs();
+        DistributedFileSystem dfs = (DistributedFileSystem) fs;
+        boolean inSafeMode = true;
+        while (inSafeMode) {
+            inSafeMode = dfs.setSafeMode(FSConstants.SafeModeAction.SAFEMODE_GET);
+            try {
+                System.out.print(".");
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                break;
+            }
+        }
+        LOG.info("Exited safe mode");
+    }
+    
+    private static void waitForTaskTrackers(JobClient client) throws IOException {
+        LOG.info("Waiting for tasktrackers...");
+        while (true) {
+            ClusterStatus clusterStatus = client.getClusterStatus();
+            int taskTrackerCount = clusterStatus.getTaskTrackers();
+            if (taskTrackerCount > 0) {
+                LOG.info("{} tasktrackers reported in. Continuing.", taskTrackerCount);
+                break;
+            }
+            try {
+                System.out.print(".");
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                break;
+            }
+        }
+    }
+    
+    public synchronized void shutdown() throws IOException, InterruptedException {
+        LOG.info("Shutting down cluster...");
+        if (proxy != null) {
+            proxy.stop();
+        }
+        service.destroyCluster(clusterSpec);
+        running = false;
+    }
 
 }
