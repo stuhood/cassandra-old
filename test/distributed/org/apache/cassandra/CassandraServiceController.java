@@ -78,10 +78,10 @@ public class CassandraServiceController {
     public synchronized void startup() throws Exception {
         LOG.info("Starting up cluster...");
         CompositeConfiguration config = new CompositeConfiguration();
+        config.addConfiguration(new PropertiesConfiguration("whirr-default.properties"));
         if (System.getProperty("whirr.config") != null) {
             config.addConfiguration(new PropertiesConfiguration(System.getProperty("whirr.config")));
         }
-        config.addConfiguration(new PropertiesConfiguration("whirr-default.properties"));
         clusterSpec = new ClusterSpec(config);
         if (clusterSpec.getPrivateKey() == null) {
             throw new RuntimeException("FIXME: Must specify private key.");
