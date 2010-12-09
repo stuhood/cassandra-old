@@ -24,6 +24,8 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 
+import org.apache.cassandra.tools.NodeProbe;
+
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -31,24 +33,8 @@ import org.junit.Test;
 import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertNull;
 
-public class WriteTest
+public class IncrementTest extends BaseTest
 {
-    private static CassandraServiceController controller =
-        CassandraServiceController.getInstance();
-
-                
-    @BeforeClass
-    public static void setUp() throws Exception
-    {
-        controller.ensureClusterRunning();
-    }
-                
-    @AfterClass
-    public static void tearDown() throws Exception
-    {
-        controller.shutdown();
-    }
-    
     @Test
     public void test() throws Exception
     {

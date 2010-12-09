@@ -25,6 +25,7 @@ import java.util.Map.Entry;
 import org.apache.commons.configuration.CompositeConfiguration;
 import org.apache.commons.configuration.PropertiesConfiguration;
 
+import org.apache.whirr.service.Cluster;
 import org.apache.whirr.service.ClusterSpec;
 import org.apache.whirr.service.Service;
 import org.apache.whirr.service.ServiceFactory;
@@ -48,9 +49,10 @@ public class CassandraServiceController
         return INSTANCE;
     }
     
-    private boolean running;
-    private ClusterSpec clusterSpec;
-    private CassandraService service;
+    private boolean             running;
+    private ClusterSpec         clusterSpec;
+    private CassandraService    service;
+    private Cluster             cluster;
     
     private CassandraServiceController()
     {
@@ -92,15 +94,24 @@ public class CassandraServiceController
         assert s instanceof CassandraService;
         service = (CassandraService) s;
         
-        service.launchCluster(clusterSpec);
+        cluster = service.launchCluster(clusterSpec);
         
         running = true;
     }
-    
+
     public synchronized void shutdown() throws IOException, InterruptedException
     {
         LOG.info("Shutting down cluster...");
         service.destroyCluster(clusterSpec);
         running = false;
+    }
+
+    public List<InetAddress> getHosts()
+    {
+        Set<Instances> instances = cluster.getInstances();
+        List<InetAddress> hosts = new ArrayList<InetAddress>(instances.size());
+        for (Instance instance : instances)
+            hosts.add(instance.getPublicAddress());
+        return hosts;
     }
 }
