@@ -44,7 +44,6 @@ public class MutationTest extends TestBase
     @Test
     public void testInsert() throws Exception
     {
-//TODO: IMPL: whirr w/ 8080 whitelisted
         List<InetAddress> hosts = controller.getHosts();
         Cassandra.Client client = createClient(hosts.get(0).getHostAddress());
 

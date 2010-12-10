@@ -33,8 +33,6 @@ import org.apache.thrift.transport.*;
 
 import org.apache.cassandra.thrift.*;
 
-import org.apache.cassandra.tools.NodeProbe;
-
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -51,19 +49,6 @@ public abstract class TestBase
 
     protected static CassandraServiceController controller =
         CassandraServiceController.getInstance();
-    protected static NodeProbe probe;
-
-    private static void waitForDirective(long millis)
-    {
-        try
-        {
-            Thread.sleep(millis);
-        }
-        catch (InterruptedException e)
-        {
-            throw new RuntimeException(e);
-        }
-    }
 
     protected static void addKeyspace() throws Exception
     {
@@ -90,8 +75,37 @@ public abstract class TestBase
                 3,
                 cfDefList));
 
-//TODO: IMPL: poll, until KS appears
-        waitForDirective(10000);
+        // poll, until KS added
+        for (InetAddress host : hosts)
+        {
+            try
+            {
+                client = createClient(host.getHostAddress());
+                poll:
+                while (true)
+                {
+                    List<KsDef> ksDefList = client.describe_keyspaces();
+                    for (KsDef ks : ksDefList)
+                    {
+                        if (ks.name.equals(KEYSPACE))
+                            break poll;
+                    }
+
+                    try
+                    {
+                        Thread.sleep(1000);
+                    }
+                    catch (InterruptedException e)
+                    {
+                        break poll;
+                    }
+                }
+            }
+            catch (TException te)
+            {
+                continue;
+            }
+        }
     }
 
     protected static void dropKeyspace() throws Exception
@@ -101,8 +115,39 @@ public abstract class TestBase
 
         client.system_drop_keyspace(KEYSPACE);
 
-//TODO: IMPL: poll, until KS leaves
-        waitForDirective(10000);
+        // poll, until KS dropped
+        for (InetAddress host : hosts)
+        {
+            try
+            {
+                client = createClient(host.getHostAddress());
+                poll:
+                while (true)
+                {
+                    List<KsDef> ksDefList = client.describe_keyspaces();
+                    for (KsDef ks : ksDefList)
+                    {
+                        if (ks.name.equals(KEYSPACE))
+                        {
+                            try
+                            {
+                                Thread.sleep(1000);
+                            }
+                            catch (InterruptedException e)
+                            {
+                                break poll;
+                            }
+                            continue poll;
+                        }
+                    }
+                    break;
+                }
+            }
+            catch (TException te)
+            {
+                continue;
+            }
+        }
     }
 
     @BeforeClass
@@ -111,9 +156,6 @@ public abstract class TestBase
         controller.ensureClusterRunning();
 
         addKeyspace();
-
-//        List<InetAddress> hosts = controller.getHosts();
-//        probe = new NodeProbe(hosts.get(0).getHostAddress(), JMX_PORT);
     }
 
     @AfterClass
@@ -132,11 +174,6 @@ public abstract class TestBase
     protected static String createTemporaryKey()
     {
         return String.format("test.key.%d", System.currentTimeMillis());
-    }
-
-    protected static List<InetAddress> getReplicas(String keyspace, String key)
-    {
-        return probe.getEndpoints(keyspace, key);
     }
 
     protected static Cassandra.Client createClient(String host)

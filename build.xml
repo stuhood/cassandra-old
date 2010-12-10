@@ -191,7 +191,7 @@
              pattern="${build.dir.lib}/[type]s/[artifact]-[revision].[ext]" />
     </target>
 
-    <target name="ivy-retrieve-whirr" depends="ivy-init">
+    <target name="ivy-retrieve-test" depends="ivy-init">
       <ivy:resolve file="${basedir}/test/distributed/ivy.xml"/>
       <ivy:retrieve type="jar,source" sync="true"
              pattern="${test.lib}/[type]s/[artifact]-[revision].[ext]" />
@@ -451,7 +451,7 @@
     </copy>
   </target>
 
-  <target name="build-distributed-test" depends="build-test,ivy-retrieve-whirr" description="Compile distributed test classes (which have additional deps)">
+  <target name="build-distributed-test" depends="build-test,ivy-retrieve-test" description="Compile distributed test classes (which have additional deps)">
     <javac
      debug="true"
      debuglevel="${debuglevel}"
