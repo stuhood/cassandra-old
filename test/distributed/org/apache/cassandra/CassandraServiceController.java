@@ -37,7 +37,8 @@ import org.apache.whirr.service.Cluster;
 import org.apache.whirr.service.Cluster.Instance;
 import org.apache.whirr.service.ClusterSpec;
 import org.apache.whirr.service.Service;
-import org.apache.whirr.service.cassandra.CassandraClusterActionHandler;
+import org.apache.whirr.service.ServiceFactory;
+import org.apache.whirr.service.cassandra.CassandraService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,9 +60,9 @@ public class CassandraServiceController
     
     private boolean     running;
 
-    private ClusterSpec clusterSpec;
-    private Service     service;
-    private Cluster     cluster;
+    private ClusterSpec      clusterSpec;
+    private CassandraService service;
+    private Cluster          cluster;
     
     private CassandraServiceController()
     {
@@ -91,7 +92,7 @@ public class CassandraServiceController
                 {
                     TTransport transport = new TSocket(
                         instance.getPublicAddress().getHostAddress(),
-                        CassandraClusterActionHandler.CLIENT_PORT);
+                        CassandraService.CLIENT_PORT);
                     transport = new TFramedTransport(transport);
                     TProtocol protocol = new TBinaryProtocol(transport);
 
@@ -138,7 +139,8 @@ public class CassandraServiceController
             clusterSpec.setPrivateKey(pair.get("private"));
         }
 
-        service = new Service();
+        Service s = new ServiceFactory().create(clusterSpec.getServiceName());
+        service = (CassandraService) s;
         cluster = service.launchCluster(clusterSpec);
 
         waitForClusterInitialization();

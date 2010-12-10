@@ -33,7 +33,6 @@ import org.apache.thrift.transport.*;
 
 import org.apache.cassandra.thrift.*;
 
-import org.apache.cassandra.tools.NodeProbe;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -51,7 +50,6 @@ public abstract class TestBase
 
     protected static CassandraServiceController controller =
         CassandraServiceController.getInstance();
-    protected static NodeProbe probe;
 
     private static void waitForDirective(long millis)
     {
@@ -113,7 +111,6 @@ public abstract class TestBase
         addKeyspace();
 
         List<InetAddress> hosts = controller.getHosts();
-        probe = new NodeProbe(hosts.get(0).getHostAddress(), JMX_PORT);
     }
 
     @AfterClass
@@ -132,11 +129,6 @@ public abstract class TestBase
     protected static String createTemporaryKey()
     {
         return String.format("test.key.%d", System.currentTimeMillis());
-    }
-
-    protected static List<InetAddress> getReplicas(String keyspace, String key)
-    {
-        return probe.getEndpoints(keyspace, key);
     }
 
     protected static Cassandra.Client createClient(String host)
