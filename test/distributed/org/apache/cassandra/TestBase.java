@@ -80,6 +80,7 @@ public abstract class TestBase
     protected Cassandra.Client createClient(String host) throws TTransportException, TException
     {
         TTransport transport    = new TSocket(host, THRIFT_PORT);
+        transport               = new TFramedTransport(transport);
         TProtocol  protocol     = new TBinaryProtocol(transport);
 
         Cassandra.Client client = new Cassandra.Client(protocol);
