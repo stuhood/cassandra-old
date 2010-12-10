@@ -24,13 +24,15 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.net.InetAddress;
+import java.util.LinkedList;
 import java.util.List;
 
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.*;
 import org.apache.thrift.transport.*;
 
-import org.apache.cassandra.thrift.Cassandra;
+import org.apache.cassandra.thrift.*;
+
 import org.apache.cassandra.tools.NodeProbe;
 
 import org.junit.AfterClass;
@@ -42,41 +44,105 @@ import static junit.framework.Assert.assertNull;
 
 public abstract class TestBase
 {
-    protected static int THRIFT_PORT    = 9160;
-    protected static int RPC_PORT       = 8080;
+    protected static int CLIENT_PORT    = 9160;
+    protected static int JMX_PORT       = 8080;
+
+    protected static String KEYSPACE    = "KeyspaceTest1";
 
     protected static CassandraServiceController controller =
         CassandraServiceController.getInstance();
     protected static NodeProbe probe;
+
+    private static void waitForDirective(long millis)
+    {
+        try
+        {
+            Thread.sleep(millis);
+        }
+        catch (InterruptedException e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
+    protected static void addKeyspace() throws Exception
+    {
+        List<CfDef> cfDefList = new LinkedList<CfDef>();
+
+        CfDef standard1 = new CfDef(KEYSPACE, "Standard1");
+        standard1.setComparator_type("BytesType");
+        standard1.setKey_cache_size(10000);
+        standard1.setRow_cache_size(1000);
+        standard1.setRow_cache_save_period_in_seconds(0);
+        standard1.setKey_cache_save_period_in_seconds(3600);
+        standard1.setMemtable_flush_after_mins(59);
+        standard1.setMemtable_throughput_in_mb(255);
+        standard1.setMemtable_operations_in_millions(0.29);
+        cfDefList.add(standard1);
+
+        List<InetAddress> hosts = controller.getHosts();
+        Cassandra.Client client = createClient(hosts.get(0).getHostAddress());
+
+        client.system_add_keyspace(
+            new KsDef(
+                KEYSPACE,
+                "org.apache.cassandra.locator.SimpleStrategy",
+                3,
+                cfDefList));
+
+//TODO: IMPL: poll, until KS appears
+        waitForDirective(10000);
+    }
+
+    protected static void dropKeyspace() throws Exception
+    {
+        List<InetAddress> hosts = controller.getHosts();
+        Cassandra.Client client = createClient(hosts.get(0).getHostAddress());
+
+        client.system_drop_keyspace(KEYSPACE);
+
+//TODO: IMPL: poll, until KS leaves
+        waitForDirective(10000);
+    }
 
     @BeforeClass
     public static void setUp() throws Exception
     {
         controller.ensureClusterRunning();
 
+        addKeyspace();
+
         List<InetAddress> hosts = controller.getHosts();
-        probe = new NodeProbe(hosts.get(0).getHostAddress(), RPC_PORT);
+        probe = new NodeProbe(hosts.get(0).getHostAddress(), JMX_PORT);
     }
 
     @AfterClass
     public static void tearDown() throws Exception
     {
-        controller.shutdown();
+        try
+        {
+            dropKeyspace();
+        }
+        finally
+        {
+            controller.shutdown();
+        }
     }
 
-    protected String createTemporaryKey()
+    protected static String createTemporaryKey()
     {
         return String.format("test.key.%d", System.currentTimeMillis());
     }
 
-    protected List<InetAddress> getReplicas(String keyspace, String key)
+    protected static List<InetAddress> getReplicas(String keyspace, String key)
     {
         return probe.getEndpoints(keyspace, key);
     }
 
-    protected Cassandra.Client createClient(String host) throws TTransportException, TException
+    protected static Cassandra.Client createClient(String host)
+        throws TTransportException, TException
     {
-        TTransport transport    = new TSocket(host, THRIFT_PORT);
+        TTransport transport    = new TSocket(host, CLIENT_PORT);
         transport               = new TFramedTransport(transport);
         TProtocol  protocol     = new TBinaryProtocol(transport);
 

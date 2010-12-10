@@ -22,14 +22,22 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.util.*;
 
+import org.apache.cassandra.thrift.Cassandra;
+import org.apache.cassandra.thrift.TokenRange;
+import org.apache.cassandra.utils.KeyPair;
+
 import org.apache.commons.configuration.CompositeConfiguration;
 import org.apache.commons.configuration.PropertiesConfiguration;
 
+import org.apache.thrift.TException;
+import org.apache.thrift.protocol.*;
+import org.apache.thrift.transport.*;
+
 import org.apache.whirr.service.Cluster;
+import org.apache.whirr.service.Cluster.Instance;
 import org.apache.whirr.service.ClusterSpec;
 import org.apache.whirr.service.Service;
-import org.apache.whirr.service.ServiceFactory;
-import org.apache.whirr.service.cassandra.CassandraService;
+import org.apache.whirr.service.cassandra.CassandraClusterActionHandler;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,10 +57,11 @@ public class CassandraServiceController
         return INSTANCE;
     }
     
-    private boolean             running;
-    private ClusterSpec         clusterSpec;
-    private CassandraService    service;
-    private Cluster             cluster;
+    private boolean     running;
+
+    private ClusterSpec clusterSpec;
+    private Service     service;
+    private Cluster     cluster;
     
     private CassandraServiceController()
     {
@@ -71,6 +80,43 @@ public class CassandraServiceController
             return true;
         }
     }
+
+    private void waitForClusterInitialization()
+    {
+        for (Instance instance : cluster.getInstances())
+        {
+            while (true)
+            {
+                try
+                {
+                    TTransport transport = new TSocket(
+                        instance.getPublicAddress().getHostAddress(),
+                        CassandraClusterActionHandler.CLIENT_PORT);
+                    transport = new TFramedTransport(transport);
+                    TProtocol protocol = new TBinaryProtocol(transport);
+
+                    Cassandra.Client client = new Cassandra.Client(protocol);
+                    transport.open();
+
+                    client.describe_cluster_name();
+                    transport.close();
+                    break;
+                }
+                catch (TException e)
+                {
+                    System.out.println(".");
+                    try
+                    {
+                        Thread.sleep(1000);
+                    }
+                    catch (InterruptedException ie)
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+    }
     
     public synchronized void startup() throws Exception
     {
@@ -87,23 +133,25 @@ public class CassandraServiceController
         clusterSpec = new ClusterSpec(config);
         if (clusterSpec.getPrivateKey() == null)
         {
-            throw new RuntimeException("FIXME: Must specify private key.");
+            Map<String, String> pair = KeyPair.generate();
+            clusterSpec.setPublicKey(pair.get("public"));
+            clusterSpec.setPrivateKey(pair.get("private"));
         }
 
-        Service s = new ServiceFactory().create(clusterSpec.getServiceName());
-        assert s instanceof CassandraService;
-        service = (CassandraService) s;
-        
+        service = new Service();
         cluster = service.launchCluster(clusterSpec);
-        
+
+        waitForClusterInitialization();
         running = true;
     }
 
     public synchronized void shutdown() throws IOException, InterruptedException
     {
         LOG.info("Shutting down cluster...");
-        service.destroyCluster(clusterSpec);
-        running = false;
+//TODO: UNCOMMENT
+//        if (service != null)
+//            service.destroyCluster(clusterSpec);
+//        running = false;
     }
 
     public List<InetAddress> getHosts()
