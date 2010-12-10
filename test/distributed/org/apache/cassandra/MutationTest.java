@@ -23,6 +23,8 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.net.InetAddress;
+import java.util.LinkedList;
 import java.util.List;
 
 import org.apache.cassandra.thrift.*;
@@ -42,26 +44,54 @@ public class MutationTest extends TestBase
     public void testInsert() throws Exception
     {
         List<InetAddress> hosts = getHosts();
-        Cassandra.Client client = createClient(hosts.get(0));
+        Cassandra.Client client = createClient(hosts.get(0).getHostAddress());
 
-        client.setKeyspace("Keyspace1");
-        String key = createTemporaryKey();
+        client.set_keyspace("Keyspace1");
+
+        String rawKey = String.format("test.key.%d", System.currentTimeMillis());
+        ByteBuffer key = ByteBuffer.wrap(rawKey.getBytes());
 
         ColumnParent     cp = new ColumnParent("Standard1");
         ConsistencyLevel cl = ConsistencyLevel.ONE;
-        client.insert(key, cp, new Column("c1", "v1", 0), cl);
-        client.insert(key, cp, new Column("c2", "v2", 0), cl);
+        Column col1 = new Column(
+            ByteBuffer.wrap("c1".getBytes()),
+            ByteBuffer.wrap("v1".getBytes()),
+            0
+            );
+        client.insert(key, cp, col1, cl);
+        Column col2 = new Column(
+            ByteBuffer.wrap("c2".getBytes()),
+            ByteBuffer.wrap("v2".getBytes()),
+            0
+            );
+        client.insert(key, cp, col2, cl);
 
         Thread.sleep(100);
 
         // verify get
+        ColumnPath cpath = new ColumnPath("Standard1");
+        cpath.setColumn("c1".getBytes());
         assertEquals(
-            client.get(key, new ColumnPath("Standard1", "c1"), cl).column,
-            new Column("c1", "v1", 0))
+            client.get(key, cpath, cl).column,
+            col1
+            );
 
         // verify slice
         SlicePredicate sp = new SlicePredicate();
-        sp.setSlice_range(new SliceRange(new byte[0], new byte[0], false, 1000));
-        List<ColumnOrSuperColumn> coscs = client.get_slice(
+        sp.setSlice_range(
+            new SliceRange(
+                ByteBuffer.wrap(new byte[0]),
+                ByteBuffer.wrap(new byte[0]),
+                false,
+                1000
+                )
+            );
+        List<ColumnOrSuperColumn> coscs = new LinkedList<ColumnOrSuperColumn>();
+        coscs.add((new ColumnOrSuperColumn()).setColumn(col1));
+        coscs.add((new ColumnOrSuperColumn()).setColumn(col2));
+        assertEquals(
+            client.get_slice(key, cp, sp, cl),
+            coscs
+            );
     }
 }
