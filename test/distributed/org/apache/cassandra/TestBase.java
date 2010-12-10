@@ -112,8 +112,8 @@ public abstract class TestBase
 
         addKeyspace();
 
-        List<InetAddress> hosts = controller.getHosts();
-        probe = new NodeProbe(hosts.get(0).getHostAddress(), JMX_PORT);
+//        List<InetAddress> hosts = controller.getHosts();
+//        probe = new NodeProbe(hosts.get(0).getHostAddress(), JMX_PORT);
     }
 
     @AfterClass

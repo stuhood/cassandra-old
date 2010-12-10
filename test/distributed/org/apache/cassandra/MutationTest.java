@@ -48,7 +48,7 @@ public class MutationTest extends TestBase
         List<InetAddress> hosts = controller.getHosts();
         Cassandra.Client client = createClient(hosts.get(0).getHostAddress());
 
-        client.set_keyspace("Keyspace1");
+        client.set_keyspace(KEYSPACE);
 
         String rawKey = String.format("test.key.%d", System.currentTimeMillis());
         ByteBuffer key = ByteBuffer.wrap(rawKey.getBytes());

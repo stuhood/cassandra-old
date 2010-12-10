@@ -158,7 +158,7 @@ public class CassandraServiceController
     {
         Set<Cluster.Instance> instances = cluster.getInstances();
         List<InetAddress> hosts = new ArrayList<InetAddress>(instances.size());
-        for (Cluster.Instance instance : instances)
+        for (Instance instance : instances)
             hosts.add(instance.getPublicAddress());
         return hosts;
     }
