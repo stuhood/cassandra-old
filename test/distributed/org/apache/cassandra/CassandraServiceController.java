@@ -19,8 +19,8 @@
 package org.apache.cassandra;
 
 import java.io.IOException;
-import java.util.Map;
-import java.util.Map.Entry;
+import java.net.InetAddress;
+import java.util.*;
 
 import org.apache.commons.configuration.CompositeConfiguration;
 import org.apache.commons.configuration.PropertiesConfiguration;
@@ -108,9 +108,9 @@ public class CassandraServiceController
 
     public List<InetAddress> getHosts()
     {
-        Set<Instances> instances = cluster.getInstances();
+        Set<Cluster.Instance> instances = cluster.getInstances();
         List<InetAddress> hosts = new ArrayList<InetAddress>(instances.size());
-        for (Instance instance : instances)
+        for (Cluster.Instance instance : instances)
             hosts.add(instance.getPublicAddress());
         return hosts;
     }

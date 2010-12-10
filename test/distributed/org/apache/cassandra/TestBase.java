@@ -27,11 +27,8 @@ import java.net.InetAddress;
 import java.util.List;
 
 import org.apache.thrift.TException;
-import org.apache.thrift.protocol.TBinaryProtocol;
-import org.apache.thrift.protocol.TProtocol;
-import org.apache.thrift.transport.TSocket;
-import org.apache.thrift.transport.TTransport;
-import org.apache.thrift.transport.TTransportException;
+import org.apache.thrift.protocol.*;
+import org.apache.thrift.transport.*;
 
 import org.apache.cassandra.thrift.Cassandra;
 import org.apache.cassandra.tools.NodeProbe;
@@ -50,7 +47,7 @@ public abstract class TestBase
 
     protected static CassandraServiceController controller =
         CassandraServiceController.getInstance();
-    protected NodeProbe probe;
+    protected static NodeProbe probe;
 
     @BeforeClass
     public static void setUp() throws Exception
@@ -58,7 +55,7 @@ public abstract class TestBase
         controller.ensureClusterRunning();
 
         List<InetAddress> hosts = controller.getHosts();
-        probe = new NodeProbe(hosts.get(0), RPC_PORT);
+        probe = new NodeProbe(hosts.get(0).getHostAddress(), RPC_PORT);
     }
 
     @AfterClass
@@ -74,7 +71,7 @@ public abstract class TestBase
 
     protected List<InetAddress> getReplicas(String keyspace, String key)
     {
-        return probe.getEndPoints(keyspace, key);
+        return probe.getEndpoints(keyspace, key);
     }
 
     protected Cassandra.Client createClient(String host) throws TTransportException, TException

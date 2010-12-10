@@ -44,7 +44,7 @@ public class MutationTest extends TestBase
     @Test
     public void testInsert() throws Exception
     {
-        List<InetAddress> hosts = getHosts();
+        List<InetAddress> hosts = controller.getHosts();
         Cassandra.Client client = createClient(hosts.get(0).getHostAddress());
 
         client.set_keyspace("Keyspace1");
