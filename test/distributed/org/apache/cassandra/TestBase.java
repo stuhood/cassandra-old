@@ -28,8 +28,6 @@ import java.util.LinkedList;
 import java.util.List;
 
 import org.apache.thrift.TException;
-import org.apache.thrift.protocol.*;
-import org.apache.thrift.transport.*;
 
 import org.apache.cassandra.thrift.*;
 
@@ -42,9 +40,6 @@ import static junit.framework.Assert.assertNull;
 
 public abstract class TestBase
 {
-    protected static int CLIENT_PORT    = 9160;
-    protected static int JMX_PORT       = 8080;
-
     protected static String KEYSPACE    = "KeyspaceTest1";
 
     protected static CassandraServiceController controller =
@@ -66,7 +61,7 @@ public abstract class TestBase
         cfDefList.add(standard1);
 
         List<InetAddress> hosts = controller.getHosts();
-        Cassandra.Client client = createClient(hosts.get(0).getHostAddress());
+        Cassandra.Client client = controller.createClient(hosts.get(0));
 
         client.system_add_keyspace(
             new KsDef(
@@ -80,7 +75,7 @@ public abstract class TestBase
         {
             try
             {
-                client = createClient(host.getHostAddress());
+                client = controller.createClient(host);
                 poll:
                 while (true)
                 {
@@ -111,7 +106,7 @@ public abstract class TestBase
     protected static void dropKeyspace() throws Exception
     {
         List<InetAddress> hosts = controller.getHosts();
-        Cassandra.Client client = createClient(hosts.get(0).getHostAddress());
+        Cassandra.Client client = controller.createClient(hosts.get(0));
 
         client.system_drop_keyspace(KEYSPACE);
 
@@ -120,7 +115,7 @@ public abstract class TestBase
         {
             try
             {
-                client = createClient(host.getHostAddress());
+                client = controller.createClient(host);
                 poll:
                 while (true)
                 {
@@ -174,18 +169,5 @@ public abstract class TestBase
     protected static String createTemporaryKey()
     {
         return String.format("test.key.%d", System.currentTimeMillis());
-    }
-
-    protected static Cassandra.Client createClient(String host)
-        throws TTransportException, TException
-    {
-        TTransport transport    = new TSocket(host, CLIENT_PORT);
-        transport               = new TFramedTransport(transport);
-        TProtocol  protocol     = new TBinaryProtocol(transport);
-
-        Cassandra.Client client = new Cassandra.Client(protocol);
-        transport.open();
-
-        return client;
     }
 }

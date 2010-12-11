@@ -50,6 +50,9 @@ public class CassandraServiceController
     private static final Logger LOG =
         LoggerFactory.getLogger(CassandraServiceController.class);
 
+    protected static int CLIENT_PORT    = 9160;
+    protected static int JMX_PORT       = 8080;
+
     private static final CassandraServiceController INSTANCE =
         new CassandraServiceController();
     
@@ -67,19 +70,20 @@ public class CassandraServiceController
     private CassandraServiceController()
     {
     }
-    
-    public synchronized boolean ensureClusterRunning() throws Exception
+
+    public Cassandra.Client createClient(InetAddress addr)
+        throws TTransportException, TException
     {
-        if (running)
-        {
-            LOG.info("Cluster already running.");
-            return false;
-        }
-        else
-        {
-            startup();
-            return true;
-        }
+        TTransport transport    = new TSocket(
+                                    addr.getHostAddress(),
+                                    CLIENT_PORT);
+        transport               = new TFramedTransport(transport);
+        TProtocol  protocol     = new TBinaryProtocol(transport);
+
+        Cassandra.Client client = new Cassandra.Client(protocol);
+        transport.open();
+
+        return client;
     }
 
     private void waitForClusterInitialization()
@@ -90,17 +94,10 @@ public class CassandraServiceController
             {
                 try
                 {
-                    TTransport transport = new TSocket(
-                        instance.getPublicAddress().getHostAddress(),
-                        CassandraService.CLIENT_PORT);
-                    transport = new TFramedTransport(transport);
-                    TProtocol protocol = new TBinaryProtocol(transport);
-
-                    Cassandra.Client client = new Cassandra.Client(protocol);
-                    transport.open();
+                    InetAddress addr = instance.getPublicAddress();
+                    Cassandra.Client client = createClient(addr);
 
                     client.describe_cluster_name();
-                    transport.close();
                     break;
                 }
                 catch (TException e)
@@ -152,6 +149,20 @@ public class CassandraServiceController
         if (service != null)
             service.destroyCluster(clusterSpec);
         running = false;
+    }
+
+    public synchronized boolean ensureClusterRunning() throws Exception
+    {
+        if (running)
+        {
+            LOG.info("Cluster already running.");
+            return false;
+        }
+        else
+        {
+            startup();
+            return true;
+        }
     }
 
     public List<InetAddress> getHosts()
