@@ -29,8 +29,10 @@ import java.util.LinkedList;
 import java.util.List;
 
 import org.apache.cassandra.thrift.*;
-
 import org.apache.cassandra.tools.NodeProbe;
+import org.apache.cassandra.utils.WrappedRunnable;
+
+import org.apache.cassandra.CassandraServiceController.Failure;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -94,5 +96,72 @@ public class MutationTest extends TestBase
             client.get_slice(key, cp, sp, cl),
             coscs
             );
+    }
+
+    @Test
+    public void testQuorumInsertThenFailure() throws Exception
+    {
+        List<InetAddress> hosts = controller.getHosts();
+        Cassandra.Client client = controller.createClient(hosts.get(0));
+
+        client.set_keyspace(KEYSPACE);
+
+        String rawKey = String.format("test.key.%d", System.currentTimeMillis());
+        ByteBuffer key = ByteBuffer.wrap(rawKey.getBytes());
+
+        ColumnParent     cp = new ColumnParent("Standard1");
+        ConsistencyLevel cl = ConsistencyLevel.QUORUM;
+        Column col1 = new Column(
+            ByteBuffer.wrap("c1".getBytes()),
+            ByteBuffer.wrap("v1".getBytes()),
+            0
+            );
+        client.insert(key, cp, col1, cl);
+        Column col2 = new Column(
+            ByteBuffer.wrap("c2".getBytes()),
+            ByteBuffer.wrap("v2".getBytes()),
+            0
+            );
+        client.insert(key, cp, col2, cl);
+
+        Thread.sleep(100);
+
+        Failure failure = controller.failHosts(hosts.get(0));
+        try
+        {
+            // our original client connection is dead: open a new one
+            client = controller.createClient(hosts.get(1));
+            client.set_keyspace(KEYSPACE);
+
+            // verify get
+            ColumnPath cpath = new ColumnPath("Standard1");
+            cpath.setColumn("c1".getBytes());
+            assertEquals(
+                client.get(key, cpath, cl).column,
+                col1
+                );
+
+            // verify slice
+            SlicePredicate sp = new SlicePredicate();
+            sp.setSlice_range(
+                new SliceRange(
+                    ByteBuffer.wrap(new byte[0]),
+                    ByteBuffer.wrap(new byte[0]),
+                    false,
+                    1000
+                    )
+                );
+            List<ColumnOrSuperColumn> coscs = new LinkedList<ColumnOrSuperColumn>();
+            coscs.add((new ColumnOrSuperColumn()).setColumn(col1));
+            coscs.add((new ColumnOrSuperColumn()).setColumn(col2));
+            assertEquals(
+                client.get_slice(key, cp, sp, cl),
+                coscs
+                );
+        }
+        finally
+        {
+            failure.resolve();
+        }
     }
 }

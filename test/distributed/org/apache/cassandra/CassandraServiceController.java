@@ -36,9 +36,21 @@ import org.apache.thrift.transport.*;
 import org.apache.whirr.service.Cluster;
 import org.apache.whirr.service.Cluster.Instance;
 import org.apache.whirr.service.ClusterSpec;
+import org.apache.whirr.service.ComputeServiceContextBuilder;
+import static org.apache.whirr.service.RunUrlBuilder.runUrls;
 import org.apache.whirr.service.Service;
 import org.apache.whirr.service.ServiceFactory;
 import org.apache.whirr.service.cassandra.CassandraService;
+
+import org.jclouds.compute.ComputeService;
+import org.jclouds.compute.domain.NodeMetadata;
+import org.jclouds.compute.options.RunScriptOptions;
+import org.jclouds.domain.Credentials;
+import org.jclouds.io.Payload;
+import org.jclouds.ssh.ExecResponse;
+import static org.jclouds.io.Payloads.newStringPayload;
+
+import com.google.common.base.Predicate;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,6 +78,8 @@ public class CassandraServiceController
     private ClusterSpec         clusterSpec;
     private CassandraService    service;
     private Cluster             cluster;
+    private ComputeService      computeService;
+    private Credentials         credentials;
     
     private CassandraServiceController()
     {
@@ -89,33 +103,34 @@ public class CassandraServiceController
     private void waitForClusterInitialization()
     {
         for (Instance instance : cluster.getInstances())
+            waitForNodeInitialization(instance.getPublicAddress());
+    }
+    
+    private void waitForNodeInitialization(InetAddress addr)
+    {
+        while (true)
         {
-            while (true)
+            try
+            {
+                Cassandra.Client client = createClient(addr);
+
+                client.describe_cluster_name();
+                break;
+            }
+            catch (TException e)
             {
                 try
                 {
-                    InetAddress addr = instance.getPublicAddress();
-                    Cassandra.Client client = createClient(addr);
-
-                    client.describe_cluster_name();
-                    break;
+                    Thread.sleep(1000);
                 }
-                catch (TException e)
+                catch (InterruptedException ie)
                 {
-                    System.out.println(".");
-                    try
-                    {
-                        Thread.sleep(1000);
-                    }
-                    catch (InterruptedException ie)
-                    {
-                        break;
-                    }
+                    break;
                 }
             }
         }
     }
-    
+
     public synchronized void startup() throws Exception
     {
         LOG.info("Starting up cluster...");
@@ -138,6 +153,10 @@ public class CassandraServiceController
 
         service = (CassandraService)new ServiceFactory().create(clusterSpec.getServiceName());
         cluster = service.launchCluster(clusterSpec);
+        computeService = ComputeServiceContextBuilder.build(clusterSpec).getComputeService();
+        // TODO: expose creds on CassandraService without this mumbo-jumbo
+        NodeMetadata nm = computeService.getNodeMetadata(computeService.listNodes().iterator().next().getId());
+        credentials = new Credentials(nm.getCredentials().identity, clusterSpec.readPrivateKey());
 
         waitForClusterInitialization();
         running = true;
@@ -165,12 +184,68 @@ public class CassandraServiceController
         }
     }
 
+    public Failure failHosts(InetAddress... hosts)
+    {
+        return new Failure(hosts).trigger();
+    }
+
+    /** TODO: Move to CassandraService? */
+    protected void callOnHost(InetAddress host, String payload)
+    {
+        final String hoststring = host.getHostAddress();
+        Map<? extends NodeMetadata,ExecResponse> results;
+        try
+        {
+            results = computeService.runScriptOnNodesMatching(new Predicate<NodeMetadata>()
+            {
+                public boolean apply(NodeMetadata node)
+                {
+                    return node.getPublicAddresses().contains(hoststring);
+                }
+            }, newStringPayload(runUrls(clusterSpec.getRunUrlBase(), payload)),
+            RunScriptOptions.Builder.overrideCredentialsWith(credentials));
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException(e);
+        }
+        if (results.size() != 1)
+            throw new RuntimeException(results.size() + " hosts matched " + host + ": " + results);
+        ExecResponse response = results.values().iterator().next();
+        if (response.getExitCode() != 0)
+            throw new RuntimeException("Call " + payload + " on " + host + " failed: " + response);
+    }
+
     public List<InetAddress> getHosts()
     {
-        Set<Cluster.Instance> instances = cluster.getInstances();
+        Set<Instance> instances = cluster.getInstances();
         List<InetAddress> hosts = new ArrayList<InetAddress>(instances.size());
         for (Instance instance : instances)
             hosts.add(instance.getPublicAddress());
         return hosts;
+    }
+
+    class Failure
+    {
+        private InetAddress[] hosts;
+        public Failure(InetAddress... hosts)
+        {
+            this.hosts = hosts;
+        }
+        
+        public Failure trigger()
+        {
+            for (InetAddress host : hosts)
+                callOnHost(host, "apache/cassandra/stop");
+            return this;
+        }
+
+        public void resolve()
+        {
+            for (InetAddress host : hosts)
+                callOnHost(host, "apache/cassandra/start");
+            for (InetAddress host : hosts)
+                waitForNodeInitialization(host);
+        }
     }
 }
